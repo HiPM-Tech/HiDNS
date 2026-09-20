@@ -7,6 +7,7 @@ import { DnsAccount } from '../types';
 import { normalizeProviderType } from '../lib/dns/providerAlias';
 import { isAdmin, isSuper, normalizeRole, ROLE_ADMIN } from '../utils/roles';
 import { parseInteger, sendError, sendSuccess, sendServerError } from '../utils/http';
+import { accountEventData } from '../utils/accountEvent';
 import { wsService } from '../service/websocket';
 import { logAuditOperation } from '../service/audit';
 import { createLogger } from '../lib/logger';
@@ -238,7 +239,7 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
       type: 'account_created',
       data: {
         accountId: id,
-        account: newAccount,
+        account: accountEventData(newAccount),
       },
     });
   } catch (error) {
@@ -408,7 +409,7 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
       type: 'account_updated',
       data: {
         accountId: id,
-        account: updatedAccount,
+        account: accountEventData(updatedAccount),
       },
     });
   } catch (error) {
@@ -502,14 +503,14 @@ router.patch('/:id/toggle-enabled', authMiddleware, asyncHandler(async (req: Req
       userId: req.user?.userId
     });
 
-    // Broadcast WebSocket event with full account data
+    // Broadcast account metadata only; provider config must stay private
     const updatedAccount = await DnsAccountOperations.getById(id);
     try {
       wsService.broadcast({
         type: 'account_updated',
         data: {
           accountId: id,
-          account: updatedAccount ? { ...updatedAccount, enabled: Boolean(updatedAccount.enabled) } : null,
+          account: updatedAccount ? { ...accountEventData(updatedAccount), enabled: Boolean(updatedAccount.enabled) } : null,
         },
       });
     } catch (error) {
