@@ -189,6 +189,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import { createSpaFallback } from './middleware/spaFallback';
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import http from 'http';
@@ -633,64 +634,7 @@ if (clientBuildPath) {
 // SPA fallback — 处理所有非 API 路由
 // 注意：express.static 已在前面注册，正常情况下静态资源会被它拦截。
 // 此回退仅处理 express.static 未能匹配的情况（如嵌入式客户端场景）。
-app.get('*', (req: Request, res: Response) => {
-  // Don't interfere with API routes
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ code: 404, msg: 'API endpoint not found' });
-  }
-
-  // 检查路径是否包含文件扩展名（静态资源请求）
-  const hasExtension = /\.[a-zA-Z0-9]+$/.test(req.path);
-
-  if (hasExtension) {
-    // 静态资源请求 — 优先从文件系统查找，其次嵌入式客户端
-    if (clientBuildPath) {
-      // 尝试用 express.static 的内部逻辑查找文件
-      // 直接构造文件系统路径并检查
-      const filePath = path.join(clientBuildPath, req.path.replace(/^\//, ''));
-      try {
-        if (require('fs').existsSync(filePath)) {
-          return res.sendFile(filePath);
-        }
-      } catch {
-        // 文件不存在，继续
-      }
-    }
-
-    // 从嵌入式客户端响应对应静态资源
-    if (embeddedClient) {
-      const staticFile = embeddedClient[req.path];
-      if (staticFile) {
-        return res.type(staticFile.mimeType).send(staticFile.content);
-      }
-    }
-
-    // 找不到资源
-    return res.status(404).send('File not found');
-  }
-
-  // 无扩展名 → SPA 导航请求，返回 index.html
-  if (clientBuildPath) {
-    const spaIndex = path.join(clientBuildPath, 'index.html');
-    try {
-      if (require('fs').existsSync(spaIndex)) {
-        return res.sendFile(spaIndex);
-      }
-    } catch {
-      // 文件不存在，继续
-    }
-  }
-
-  // 策略 2: 嵌入式客户端（SEA 二进制）
-  if (embeddedClient) {
-    const indexFile = embeddedClient['/index.html'];
-    if (indexFile) {
-      return res.type('html').send(indexFile.content);
-    }
-  }
-
-  res.status(404).send('index.html not found');
-});
+app.get('*', createSpaFallback(clientBuildPath, embeddedClient));
 
 // Global error handler (must be last)
 app.use(errorHandler);
