@@ -47,6 +47,16 @@
 
 ## 架构
 
+### 架构总览
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/hidns-architecture-dark.png">
+  <img alt="HiDNS 架构总览：运维用户到 React SPA 到 Express API 到统一数据访问层，旁挂 DNS 厂商适配层、后台任务调度、DNS 解析器与 MCP Server" src="docs/architecture/hidns-architecture-light.png">
+</picture>
+
+> **交互版** —— 支持缩放、搜索、关系追踪、明暗主题、演示模式以及 PNG/SVG 导出：
+> [`docs/architecture/hidns-architecture.html`](docs/architecture/hidns-architecture.html)（下载后用浏览器打开）。
+
 ### 系统架构
 
 ```

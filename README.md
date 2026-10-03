@@ -78,6 +78,16 @@ When creating/updating DNS accounts, the API normalizes lego-style provider name
 
 ## Architecture
 
+### Architecture Overview
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/hidns-architecture-dark.png">
+  <img alt="HiDNS architecture overview: operations user to React SPA to Express API to the unified data access layer, with the DNS provider adapter layer, background jobs, DNS resolver and the MCP server alongside" src="docs/architecture/hidns-architecture-light.png">
+</picture>
+
+> **Interactive version** — pan/zoom, search, focus tracing, light/dark themes, presentation mode and PNG/SVG export:
+> [`docs/architecture/hidns-architecture.html`](docs/architecture/hidns-architecture.html) (download and open it in a browser).
+
 ### System Architecture
 
 ```

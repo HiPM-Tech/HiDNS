@@ -1,0 +1,429 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "HiDNS DNS 聚合管理平台架构",
+    "output": "hidns-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/HiPM-Tech/HiDNS",
+      "revision": "40a4171e013130f1b676dcb58659fdf48a7b270e"
+    },
+    "views": [
+      {
+        "id": "request-path",
+        "label": "主请求链路",
+        "focus": [
+          "user",
+          "spa",
+          "api",
+          "db"
+        ],
+        "note": "浏览器经 REST /api 进入服务端，落到统一数据访问层。"
+      },
+      {
+        "id": "dns-aggregation",
+        "label": "DNS 厂商聚合",
+        "focus": [
+          "api",
+          "providers",
+          "extdns"
+        ],
+        "note": "25 家厂商适配器收敛为同一套记录操作接口。"
+      },
+      {
+        "id": "background-jobs",
+        "label": "后台任务与域名情报",
+        "focus": [
+          "jobs",
+          "resolver",
+          "whois",
+          "db"
+        ],
+        "note": "定时任务驱动解析探测与 RDAP / WHOIS 查询。"
+      },
+      {
+        "id": "agent-access",
+        "label": "AI Agent 接入",
+        "focus": [
+          "agent",
+          "mcp",
+          "api"
+        ],
+        "note": "AI Agent 通过 MCP Server 复用同一套管理能力。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "运维用户",
+      "sublabel": "浏览器 / 移动端",
+      "pos": [
+        40,
+        240
+      ],
+      "size": [
+        140,
+        66
+      ]
+    },
+    {
+      "id": "spa",
+      "type": "frontend",
+      "label": "React SPA",
+      "sublabel": "Vite · TDesign · TanStack Query",
+      "pos": [
+        340,
+        240
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "client/src/main.tsx",
+          "line": 1,
+          "label": "SPA 入口"
+        },
+        {
+          "path": "client/src/App.tsx",
+          "line": 54,
+          "label": "路由装配"
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Express API",
+      "sublabel": "dnsmgr-server · REST + WebSocket",
+      "pos": [
+        720,
+        220
+      ],
+      "size": [
+        190,
+        100
+      ],
+      "sources": [
+        {
+          "path": "server/src/app.ts",
+          "line": 473,
+          "label": "路由挂载"
+        },
+        {
+          "path": "server/src/app.ts",
+          "line": 734,
+          "label": "WebSocket 初始化"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "统一数据访问层",
+      "sublabel": "SQLite / MySQL / PostgreSQL",
+      "pos": [
+        1180,
+        240
+      ],
+      "size": [
+        180,
+        66
+      ],
+      "sources": [
+        {
+          "path": "server/src/db/dl/types.ts",
+          "line": 36,
+          "label": "驱动接口"
+        },
+        {
+          "path": "server/src/db/database.ts",
+          "line": 50,
+          "label": "数据库类型选择"
+        }
+      ]
+    },
+    {
+      "id": "auth",
+      "type": "security",
+      "label": "认证与安全",
+      "sublabel": "JWT · WebAuthn · TOTP · 限流",
+      "pos": [
+        340,
+        20
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "server/src/service/jwt.ts",
+          "line": 1,
+          "label": "JWT 签发与校验"
+        },
+        {
+          "path": "server/src/routes/webauthn.ts",
+          "line": 1,
+          "label": "WebAuthn"
+        }
+      ]
+    },
+    {
+      "id": "providers",
+      "type": "backend",
+      "label": "DNS 厂商适配层",
+      "sublabel": "25 家 Provider 统一接口",
+      "pos": [
+        720,
+        20
+      ],
+      "size": [
+        190,
+        66
+      ],
+      "sources": [
+        {
+          "path": "server/src/lib/dns/providers/registry.ts",
+          "line": 54,
+          "label": "厂商注册表"
+        },
+        {
+          "path": "server/src/lib/dns/providers/index.ts",
+          "line": 1,
+          "label": "适配器导出"
+        }
+      ]
+    },
+    {
+      "id": "extdns",
+      "type": "external",
+      "label": "上游 DNS 厂商",
+      "sublabel": "阿里云 · Cloudflare · DNSPod · PowerDNS",
+      "pos": [
+        1180,
+        20
+      ],
+      "size": [
+        180,
+        66
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "external",
+      "label": "AI Agent",
+      "sublabel": "MCP 客户端",
+      "pos": [
+        40,
+        460
+      ],
+      "size": [
+        140,
+        66
+      ]
+    },
+    {
+      "id": "mcp",
+      "type": "backend",
+      "label": "MCP Server",
+      "sublabel": "25 个工具",
+      "pos": [
+        340,
+        460
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "server/src/mcp/server.ts",
+          "line": 13,
+          "label": "MCP Server"
+        },
+        {
+          "path": "server/src/mcp/tools.ts",
+          "line": 1,
+          "label": "工具注册"
+        }
+      ]
+    },
+    {
+      "id": "jobs",
+      "type": "backend",
+      "label": "后台任务调度",
+      "sublabel": "同步 · NS 监控 · 续费 · 缓存",
+      "pos": [
+        720,
+        460
+      ],
+      "size": [
+        190,
+        66
+      ],
+      "sources": [
+        {
+          "path": "server/src/service/domainSyncJob.ts",
+          "line": 363,
+          "label": "域名同步任务"
+        },
+        {
+          "path": "server/src/service/nsMonitorJob.ts",
+          "line": 1,
+          "label": "NS 监控任务"
+        }
+      ]
+    },
+    {
+      "id": "whois",
+      "type": "external",
+      "label": "RDAP / WHOIS 上游",
+      "sublabel": "到期与注册信息",
+      "pos": [
+        1180,
+        460
+      ],
+      "size": [
+        180,
+        66
+      ]
+    },
+    {
+      "id": "resolver",
+      "type": "backend",
+      "label": "DNS 解析器",
+      "sublabel": "DoH · DoT · 明文 DNS",
+      "pos": [
+        720,
+        640
+      ],
+      "size": [
+        190,
+        66
+      ],
+      "sources": [
+        {
+          "path": "server/src/lib/dns/resolver/resolver.ts",
+          "line": 16,
+          "label": "解析器"
+        },
+        {
+          "path": "server/src/lib/dns/resolver/doh-resolver.ts",
+          "line": 1,
+          "label": "DoH 解析"
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "user-to-spa",
+      "from": "user",
+      "to": "spa",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "spa-to-api",
+      "from": "spa",
+      "to": "api",
+      "label": "REST /api",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api-to-db",
+      "from": "api",
+      "to": "db",
+      "label": "DAL / SQL",
+      "variant": "emphasis"
+    },
+    {
+      "id": "auth-to-api",
+      "from": "auth",
+      "to": "api",
+      "label": "JWT · WebAuthn",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "api-to-providers",
+      "from": "api",
+      "to": "providers",
+      "label": "适配器调用",
+      "labelDy": -80
+    },
+    {
+      "id": "providers-to-extdns",
+      "from": "providers",
+      "to": "extdns",
+      "label": "厂商 API"
+    },
+    {
+      "id": "api-to-jobs",
+      "from": "api",
+      "to": "jobs",
+      "label": "注册定时任务",
+      "labelDy": 24
+    },
+    {
+      "id": "jobs-to-whois",
+      "from": "jobs",
+      "to": "whois",
+      "label": "查询域名信息"
+    },
+    {
+      "id": "jobs-to-resolver",
+      "from": "jobs",
+      "to": "resolver",
+      "label": "NS 探测",
+      "labelDy": 24
+    },
+    {
+      "id": "agent-to-mcp",
+      "from": "agent",
+      "to": "mcp",
+      "label": "MCP 协议"
+    },
+    {
+      "id": "mcp-to-api",
+      "from": "mcp",
+      "to": "api",
+      "label": "HTTP /api/mcp"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "接入与界面",
+      "items": [
+        "React 19 SPA：Vite · TDesign · TanStack Query",
+        "REST /api 与 WebSocket 实时推送",
+        "AI Agent 经 MCP 协议复用同一套管理能力"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "服务端能力",
+      "items": [
+        "单进程 Express 服务 dnsmgr-server",
+        "认证：JWT · WebAuthn · TOTP · 登录限流",
+        "后台任务：域名同步 · NS 监控 · 续费 · 缓存"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "集成与存储",
+      "items": [
+        "25 家 DNS 厂商适配器统一接口",
+        "DoH / DoT / 明文 DNS 解析器",
+        "统一 DAL：SQLite / MySQL / PostgreSQL"
+      ]
+    }
+  ]
+}
