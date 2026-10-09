@@ -1,5 +1,30 @@
 # 更新日志
 
+## [2.1.4] - 2026-10-09
+
+### 🐛 Bug 修复
+- **Rainyun 域名与记录列表恒为空**: 适配器读取了不存在的 `res.data.data` / `res.data.total` 字段，而接口实际返回 `Records` / `TotalRecords`；记录列表的 `res.data.data.map()` 还会在字段缺失时抛 `TypeError` 并被 `catch` 静默吞没，导致列表恒为空
+- **Rainyun 分页参数错误**: 域名列表查询参数 `per_page` 修正为 `perPage`，并补充接口要求的 `columnFilters` 与 `sort`
+- **HiDNS V2 的 MX/SRV 优先级不可用**: 写入体字段由 `priority` 修正为服务端实际字段 `mx`，读取改为 `mx ?? priority`。此前优先级既写不进也读不出，恒为 0
+- **HiDNS V2 域名列表在 Token 认证下为空**: 接口在 Token 认证时返回裸数组，适配器此前只识别 `{ total, list }` 形状，现兼容两种响应
+- **HiDNS V2 多处字段名不匹配**: 域名、记录数、到期时间、更新时间分别修正为 `name`、`record_count`、`expires_at`、`updated_at`，并保留旧字段兜底
+- **HiDNS V2 连接检测误判**: `check()` 现同时接受 `apiVersion` 为 `2` 或 `v2` 并支持顶层取值，此前要求严格等于 `v2`，会把返回 `2` 的服务端判为失败
+
+### 🧹 优化
+- **Rainyun 请求头统一**: `X-Api-Key` / `X-API-Key` 统一为小写 `x-api-key`
+- **Rainyun 取值容错**: 记录列表与记录详情增加 `|| []` 兜底，避免响应缺字段时抛异常
+- **HiDNS V2 类型完善**: 补充 `third_id`、`record_count`、`expires_at`、`mx`、`updated_at` 等字段声明，`id` 类型放宽为 `string | number`
+- **清理未使用导入**: Rainyun 适配器移除 4 个未使用导入
+
+### 📝 文件变更
+- `server/src/lib/dns/providers/rainyun/adapter.ts` - 响应字段、分页参数与取值容错修正
+- `server/src/lib/dns/providers/rainyun/auth.ts` - 请求头统一为小写
+- `server/src/lib/dns/providers/hidns_v2/adapter.ts` - 字段名、响应形状、MX 写入与连接检测修正
+
+### ⚠️ 已知风险与行为变化
+- **HiDNS V2 `ThirdId` 格式变更（待修复）**: `ThirdId` 由 `${domainType}:${id}` 改为裸 id，经 `createAdapter` 写入 `config.zoneId` 后无法被 `parseDomainRef` 恢复（仅含冒号时才切分），4 处记录操作将恒发 `domainType=internal`。使用非 `internal` 类型域名的账号需验证后另行修复
+- **HiDNS V2 连接检测变宽松**: `check()` 移除了原 `GET /domains` 探测，不再验证凭据能否实际读取数据，"测试连接"由强校验退化为仅版本探测
+
 ## [2.1.3] - 2026-08-02
 
 ### 🧹 优化
