@@ -11,7 +11,7 @@ export interface RainyunAuthConfig {
 export function buildAuthHeaders(config: RainyunAuthConfig): Record<string, string> {
   return {
     'Content-Type': 'application/json',
-    'X-API-Key': config.apiKey,
+    'x-api-key': config.apiKey,
   };
 }
 

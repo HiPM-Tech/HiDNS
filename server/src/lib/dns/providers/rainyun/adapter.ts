@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, resolveDomainIdHelper, safeString, toNumber, toRecordStatus, fetchWithFallback } from '../internal';
+import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback } from '../internal';
 
 const log = createProviderAdapterLogger('Rainyun');
 interface RainyunConfig {
@@ -34,6 +34,11 @@ interface RainyunApiResponse<T> {
   data?: T;
 }
 
+interface RainyunListResponse<T> {
+  TotalRecords: number;
+  Records: T[];
+}
+
 export class RainyunAdapter extends BaseAdapter {
   private config: RainyunConfig;
   private baseUrl = 'https://api.v2.rainyun.com';
@@ -51,7 +56,7 @@ export class RainyunAdapter extends BaseAdapter {
   private getHeaders(): Record<string, string> {
     return {
       'Content-Type': 'application/json',
-      'X-Api-Key': this.config.apiKey,
+      'x-api-key': this.config.apiKey,
     };
   }
 
@@ -93,19 +98,21 @@ export class RainyunAdapter extends BaseAdapter {
 
   async getDomainList(keyword?: string, page = 1, pageSize = 50): Promise<PageResult<DomainInfo>> {
     try {
-      const res = await this.request<{
-        data: RainyunDomain[];
-        total: number;
-      }>(`/product/domain/?options=${encodeURIComponent(JSON.stringify({
-        page: page,
-        per_page: pageSize,
-      }))}`, 'GET');
+      const res = await this.request<RainyunListResponse<RainyunDomain>>(
+        `/product/domain/?options=${encodeURIComponent(JSON.stringify({
+          columnFilters: { 'domains.Domain': '' },
+          sort: [] as string[],
+          page,
+          perPage: pageSize,
+        }))}`,
+        'GET'
+      );
 
       if (res.code !== 200 || !res.data) {
         return { total: 0, list: [] };
       }
 
-      let list = res.data.data || [];
+      let list = res.data.Records || [];
 
       if (keyword) {
         const lowerKeyword = keyword.toLowerCase();
@@ -113,7 +120,7 @@ export class RainyunAdapter extends BaseAdapter {
       }
 
       return {
-        total: res.data.total || list.length,
+        total: res.data.TotalRecords || list.length,
         list: list.map((item) => ({
           Domain: item.domain,
           ThirdId: String(item.id),
@@ -151,16 +158,16 @@ export class RainyunAdapter extends BaseAdapter {
         return { total: 0, list: [] };
       }
 
-      const res = await this.request<{
-        data: RainyunRecord[];
-        total: number;
-      }>(`/product/domain/${domainId}/dns/?limit=${pageSize}&page_no=${page}`, 'GET');
+      const res = await this.request<RainyunListResponse<RainyunRecord>>(
+        `/product/domain/${domainId}/dns/?limit=${pageSize}&page_no=${page}`,
+        'GET'
+      );
 
       if (res.code !== 200 || !res.data) {
         return { total: 0, list: [] };
       }
 
-      let list = res.data.data.map((r) => this.mapRecord(r));
+      let list = (res.data.Records || []).map((r) => this.mapRecord(r));
 
       if (keyword) {
         const lowerKeyword = keyword.toLowerCase();
@@ -191,7 +198,7 @@ export class RainyunAdapter extends BaseAdapter {
       }
 
       return {
-        total: res.data.total || list.length,
+        total: res.data.TotalRecords || list.length,
         list,
       };
     } catch (e) {
@@ -207,15 +214,16 @@ export class RainyunAdapter extends BaseAdapter {
         return null;
       }
 
-      const res = await this.request<{
-        data: RainyunRecord[];
-      }>(`/product/domain/${domainId}/dns/`, 'GET');
+      const res = await this.request<RainyunListResponse<RainyunRecord>>(
+        `/product/domain/${domainId}/dns/`,
+        'GET'
+      );
 
       if (res.code !== 200 || !res.data) {
         return null;
       }
 
-      const record = res.data.data.find((r) => String(r.record_id) === recordId);
+      const record = (res.data.Records || []).find((r) => String(r.record_id) === recordId);
       if (!record) {
         return null;
       }
