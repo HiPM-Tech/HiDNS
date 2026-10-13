@@ -30,7 +30,7 @@ export interface TaskOptions {
   priority?: TaskPriority;
   /** 最大并发数（默认1，即串行执行） */
   concurrency?: number;
-  /** 超时时间（毫秒，0表示不超时） */
+  /** 超时时间（毫秒）。0 或未设置时使用兜底超时，不允许无界运行 */
   timeout?: number;
   /** 失败后重试次数 */
   retries?: number;
@@ -45,7 +45,15 @@ interface QueuedTask {
   reject: (error: Error) => void;
   attempts: number;
   queuedAt: number; // 入队时间，用于排序
+  deferrals: number; // 因同 ID 任务仍在运行而被延后重排的次数
 }
+
+/** 同 ID 任务冲突时的基础延后时长（毫秒），按次数指数退避 */
+const REQUEUE_BASE_DELAY_MS = 1000;
+/** 同 ID 任务冲突的最大延后次数，超过则判定为异常并失败，避免无限等待 */
+const MAX_REQUEUE_DEFERRALS = 60;
+/** 未显式配置超时的任务所使用的兜底超时（毫秒），确保任务必然结束、ID 必然释放 */
+const DEFAULT_TASK_TIMEOUT_MS = 30 * 60 * 1000;
 
 class TaskManager {
   private runningTasks: Map<string, TaskInfo> = new Map();
@@ -95,6 +103,7 @@ class TaskManager {
         reject,
         attempts: 0,
         queuedAt: Date.now(),
+        deferrals: 0,
       };
 
       // 根据优先级插入队列（高优先级插队）
@@ -151,8 +160,12 @@ class TaskManager {
 
   /**
    * 处理任务队列
+   *
+   * 注意：同 ID 任务仍在运行时**不得**在循环内把它塞回队首——那会让 while 反复取出
+   * 同一个任务并同步自旋，彻底阻塞事件循环（曾导致 ~3.2k 行/秒的日志洪水与全站无响应）。
+   * 此类冲突一律改为异步延后重排。
    */
-  private async processQueue(): Promise<void> {
+  private processQueue(): void {
     if (this.isProcessing) return;
     this.isProcessing = true;
 
@@ -160,6 +173,11 @@ class TaskManager {
       while (this.taskQueue.length > 0 && this.runningTasks.size < this.maxConcurrentTasks) {
         const queuedTask = this.taskQueue.shift();
         if (!queuedTask) break;
+
+        if (this.runningTasks.has(queuedTask.options.id)) {
+          this.deferTask(queuedTask);
+          continue;
+        }
 
         this.executeTask(queuedTask);
       }
@@ -169,16 +187,55 @@ class TaskManager {
   }
 
   /**
+   * 同 ID 任务冲突时延后重排。
+   * 全程使用 setTimeout（异步），不阻塞事件循环；带指数退避、次数上限与日志限流。
+   */
+  private deferTask(queuedTask: QueuedTask): void {
+    queuedTask.deferrals += 1;
+
+    if (queuedTask.deferrals > MAX_REQUEUE_DEFERRALS) {
+      log.error(`Task abandoned, same-id task still running: ${queuedTask.options.name}`, {
+        taskId: queuedTask.options.id,
+        deferrals: queuedTask.deferrals,
+      });
+      queuedTask.reject(new Error(
+        `Task abandoned after ${MAX_REQUEUE_DEFERRALS} deferrals, previous run of "${queuedTask.options.id}" never finished`
+      ));
+      return;
+    }
+
+    const delay = Math.min(
+      REQUEUE_BASE_DELAY_MS * Math.pow(2, Math.min(queuedTask.deferrals - 1, 6)),
+      60000
+    );
+
+    // 日志限流：仅首次与每 10 次记录，避免同类日志洪水
+    if (queuedTask.deferrals === 1 || queuedTask.deferrals % 10 === 0) {
+      log.warn(`Task already running, deferred re-queue: ${queuedTask.options.name}`, {
+        taskId: queuedTask.options.id,
+        deferrals: queuedTask.deferrals,
+        delayMs: delay,
+      });
+    }
+
+    const timer = setTimeout(() => {
+      this.insertTaskByPriority(queuedTask);
+      this.processQueue();
+    }, delay);
+    // 不因该定时器阻止进程退出
+    if (typeof timer.unref === 'function') timer.unref();
+  }
+
+  /**
    * 执行单个任务
    */
   private async executeTask(queuedTask: QueuedTask): Promise<void> {
     const { options, fn, resolve, reject, attempts } = queuedTask;
     const taskId = options.id;
 
-    // 检查是否已有相同ID的任务在运行
+    // 检查是否已有相同ID的任务在运行（防御性兜底：绝不在此同步塞回队列）
     if (this.runningTasks.has(taskId)) {
-      log.warn(`Task already running, re-queuing: ${options.name}`, { taskId });
-      this.taskQueue.unshift(queuedTask);
+      this.deferTask(queuedTask);
       return;
     }
 
@@ -198,20 +255,21 @@ class TaskManager {
     });
 
     try {
-      // 设置超时
+      // 兜底超时：即便调用方未配置超时，也必须保证任务最终结束，
+      // 否则任务 ID 永不释放，后续同 ID 提交将永久无法执行。
       let timeoutId: NodeJS.Timeout | null = null;
-      const timeout = options.timeout || 0;
+      const timeout = options.timeout && options.timeout > 0
+        ? options.timeout
+        : DEFAULT_TASK_TIMEOUT_MS;
 
-      const executionPromise = timeout > 0
-        ? Promise.race([
-            fn(),
-            new Promise<never>((_, reject) => {
-              timeoutId = setTimeout(() => {
-                reject(new Error(`Task timeout after ${timeout}ms`));
-              }, timeout);
-            }),
-          ])
-        : fn();
+      const executionPromise = Promise.race([
+        fn(),
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error(`Task timeout after ${timeout}ms`));
+          }, timeout);
+        }),
+      ]);
 
       await executionPromise;
 
