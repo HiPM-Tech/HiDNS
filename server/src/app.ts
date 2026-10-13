@@ -197,11 +197,17 @@ import path from 'path';
 
 // Get the current file directory
 const APP_ROOT = path.resolve();
-import { createConnection, isDbInitialized, hasUsers, connect } from './db/connection';
+import { connect } from './db/connection';
 import { initializeDSM } from './db/dsm/init-dsm';
 // import { initSchema } from './db/schema'; // Deprecated: Replaced by DSM
 // import { initSchema as initSchemaWithMigration } from './db/init'; // Deprecated: Replaced by DSM
 import { disconnect, getConnection } from './db/dal/connection';
+import {
+  isSystemInitialized,
+  isInitSurfaceOpen,
+  refreshSystemState,
+  markInitialized,
+} from './service/systemState';
 import { authMiddleware, adminOnly } from './middleware/auth';
 import { errorHandler, asyncHandler } from './middleware/errorHandler';
 import { requestLogger, requestIdMiddleware } from './middleware/requestLogger';
@@ -306,12 +312,7 @@ let server: http.Server | null = null;
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
-// Global state to track initialization
-let isInitialized = false;
-
-async function checkInitialization(): Promise<boolean> {
-  return await isDbInitialized() && await hasUsers();
-}
+// 系统初始化状态由 service/systemState 统一维护（区分「数据库不可达」与「未初始化」）
 
 // Middlewares
 // Trust proxy - enables correct req.protocol and req.ip behind reverse proxies
@@ -445,14 +446,34 @@ restricted to specific domains and time ranges.
 };
 
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Initialize routes - always available
-app.use('/api/init', initRouter);
+/**
+ * 初始化门禁（依据 §应用初始化：未初始化模式仅开放初始化路由）。
+ *
+ * 采用「默认拒绝 + 显式豁免」而非枚举受保护前缀——后者曾遗漏 10 个前缀。
+ * `isSystemInitialized()` 由 service/systemState 维护，区分「数据库不可达」与
+ * 「系统未初始化」，避免数据库故障时初始化入口被重新打开。
+ */
+const INIT_SURFACE_EXEMPT_PREFIXES = [
+  '/api/init', // 系统初始化（§路由：始终可用，不受初始化检查限制）
+  '/api/rdap', // 公开 RDAP 路由（§服务层：无需鉴权）
+];
 
-// Middleware to check initialization status for protected routes
+function isInitExemptPath(pathname: string): boolean {
+  return INIT_SURFACE_EXEMPT_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+}
+
 function initCheckMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (isInitialized) {
+  // 仅约束 API 路由：静态资源与 SPA 必须保持可用，否则初始化向导页面无法加载
+  if (!req.path.startsWith('/api/')) {
+    return next();
+  }
+  if (isSystemInitialized()) {
+    return next();
+  }
+  if (isInitExemptPath(req.path)) {
     return next();
   }
   // Return 503 if not initialized
@@ -463,11 +484,13 @@ function initCheckMiddleware(req: Request, res: Response, next: NextFunction) {
   });
 }
 
-// Apply initialization check middleware to protected paths
-const protectedPaths = ['/api/auth', '/api/users', '/api/teams', '/api/accounts', '/api/domains', '/api/logs', '/api/settings', '/api/tokens', '/api/mcp', '/api/servicemonitor', '/api/resource-monitor'];
-protectedPaths.forEach(path => {
-  app.use(path, initCheckMiddleware);
-});
+// 门禁注册在 /api/docs 与所有业务路由之前
+app.use(initCheckMiddleware);
+
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+// Initialize routes - always available
+app.use('/api/init', initRouter);
 
 // Routes - these will only be accessible if isInitialized is true
 app.use('/api/auth', authRouter);
@@ -696,11 +719,11 @@ async function initializeApp() {
     await connect();
     log.info('✅ Database connection re-established.');
 
-    // Check if system is initialized
-    isInitialized = await checkInitialization();
-
-    if (isInitialized) {
-      log.info('System initialized. Running in normal mode.');
+    // 启动全部后台任务（仅执行一次）
+    let jobsStarted = false;
+    const startAllJobs = () => {
+      if (jobsStarted) return;
+      jobsStarted = true;
 
       // 重启时清理所有未分配用户的临时 OAuth 客户端
       McpOperations.cleanupUnassignedOAuthClients().then((count: number) => {
@@ -722,6 +745,17 @@ async function initializeApp() {
       startGroupedCacheRefreshJob();
       startResourceMonitorJob();
       startResourcePruneJob();
+    };
+
+    // 探测系统状态：严格区分「数据库不可达」与「系统未初始化」
+    const initialState = await refreshSystemState();
+
+    if (initialState === 'initialized') {
+      log.info('System initialized. Running in normal mode.');
+      startAllJobs();
+    } else if (initialState === 'unreachable') {
+      // 数据库故障不等于未初始化：不得开放初始化入口（未授权接管风险）
+      log.error('Database unreachable at startup. Serving in degraded mode; the setup wizard stays CLOSED until the database is reachable.');
     } else {
       log.info('System not initialized. Running in initialization mode.');
       log.info('Please access the setup wizard to configure the system.');
@@ -739,28 +773,20 @@ async function initializeApp() {
     server.listen(PORT, () => {
       log.info(`HiDNS running on http://localhost:${PORT}`);
       log.info(`API Docs: http://localhost:${PORT}/api/docs`);
-      if (!isInitialized) {
+      if (!isSystemInitialized()) {
         log.info(`Setup Wizard: http://localhost:${PORT}/setup`);
       }
     });
 
     // Re-check initialization status periodically (every 5 seconds)
     const initCheckInterval = setInterval(async () => {
-      const newState = await checkInitialization();
-        if (!isInitialized && newState) {
-          // System just got initialized
-          isInitialized = true;
-          log.info('System initialized detected. Normal routes are now enabled.');
-          log.info('You may need to refresh the page.');
-          startServiceMonitorJob();
-          startWhoisJob();
-          startNsMonitorJob();
-          startDomainRenewalJob();
-          startRecordCountCacheRefresh(30); // Refresh every 30 minutes
-          startDomainSyncJob(0.5); // Sync every 30 minutes
-          startResourceMonitorJob();
-          startResourcePruneJob();
-        }
+      const state = await refreshSystemState();
+      if (state === 'initialized' && !jobsStarted) {
+        // System just got initialized
+        log.info('System initialized detected. Normal routes are now enabled.');
+        log.info('You may need to refresh the page.');
+        startAllJobs();
+      }
     }, 5000);
 
     // 定期清理过期的 OAuth states (每 10 分钟)
@@ -786,8 +812,9 @@ async function initializeApp() {
     process.on('SIGINT', () => gracefulShutdown('SIGINT', initCheckInterval, oauthStateCleanupInterval));
 
   } catch (error) {
-    log.info('Database not configured. Running in initialization mode.');
-    log.info('Please access the setup wizard to configure the system.');
+    // 数据库连接失败属于「故障」，不是「系统未初始化」。
+    // 初始化入口保持关闭（fail-closed），待数据库恢复后由重连循环重新判定状态。
+    log.error('Database connection failed at startup. Serving in degraded mode; the setup wizard stays CLOSED until the database is reachable.', { error });
 
     server = http.createServer(app);
 
@@ -800,19 +827,20 @@ async function initializeApp() {
     server.listen(PORT, () => {
       log.info(`HiDNS running on http://localhost:${PORT}`);
       log.info(`API Docs: http://localhost:${PORT}/api/docs`);
-      log.info(`Setup Wizard: http://localhost:${PORT}/setup`);
     });
 
-    // Re-check initialization status periodically
+    // 周期性重连，恢复后重新判定系统状态
     const MAX_RETRIES = 60; // Maximum 60 retries (5 minutes at 5s intervals)
     let retryCount = 0;
+    let jobsStarted = false;
     const initCheckInterval = setInterval(async () => {
       try {
         await connect();
         await initializeDSM(); // Use DSM for initialization
-        const newState = await checkInitialization();
-        if (newState) {
-          isInitialized = true;
+        const state = await refreshSystemState();
+
+        if (state === 'initialized' && !jobsStarted) {
+          jobsStarted = true;
           clearInterval(initCheckInterval);
           startServiceMonitorJob();
           startWhoisJob();
@@ -824,6 +852,8 @@ async function initializeApp() {
           startResourcePruneJob();
           log.info('System initialized detected. Normal routes are now enabled.');
           log.info('You may need to refresh the page.');
+        } else if (state === 'uninitialized') {
+          log.info('Database reachable but not initialized. Setup wizard is now available.');
         }
       } catch (err) {
         retryCount++;

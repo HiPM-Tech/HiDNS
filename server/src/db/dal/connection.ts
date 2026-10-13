@@ -92,8 +92,9 @@ export class ConnectionManager {
   private connection: DatabaseConnection | null = null;
   private connectionPromise: Promise<DatabaseConnection> | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 3;
-  private reconnectDelay = 1000; // 初始重连延迟 1秒
+  private maxReconnectAttempts = 10; // 覆盖数据库重启这类需要数十秒的恢复窗口
+  private reconnectDelay = 1000; // 初始重连延迟 1秒（指数退避，封顶 30 秒）
+  private static readonly MAX_RECONNECT_DELAY = 30000;
   private isShuttingDown = false;
   private healthCheckInterval: NodeJS.Timeout | null = null;
 
@@ -112,6 +113,11 @@ export class ConnectionManager {
   async connect(config?: DatabaseConfig): Promise<DatabaseConnection> {
     const dbConfig = config || getDatabaseConfig();
     validateConfig(dbConfig);
+
+    // 每次 connect() 都是一次全新的尝试，必须重置计数。
+    // 否则某一轮重试耗尽后，后续 connect() 会因 while(count >= max) 恒假而
+    // 直接抛错、连一次尝试都不做——这正是“数据库重启后连接态无法复原”的直接原因。
+    this.reconnectAttempts = 0;
 
     // 如果正在关闭，拒绝新连接
     if (this.isShuttingDown) {
@@ -177,8 +183,11 @@ export class ConnectionManager {
           throw error;
         }
 
-        // 指数退避
-        const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+        // 指数退避（封顶 30 秒）
+        const delay = Math.min(
+          this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+          ConnectionManager.MAX_RECONNECT_DELAY
+        );
         log.info(`Retrying connection in ${delay}ms...`);
         await this.sleep(delay);
       }
@@ -300,7 +309,11 @@ export class ConnectionManager {
 
     this.isShuttingDown = false;
     this.reconnectAttempts = 0;
-    ConnectionManager.instance = null;
+    // 注意：此处**不得**销毁单例。
+    // disconnect() 之后通常紧接 connect()（健康检查重连即如此）；
+    // 若在这里置空 ConnectionManager.instance，重连会落在已被遗弃的旧实例上，
+    // 而模块级 getConnection() 会拿到一个全新的、未连接的管理器，
+    // 导致“重连成功”的日志与实际不可用的连接态并存，连接再也无法复原。
   }
 
   /**

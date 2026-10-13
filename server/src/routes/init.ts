@@ -1,145 +1,70 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { initializeDSM } from '../db/dsm/init-dsm';
+import rateLimit from 'express-rate-limit';
 import { saveEnvConfig } from '../config/env';
-import { createConnection, isDbInitialized, hasUsers } from '../db/connection';
-import { connect } from '../db/dal/connection';
-import type { DatabaseConfig } from '../db/dal/config';
-import { resolveDefaultDbPath } from '../db/dal/config';
 import { UserOperations, SystemOperations, SecretOperations } from '../db/bal/business-adapter';
 import { createLogger } from '../lib/logger';
+import { isSystemInitialized, refreshSystemState, markInitialized } from '../service/systemState';
+import {
+  applyDatabaseConfig,
+  buildDbConfig,
+  getDbInitializationState,
+  getDefaultSqlitePath,
+  getPublicInitDbConfig,
+  initializeSchema,
+  isSchemaInitialized,
+  saveDatabaseConfig,
+} from '../service/systemSetup';
 
 const log = createLogger('HTTP').sub('Route').sub('Init');
-// ============================================================================
-// 初始化专用数据库连接函数（隔离、防污染）
-// ============================================================================
-
-/**
- * 构建数据库配置对象
- */
-function buildDbConfig(
-  type: 'sqlite' | 'mysql' | 'postgresql',
-  sqlite?: { path: string },
-  mysqlConfig?: { host: string; port: number; database: string; user: string; password: string; ssl?: boolean },
-  pgConfig?: { host: string; port: number; database: string; user: string; password: string; ssl?: boolean }
-): DatabaseConfig {
-  const dbConfig: DatabaseConfig = {
-    type,
-    logging: process.env.DB_LOGGING !== 'false',
-    slowQueryThreshold: parseInt(process.env.DB_SLOW_QUERY_THRESHOLD || '100', 10),
-  };
-
-  if (type === 'sqlite') {
-    let dbPath = sqlite?.path || resolveDefaultDbPath();
-    dbPath = dbPath.replace(/\\/g, '/');
-    dbConfig.sqlite = {
-      path: dbPath,
-      mode: 'readwrite',
-      busyTimeout: 5000,
-      enableWAL: true,
-      foreignKeys: true,
-    };
-  } else if (type === 'mysql' && mysqlConfig) {
-    dbConfig.mysql = {
-      host: mysqlConfig.host,
-      port: mysqlConfig.port || 3306,
-      database: mysqlConfig.database,
-      user: mysqlConfig.user,
-      password: mysqlConfig.password,
-      ssl: mysqlConfig.ssl,
-      connectionLimit: 20,
-      connectTimeout: 60000,
-      acquireTimeout: 60000,
-      timeout: 60000,
-    };
-  } else if (type === 'postgresql' && pgConfig) {
-    dbConfig.postgresql = {
-      host: pgConfig.host,
-      port: pgConfig.port || 5432,
-      database: pgConfig.database,
-      user: pgConfig.user,
-      password: pgConfig.password,
-      ssl: pgConfig.ssl,
-      poolSize: 20,
-      connectionTimeoutMillis: 60000,
-      idleTimeoutMillis: 30000,
-    };
-  }
-
-  return dbConfig;
-}
-
-/**
- * 保存数据库配置到环境变量
- */
-function saveDatabaseConfig(
-  type: 'sqlite' | 'mysql' | 'postgresql',
-  sqlite?: { path: string },
-  mysqlConfig?: { host: string; port: number; database: string; user: string; password: string; ssl?: boolean },
-  pgConfig?: { host: string; port: number; database: string; user: string; password: string; ssl?: boolean }
-): void {
-  const envConfig: Record<string, string> = {
-    DB_TYPE: type,
-  };
-
-  if (type === 'sqlite') {
-    let dbPath = sqlite?.path || resolveDefaultDbPath();
-    dbPath = dbPath.replace(/\\/g, '/');
-    envConfig.DB_PATH = dbPath;
-  } else if (type === 'mysql' && mysqlConfig) {
-    envConfig.DB_HOST = mysqlConfig.host;
-    envConfig.DB_PORT = String(mysqlConfig.port || 3306);
-    envConfig.DB_NAME = mysqlConfig.database;
-    envConfig.DB_USER = mysqlConfig.user;
-    envConfig.DB_PASSWORD = mysqlConfig.password;
-    envConfig.DB_SSL = mysqlConfig.ssl ? 'true' : 'false';
-  } else if (type === 'postgresql' && pgConfig) {
-    envConfig.DB_HOST = pgConfig.host;
-    envConfig.DB_PORT = String(pgConfig.port || 5432);
-    envConfig.DB_NAME = pgConfig.database;
-    envConfig.DB_USER = pgConfig.user;
-    envConfig.DB_PASSWORD = pgConfig.password;
-    envConfig.DB_SSL = pgConfig.ssl ? 'true' : 'false';
-  }
-
-  saveEnvConfig(envConfig);
-  log.info('Database configuration saved', { type });
-}
-
 const router = Router();
 
-type PublicInitDbConfig = {
-  type: 'sqlite' | 'mysql' | 'postgresql';
-  sqlite?: { path: string };
-  mysql?: { ssl: boolean; database: string };
-  postgresql?: { ssl: boolean; database: string };
-};
+/**
+ * 初始化端点限流（§安全规范：请求频率限制）。
+ * 初始化端点未鉴权，必须限制频率以降低爆破与资源消耗风险。
+ */
+const initLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { code: 429, msg: 'Too many setup requests, please try again later.' },
+});
 
-function getPublicInitDbConfig(): PublicInitDbConfig {
-  const type = process.env.DB_TYPE;
-  const dbType = type === 'mysql' || type === 'postgresql' ? type : 'sqlite';
-  const ssl = process.env.DB_SSL === 'true';
+router.use(initLimiter);
 
-  const result: PublicInitDbConfig = { type: dbType };
+/**
+ * 初始化端点守卫。
+ *
+ * `/api/init` 按 §路由 347「始终可用」，因此安全性必须由端点自身承担：
+ * 系统一旦完成初始化，状态变更类端点（/database、/admin）**永久关闭**。
+ * 由于 service/systemState 中的已初始化标记是「粘性」的（数据库故障不会使其回退），
+ * 数据库重启或不可达期间初始化入口不会重新打开，从而切断
+ * 「数据库故障 → 重配数据库 → 创建管理员」的未授权接管链。
+ *
+ * 未初始化实例上的首次安装仍需开放这些端点（安装向导依赖），
+ * 该固有风险建议后续以「安装令牌」方式收敛。
+ */
+async function requireInitSurface(req: Request, res: Response, next: () => void): Promise<void> {
+  // 以最新探测结果为准，避免使用陈旧状态
+  await refreshSystemState();
 
-  if (dbType === 'sqlite') {
-    result.sqlite = { path: resolveDefaultDbPath() };
-  } else if (dbType === 'mysql') {
-    result.mysql = { ssl, database: process.env.DB_NAME || 'HiDNS' };
-  } else if (dbType === 'postgresql') {
-    result.postgresql = { ssl, database: process.env.DB_NAME || 'HiDNS' };
+  if (isSystemInitialized()) {
+    log.warn('Setup endpoint blocked: system already initialized', { path: req.path });
+    res.status(403).json({ code: 403, msg: 'System already initialized' });
+    return;
   }
-
-  return result;
+  next();
 }
 
 // Get database configuration for the setup form.
 // Only expose this before the system has an initialized user table.
 router.get('/db-config', async (_req: Request, res: Response) => {
   try {
-    const initialized = await isDbInitialized() && await hasUsers();
-    if (initialized) {
+    // 该端点仅返回脱敏后的配置（无 host、账号与密码），系统未初始化时允许读取
+    const state = await getDbInitializationState();
+    if (state === 'initialized') {
       return res.status(403).json({ code: 403, msg: 'System already initialized' });
     }
 
@@ -161,28 +86,31 @@ router.get('/db-config', async (_req: Request, res: Response) => {
 router.get('/status', async (req: Request, res: Response) => {
   try {
     log.debug('Checking system status...');
-    const dbInitialized = await isDbInitialized();
-    const hasAnyUsers = await hasUsers();
+    const state = await getDbInitializationState();
+    const dbReachable = state !== 'unreachable';
 
-    log.debug('Status check result', { dbInitialized, hasAnyUsers });
+    log.debug('Status check result', { state });
     res.json({
       code: 0,
       data: {
-        initialized: dbInitialized && hasAnyUsers,
-        dbInitialized,
-        hasUsers: hasAnyUsers,
+        initialized: state === 'initialized',
+        dbInitialized: dbReachable,
+        hasUsers: state === 'initialized',
+        // 必须区分「数据库不可达」与「未初始化」，前端据此决定是否跳转安装向导
+        dbReachable,
       },
       msg: 'success',
     });
   } catch (error) {
-    log.warn('Status check failed, returning uninitialized state', { error });
-    // If database is not connected yet
+    log.warn('Status check failed', { error });
+    // 探测失败时按最保守结果返回，且明确标记数据库不可达
     res.json({
       code: 0,
       data: {
         initialized: false,
         dbInitialized: false,
         hasUsers: false,
+        dbReachable: false,
       },
       msg: 'success',
     });
@@ -190,7 +118,7 @@ router.get('/status', async (req: Request, res: Response) => {
 });
 
 // Test database connection and check for existing data
-router.post('/test-db', async (req: Request, res: Response) => {
+router.post('/test-db', requireInitSurface, async (req: Request, res: Response) => {
   const { type, sqlite, mysql: mysqlConfig, postgresql: pgConfig } = req.body;
 
   log.info('Received test-db request', { type, sqlitePath: sqlite?.path });
@@ -250,8 +178,8 @@ router.post('/test-db', async (req: Request, res: Response) => {
   }
 });
 
-// Initialize database
-router.post('/database', async (req: Request, res: Response) => {
+// Initialize database（状态变更类端点：系统已初始化后永久关闭）
+router.post('/database', requireInitSurface, async (req: Request, res: Response) => {
   const { type, sqlite, mysql: mysqlConfig, postgresql: pgConfig, reset = false } = req.body;
 
   if (!type || !['sqlite', 'mysql', 'postgresql'].includes(type)) {
@@ -267,7 +195,7 @@ router.post('/database', async (req: Request, res: Response) => {
     log.info('Testing database connection', { type, sqlitePath: sqlite?.path });
     const testResult = await SystemOperations.testConnection({
       type,
-      sqlite: sqlite || { path: resolveDefaultDbPath() },
+      sqlite: sqlite || { path: getDefaultSqlitePath() },
       mysql: mysqlConfig,
       postgresql: pgConfig,
     });
@@ -287,14 +215,8 @@ router.post('/database', async (req: Request, res: Response) => {
       // Save config first
       saveDatabaseConfig(type, sqlite, mysqlConfig, pgConfig);
 
-      // Disconnect any existing connection
-      try {
-        const { disconnect } = await import('../db/dal/connection');
-        await disconnect();
-      } catch { /* Ignore */ }
-
-      // Establish new connection with explicit config
-      await connect(testConfig);
+      // 以显式配置重建连接（服务层封装，路由不直接触碰数据库层）
+      await applyDatabaseConfig(testConfig);
       log.info('Connected to existing database with users, skipping to complete');
 
       return res.json({
@@ -321,14 +243,8 @@ router.post('/database', async (req: Request, res: Response) => {
       // Save config first
       saveDatabaseConfig(type, sqlite, mysqlConfig, pgConfig);
 
-      // Disconnect any existing connection
-      try {
-        const { disconnect } = await import('../db/dal/connection');
-        await disconnect();
-      } catch { /* Ignore */ }
-
-      // Establish new connection with explicit config
-      await connect(testConfig);
+      // 以显式配置重建连接（服务层封装，路由不直接触碰数据库层）
+      await applyDatabaseConfig(testConfig);
       log.info('Connected to existing database without users, skipping to user creation');
 
       return res.json({
@@ -363,18 +279,14 @@ router.post('/database', async (req: Request, res: Response) => {
       saveEnvConfig({ JWT_SECRET: crypto.randomBytes(32).toString('hex') });
     }
 
-    // Create database connection with explicit config
+    // 以显式配置重建连接并初始化 schema（均经由服务层，路由不直接触碰数据库层）
     log.info('Creating new database connection', { type, reset });
-    const conn = await connect(testConfig);
+    await applyDatabaseConfig(testConfig);
 
-    // Initialize schema using DSM
-    if (reset) {
-      await initializeDSM();
-      log.info('Database schema reset successfully via DSM');
-    } else {
-      await initializeDSM();
-      log.info('Database schema initialized successfully via DSM');
-    }
+    await initializeSchema();
+    log.info(reset
+      ? 'Database schema reset successfully via DSM'
+      : 'Database schema initialized successfully via DSM');
 
     return res.json({
       code: 0,
@@ -390,18 +302,23 @@ router.post('/database', async (req: Request, res: Response) => {
   }
 });
 
-// Create admin user
-router.post('/admin', async (req: Request, res: Response) => {
+// Create admin user（状态变更类端点：系统已初始化后永久关闭，避免被抢先占用管理员账号）
+router.post('/admin', requireInitSurface, async (req: Request, res: Response) => {
   try {
-    // Check if database is initialized
-    const dbInitialized = await isDbInitialized();
-    if (!dbInitialized) {
+    const state = await getDbInitializationState();
+
+    // 数据库不可达时不得创建管理员（此前会被误判为“未初始化”）
+    if (state === 'unreachable') {
+      return res.status(503).json({ code: 503, msg: 'Database is unreachable. Please check the database and retry.' });
+    }
+
+    // 数据库可达但 users 表尚未建立
+    if (state === 'uninitialized' && !(await isSchemaInitialized())) {
       return res.status(400).json({ code: 400, msg: 'Database not initialized. Please initialize database first.' });
     }
 
-    // Check if already initialized
-    const hasAnyUsers = await hasUsers();
-    if (hasAnyUsers) {
+    // 已有用户则拒绝
+    if (state === 'initialized') {
       return res.status(400).json({ code: 400, msg: 'Admin user already exists' });
     }
 
@@ -441,6 +358,9 @@ router.post('/admin', async (req: Request, res: Response) => {
 
     // 使用业务适配器轮换运行时密钥
     await SecretOperations.rotateRuntimeSecrets();
+
+    // 初始化完成：立刻把系统标记为已初始化，使初始化入口即时关闭
+    markInitialized();
 
     log.info('Admin user created successfully', { username, email });
 
