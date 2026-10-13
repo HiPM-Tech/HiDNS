@@ -1,5 +1,43 @@
 # 更新日志
 
+## [2.1.5] - 2026-10-13
+
+### 🐛 Bug 修复
+- **命令注入 RCE（严重）**: 服务监控的 ping 检测把目标地址直接拼进 shell 命令，改为 `isSafeHost` 白名单校验（IP 或合法域名）+ `spawn` 参数数组，并补充跨平台参数与 8 秒超时；校验同时覆盖 tcp/http 分支
+- **2FA 可被绕过关闭（严重）**: `/api/security/2fa/disable` 从未校验 TOTP 令牌便直接关闭二次验证，会话一旦失窃即可摘除 2FA；现要求校验 TOTP 或备用码后方可关闭
+- **代理配置接口越权（严重）**: `/api/network/proxy` 任意登录用户均可读写，且响应体回显明文代理密码；现限制为管理员并脱敏为 `***`，同时删除打印配置明文的调试日志
+- **`/api/system` 完全无鉴权**: `/api/system/info` 与 `/version` 未登录即可读取版本与数据库指纹，现要求登录
+- **任务管理器忙等活锁（严重）**: 同 ID 任务已在运行时被同步塞回队首，`while` 反复取出同一任务同步自旋，**彻底阻塞事件循环**；实测曾以约 3200 行/秒刷屏、22 秒产生 71123 行日志，且 `setTimeout` 超时回调永不触发导致活锁永久化。现改为异步延后重排（指数退避 + 次数上限），并为未配置超时的任务增加兜底超时
+- **数据库故障被误判为「系统未初始化」（严重）**: 初始化状态探测函数吞掉所有异常返回 `false`，使数据库不可达被当作未初始化，进而开放初始化入口，形成「重配数据库 + 创建管理员」的未授权接管链；现改为三态判定（`initialized` / `uninitialized` / `unreachable`），探测失败即抛错
+- **初始化入口在进程重启后重新开放（严重）**: 已初始化标记仅存于内存，数据库不可达时重启会导致入口重新打开；现持久化到 `data/.initialized`，启动即读取，重启后仍保持关闭
+- **数据库连接态无法复原**: `disconnect()` 销毁连接管理器单例，使随后的重连落在被遗弃实例上；同时 `reconnectAttempts` 仅在成功时清零，重试耗尽后 `connect()` 直接失败、永不重试。现移除单例销毁、入口无条件重置计数、重连上限 3→10 并封顶退避 30 秒
+- **未初始化模式门禁缺失**: 原先逐个枚举受保护前缀，遗漏 10 个 `/api/*` 前缀；现改为「默认拒绝 + 显式豁免」
+- **`groupedCacheJob` 模块作用域副作用**: 模块导入后 30 秒即无条件提交数据库任务，不检查初始化与连接状态；现收敛到显式启动函数
+- **弱随机源**: 会话 ID 与邮箱验证码由 `Math.random()` 改为 `crypto.randomBytes` / `crypto.randomInt`
+
+### 🧹 优化
+- **初始化端点限流**: `/api/init/*` 补充请求频率限制
+- **分层合规**: 路由层不再直接操作数据库层，数据库配置读写、连接重建与 schema 初始化收敛到 `service/systemSetup.ts`
+- **状态一致性**: `/api/init/status` 的 `initialized` 与门禁判定保持一致，并新增 `dbReachable` 字段
+
+### ⚠️ 行为变更（升级前请确认）
+- `/api/system/info`、`/api/system/version` **现在需要登录**
+- `/api/network/proxy` **现在仅管理员可用**，且响应不再返回明文密码
+- `/api/init/database`、`/api/init/admin`、`/api/init/test-db` 在**系统已完成初始化后返回 403**（此前可被持续调用）
+- 需要重新安装时，删除 `data/.initialized` 标记文件后重启
+
+### 📝 文件变更
+- `server/src/service/serviceMonitor.ts` - ping 参数化与目标白名单校验
+- `server/src/routes/security.ts`、`server/src/service/totp.ts` - 关闭 2FA 前校验令牌
+- `server/src/routes/network.ts` - 代理接口鉴权与密码脱敏
+- `server/src/routes/system.ts` - 系统信息端点鉴权
+- `server/src/service/taskManager.ts` - 活锁修复、兜底超时与日志限流
+- `server/src/db/connection.ts`、`server/src/db/dal/connection.ts` - 三态探测与连接生命周期修复
+- `server/src/service/systemState.ts`（新增）、`server/src/service/systemSetup.ts`（新增） - 初始化状态与配置服务
+- `server/src/app.ts`、`server/src/routes/init.ts` - 初始化门禁与端点守卫
+- `server/src/service/groupedCacheJob.ts`、`server/src/service/session.ts`、`server/src/service/emailVerification.ts` - 副作用与随机源修复
+- `root.ai.md` - 补齐初始化/连接/任务/日志约束，消除路由条款冲突
+
 ## [2.1.4] - 2026-10-09
 
 ### 🐛 Bug 修复
