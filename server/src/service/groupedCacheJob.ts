@@ -75,6 +75,23 @@ async function refreshGroupedCaches(): Promise<void> {
 
 export function startGroupedCacheRefreshJob(): void {
   log.info('Starting grouped cache refresh job (interval: 30min)');
+
+  // 首次运行：延迟 30 秒执行一次。
+  // 必须放在本函数内（而非模块作用域）——模块级 setTimeout 会在导入时即注册，
+  // 使得系统尚未初始化、甚至数据库不可达时也去执行数据库操作。
+  const initialTimer = setTimeout(() => {
+    taskManager.submit(
+      {
+        id: 'grouped-cache-refresh-initial',
+        name: 'Initial grouped cache refresh',
+        concurrency: 1,
+        timeout: 60000,
+      },
+      refreshGroupedCaches,
+    ).catch((err: Error) => log.warn('Initial grouped cache refresh failed', { error: err }));
+  }, 30000);
+  if (typeof initialTimer.unref === 'function') initialTimer.unref();
+
   setInterval(() => {
     taskManager.submit(
       {
@@ -87,16 +104,3 @@ export function startGroupedCacheRefreshJob(): void {
     ).catch((err: Error) => log.warn('Grouped cache refresh task failed', { error: err }));
   }, 30 * 60 * 1000);
 }
-
-// Initial run after 30 seconds
-setTimeout(() => {
-  taskManager.submit(
-    {
-      id: 'grouped-cache-refresh-initial',
-      name: 'Initial grouped cache refresh',
-      concurrency: 1,
-      timeout: 60000,
-    },
-    refreshGroupedCaches,
-  ).catch((err: Error) => log.warn('Initial grouped cache refresh failed', { error: err }));
-}, 30000);
