@@ -1,10 +1,11 @@
 import { Router, Request, Response } from 'express';
+import { authMiddleware } from '../middleware/auth';
 import { SystemOperations, isDbConnected } from '../db/bal/business-adapter';
 
 const router = Router();
 
 // Get system information for about page
-router.get('/info', async (req: Request, res: Response) => {
+router.get('/info', authMiddleware, async (req: Request, res: Response) => {
   try {
     // Get database info from business adapter
     const dbInfo = await SystemOperations.getDatabaseInfo();
@@ -41,7 +42,7 @@ router.get('/info', async (req: Request, res: Response) => {
 });
 
 // Get system version information (version, deploy mode, log level, node status)
-router.get('/version', async (_req: Request, res: Response) => {
+router.get('/version', authMiddleware, async (_req: Request, res: Response) => {
   try {
     const serverVersion = require('../../package.json').version;
 

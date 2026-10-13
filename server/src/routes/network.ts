@@ -4,7 +4,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, adminOnly, noTokenAuth } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createLogger } from '../lib/logger';
 import { SettingsOperations } from '../db/bal/business-adapter';
@@ -57,15 +57,16 @@ async function getProxyConfigFromDB(): Promise<ProxyConfig | null> {
 }
 
 /**
- * 获取代理配置
+ * 获取代理配置（仅管理员，密码脱敏）
  * GET /api/network/proxy
  */
-router.get('/proxy', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+router.get('/proxy', authMiddleware, noTokenAuth('network proxy'), adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const config = await getProxyConfigFromDB();
+  const safeConfig = config ? { ...config, password: config.password ? '***' : undefined } : null;
   res.json({
     code: 0,
     msg: 'success',
-    data: config || {
+    data: safeConfig || {
       enabled: false,
       type: 'http',
       host: '',
@@ -75,10 +76,10 @@ router.get('/proxy', authMiddleware, asyncHandler(async (req: Request, res: Resp
 }));
 
 /**
- * 更新代理配置
+ * 更新代理配置（仅管理员）
  * POST /api/network/proxy
  */
-router.post('/proxy', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+router.post('/proxy', authMiddleware, noTokenAuth('network proxy'), adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const { enabled, type, host, port, username, password } = req.body;
 
   const config: ProxyConfig = {
@@ -90,20 +91,15 @@ router.post('/proxy', authMiddleware, asyncHandler(async (req: Request, res: Res
     password: password || undefined,
   };
 
-  const configJson = JSON.stringify(config);
-  log.debug('Saving proxy config to database', { configJson });
-  await SettingsOperations.set('proxy_config', configJson);
-
-  // 验证保存是否成功
-  const verifyValue = await SettingsOperations.get('proxy_config');
-  log.debug('Verify proxy config saved', { verifyValue: verifyValue || 'null' });
+  // 不记录配置明文，避免代理凭据进入日志
+  await SettingsOperations.set('proxy_config', JSON.stringify(config));
 
   log.info('Proxy configuration updated', { enabled, type, host, port });
 
   res.json({
     code: 0,
     msg: 'success',
-    data: config,
+    data: { ...config, password: config.password ? '***' : undefined },
   });
 }));
 

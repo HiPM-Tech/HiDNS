@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { sendSmtpEmail } from './smtp';
 
 type VerificationEntry = {
@@ -13,7 +14,7 @@ function keyOf(userId: number, email: string): string {
 }
 
 function randomCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(crypto.randomInt(100000, 1000000));
 }
 
 export async function sendEmailVerificationCode(userId: number, email: string): Promise<void> {

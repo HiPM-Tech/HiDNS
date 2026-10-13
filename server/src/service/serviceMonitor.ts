@@ -632,14 +632,56 @@ async function updateFailoverDnsRecord(domainId: number, config: DnsFailoverConf
   }
 }
 
+/**
+ * 校验监控目标：仅允许 IP（含 IPv6）或合法域名。
+ * 目标值会进入 ping 进程参数与 HTTP URL，必须先做白名单校验。
+ */
+function isSafeMonitorHost(value: string): boolean {
+  if (!value || value.length > 253) return false;
+  const net = require('net');
+  if (net.isIP(value)) return true;
+  // 合法域名：标签由字母数字与连字符组成，且不以连字符开头/结尾
+  return /^(?=.{1,253}$)([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$/.test(value);
+}
+
+/**
+ * 以 spawn 参数数组方式调用 ping，不经过 shell，杜绝命令注入。
+ */
+function pingHost(host: string): Promise<boolean> {
+  const { spawn } = require('child_process');
+  const args = process.platform === 'win32'
+    ? ['-n', '1', '-w', '3000', host]
+    : ['-c', '1', '-W', '3', host];
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: NodeJS.Timeout;
+    const done = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const child = spawn('ping', args, { stdio: ['ignore', 'pipe', 'ignore'] });
+    let stdout = '';
+    timer = setTimeout(() => {
+      try { child.kill(); } catch { /* 进程可能已退出 */ }
+      done(false);
+    }, 8000);
+    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.on('error', () => done(false));
+    child.on('close', () => done(/ttl=|time[=<]/i.test(stdout)));
+  });
+}
+
 async function checkIpAvailabilitySimple(ip: string, method: string, port: number, path: string): Promise<boolean> {
   try {
+    // 统一校验目标地址，防止命令注入与非法 URL（ip 会进入 ping 参数或 HTTP URL）
+    if (!isSafeMonitorHost(ip)) {
+      log.warn('Invalid monitor target rejected', { target: ip, method });
+      return false;
+    }
     if (method === 'ping') {
-      const { exec } = require('child_process');
-      const util = require('util');
-      const execAsync = util.promisify(exec);
-      const { stdout } = await execAsync(`ping -n 1 -w 3000 ${ip}`);
-      return stdout.includes('TTL=') || stdout.includes('time=');
+      return await pingHost(ip);
     } else if (method === 'tcp') {
       const net = require('net');
       return new Promise((resolve) => {

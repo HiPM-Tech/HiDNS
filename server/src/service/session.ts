@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { SessionOperations, getDbType } from '../db/bal/business-adapter';
 
 /**
@@ -93,7 +94,7 @@ export async function cleanupExpiredSessions(): Promise<number> {
  * 生成会话 ID
  */
 function generateSessionId(): string {
-  return `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return `sess_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
 }
 
 /**

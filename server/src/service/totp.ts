@@ -50,6 +50,20 @@ export function verifyTOTPToken(secret: string, token: string): boolean {
 }
 
 /**
+ * 使用用户已存储的密钥校验 TOTP 令牌。
+ * 用于关闭 2FA 等敏感操作前的二次确认——调用方不得自行传入 secret。
+ */
+export async function verifyTOTPTokenForUser(userId: number, token: unknown): Promise<boolean> {
+  if (!token || typeof token !== 'string') return false;
+  const result = await TOTPOperations.getByUser(userId);
+  if (!result) return false;
+  if (!(result as { enabled: number | boolean }).enabled) return false;
+  const secret = (result as { secret?: string }).secret;
+  if (!secret) return false;
+  return verifyTOTPToken(secret, token);
+}
+
+/**
  * 启用 TOTP 2FA
  */
 export async function enableTOTP(userId: number, secret: string, backupCodes: string[]): Promise<void> {

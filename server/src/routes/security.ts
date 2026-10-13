@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authMiddleware, adminOnly, noTokenAuth } from '../middleware/auth';
 import { SecurityPolicyOperations, TrustedDeviceOperations, getDbType, UserOperations } from '../db/bal/business-adapter';
 import { getSecurityPolicy, updateSecurityPolicy, checkPasswordStrength, validatePassword, requires2FA, has2FAEnabled } from '../service/securityPolicy';
-import { generateTOTPSecret, enableTOTP, disableTOTP, getTOTPStatus, verifyTOTPToken } from '../service/totp';
+import { generateTOTPSecret, enableTOTP, disableTOTP, getTOTPStatus, verifyTOTPToken, verifyTOTPTokenForUser, verifyBackupCode } from '../service/totp';
 import { createLogger } from '../lib/logger';
 import { wsService } from '../service/websocket';
 
@@ -222,10 +222,16 @@ router.post('/2fa/disable', authMiddleware, async (req, res) => {
     const userId = (req as any).user.userId;
     const { token } = req.body;
 
-    // 验证当前 TOTP 令牌才能禁用
     const status = await getTOTPStatus(userId);
     if (!status.enabled) {
       return res.status(400).json({ code: 1, msg: '2FA is not enabled' });
+    }
+
+    // 必须校验当前 TOTP 令牌或备用码，否则会话一旦被窃取即可直接关闭 2FA
+    const totpOk = await verifyTOTPTokenForUser(userId, token);
+    const backupOk = totpOk ? false : await verifyBackupCode(userId, String(token || ''));
+    if (!totpOk && !backupOk) {
+      return res.status(400).json({ code: 1, msg: 'Invalid verification code' });
     }
 
     await disableTOTP(userId);

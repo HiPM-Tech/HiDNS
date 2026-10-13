@@ -3260,7 +3260,7 @@ export const TOTPOperations = {
   /** 获取 TOTP 配置 */
   async getByUser(userId: number): Promise<QueryResult | undefined> {
     return getInternal(
-      'SELECT enabled, backup_codes FROM user_2fa WHERE user_id = ? AND type = ?',
+      'SELECT enabled, secret, backup_codes FROM user_2fa WHERE user_id = ? AND type = ?',
       [userId, 'totp'],
       { operation: 'TOTP.getByUser', table: 'user_2fa' }
     );
