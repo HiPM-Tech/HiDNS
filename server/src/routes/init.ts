@@ -93,7 +93,9 @@ router.get('/status', async (req: Request, res: Response) => {
     res.json({
       code: 0,
       data: {
-        initialized: state === 'initialized',
+        // initialized 采用与守卫一致的判定（含磁盘标记），
+        // 避免数据库不可达时前端误认为可以重新安装
+        initialized: isSystemInitialized(),
         dbInitialized: dbReachable,
         hasUsers: state === 'initialized',
         // 必须区分「数据库不可达」与「未初始化」，前端据此决定是否跳转安装向导
