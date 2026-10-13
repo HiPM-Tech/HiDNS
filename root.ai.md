@@ -472,6 +472,7 @@
     - 状态必须为**三态**：`initialized`（users 表存在且有用户）、`uninitialized`（数据库可达但尚未初始化）、`unreachable`（连接或查询失败）。
     - **`unreachable` 绝不等同于 `uninitialized`**。数据库故障是故障，不是首次部署。判定函数（`isDbInitialized()`、`hasUsers()`）失败时必须**抛出异常**，严禁 `catch` 后返回 `false`。
     - 已初始化标记是**粘性**的：一旦确认 `initialized`，后续数据库抖动不得使其回退为未初始化状态，只能进入降级模式。
+    - 该标记**必须持久化到磁盘**（默认 `data/.initialized`，可用 `HIDNS_INIT_MARKER` 覆盖），并在进程启动时立即读取。**禁止仅依赖内存状态**：否则进程重启且数据库恰好不可达时，初始化入口会被重新打开。若确需重新安装，由运维显式删除该标记文件。
     - 启动时若判定为 `unreachable`，必须进入**降级模式**（业务路由 503、初始化入口关闭）并周期性重连，恢复后重新判定；**不得**打印“Running in initialization mode”。
 3. 数据库连接生命周期（强制约束）
     - 连接管理器 `server/src/db/dal/connection.ts` 为单例。**`disconnect()` 不得销毁单例**：否则紧随其后的 `connect()` 会落在被遗弃的旧实例上，而模块级 `getConnection()` 会取到一个未连接的新管理器，造成“重连成功”日志与不可用连接态并存。
