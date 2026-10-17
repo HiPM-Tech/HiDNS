@@ -145,10 +145,73 @@
 | `records` | 指定域名的记录（**依赖上游选择，形成级联**） | `DnsProviderService.getRecords` |
 | `recordTypes` | 厂商支持的记录类型 | `registry` 的 `capabilities.recordTypes` |
 | `lines` | 线路 | `DnsProviderService.getLines` |
-| `tunnels` | Cloudflare Tunnel / 源站组 | 现有 tunnels 服务 |
-| `workflows` | 其他工作流（用于串联） | `WorkflowOperations` |
+| **`originGroups`** | **EdgeOne/DNSPod 源站组**（见 §3.7） | **EdgeOne 适配器新增能力** |
+| **`originServers`** | 指定源站组下的源站（级联依赖 `originGroupId`） | 同上 |
+| `workflows` | ~~其他工作流（用于串联）~~ | **v1 不提供**（禁止工作流调用工作流，见 §7.5） |
 
-> **级联候选**：`records`、`lines` 依赖前一字段。前端按依赖顺序串行获取，未就绪时显示禁用态。这直接支撑"联动"体验。
+> **级联候选**：`records`、`lines`、`originServers` 依赖前一字段。前端按依赖顺序串行获取，未就绪时显示禁用态。这直接支撑"联动"体验。
+
+### 3.7 「源站组」能力（EdgeOne / DNSPod）
+
+#### 3.7.1 现状（已核实）
+
+- `server/src/lib/dns/providers/tencenteo/adapter.ts` **当前只有 DNS 记录 CRUD**（`getDomainList` / `getDomainRecords` / `addDomainRecord` / `updateDomainRecord` / `deleteDomainRecord` / `setDomainRecordStatus` / `getRecordLines` / `getMinTTL` / `addDomain`），**没有任何源站 / 源站组方法**，`capabilities` 中也无对应字段。
+- 因此「源站组」是**净新增能力**，不是对既有能力的暴露。
+
+#### 3.7.2 鉴权可复用（已核实）
+
+`TencenteoAdapter` 继承 `TencentCloudAdapter`（TC3-HMAC-SHA256 基类，`common.ts`），DNSPod 适配器同源同鉴权：
+
+| 项 | 值 |
+|---|---|
+| 凭据 | `SecretId` / `SecretKey`（腾讯云） |
+| 签名 | TC3-HMAC-SHA256，由 `TencentCloudAdapter.call()` 统一处理 |
+| 端点/服务 | 由子类实现 `endpoint()` / `service()` / `version()` |
+
+**结论**：源站组能力**复用同一套腾讯云鉴权**，无需新增凭据类型；`dns_accounts.config` 结构不变，`SecretId/SecretKey` 既可服务 DNS 记录，也可服务源站组。
+
+> 这意味着 `{鉴权账号}` 在 UI 层就是选择一个 `tencenteo` 或 `dnspod` 类型的账号，运行时由宿主按 `account.type` 分派到对应适配器。**脚本永远不接触 SecretKey**（§5.4）。
+
+#### 3.7.3 新增能力接口（草案）
+
+```ts
+// 扩展 DnsAdapter（仅具备该能力的厂商实现；其余返回空/不支持）
+interface OriginGroupCapability {
+  listOriginGroups(zoneId?: string): Promise<OriginGroup[]>;
+  getOriginGroup(groupId: string): Promise<OriginGroup | null>;
+  updateOriginGroup(groupId: string, patch: OriginGroupPatch): Promise<boolean>;
+  listOriginServers(groupId: string): Promise<OriginServer[]>;
+}
+```
+
+#### 3.7.4 能力声明（registry 扩展）
+
+`DnsCapabilities` 增加字段，**声明式**告知前端某厂商是否支持源站组：
+
+```ts
+interface DnsCapabilities {
+  // ...既有字段
+  originGroup: boolean;   // 新增：是否支持源站组
+}
+```
+
+| 厂商 | `originGroup` |
+|---|---|
+| `tencenteo` | `true`（本次新增） |
+| `dnspod` | 视核对结果置 `true` |
+| 其余 | `false` |
+
+> 这条设计保证：**表达式的候选源 `originGroups` 只对 `originGroup: true` 的账号出现**，避免用户选到不支持的能力。
+
+#### 3.7.5 动作与权限
+
+| 动作 | 所需服务权限 | 说明 |
+|---|---|---|
+| `dns.listOriginGroups` | `records.read` | 只读 |
+| `dns.updateOriginGroup` | `records.write` | **写动作**，受 §4.0 触发源约束 |
+
+> `dns.updateOriginGroup` 在语义上属于「解析目标变更」，与记录写等价，因此**同样禁止由 `domain.changed` 触发**。
+
 
 ### 3.4 求值与安全
 
@@ -198,7 +261,7 @@
 
 | 意图 | 正确做法 |
 |---|---|
-| IP 变了要更新解析 | 用 `record.changed`（或 `schedule` + `http.fetch` 取新 IP）触发 `dns.updateRecord` |
+| IP 变了要更新解析 | 用 `record.changed` 触发 `dns.updateRecord`；或由外部 DDNS 客户端经 API 上报后触发
 | 域名同步后要校验记录 | 用 `domain.changed` 触发**只读**能力（`dns.listRecords`），仅做检查/告警，**不改写** |
 | 需要"跨厂商同步解析" | 用 `record.changed` 触发 `dns.updateRecord` 到另一个账号/域名 |
 
@@ -206,14 +269,18 @@
 
 ### 4.1 触发器类型
 
+> **本版本不设计定时器（`schedule`）。** 工作流只能由真实事件或手动触发，**不存在 cron / 周期调度**。
+
 | 类型 | 说明 | 来源 | 可触发的记录写动作 |
 |---|---|---|---|
 | `record.changed` | 记录创建/更新/删除/启停 | 现有 `record_*` WS 事件 | ✅ 允许 |
 | `domain.changed` | 域名新增/更新/删除/续费 | 现有 `domain_*` 事件 | ❌ **禁止**（见 §4.0） |
 | `ns.changed` | NS 监控状态变化 | `ns_monitor_*` | ✅ 允许 |
 | `whois.expiring` | WHOIS 到期临近 | WHOIS 调度器 | ✅ 允许 |
-| `schedule` | 定时（cron 子集） | 新增调度器 | ✅ 允许 |
 | `manual` | 手动/API 触发 | 新增端点 | ✅ 允许 |
+| ~~`schedule`~~ | ~~定时（cron 子集）~~ | **不设计** | — |
+
+> 注：`whois.expiring` 的检测本身由既有 WHOIS 调度器驱动，这属于**事件源的自然产生**，不是工作流侧的定时器；工作流不持有任何计时器。
 
 ### 4.2 事件载荷规范
 
@@ -265,7 +332,7 @@ interface WorkflowPrincipal {
   maxRole: number;              // 创建者当前角色上限
   allowedServices: string[];    // 触发者的服务权限（API Token 触发时为其权限）
   allowedDomains: number[];     // 触发者的域名权限，空=全部（沿用 token 语义）
-  source: 'ui' | 'token' | 'schedule';
+  source: 'ui' | 'token' | 'manual';
 }
 ```
 
@@ -295,7 +362,7 @@ interface WorkflowPrincipal {
 |---|---|---|
 | `record.changed` | ✅ | ✅ |
 | `domain.changed` | ✅ | ❌ **拒绝（422）** |
-| `ns.changed` / `whois.expiring` / `schedule` / `manual` | ✅ | ✅ |
+| `ns.changed` / `whois.expiring` / `manual` | ✅ | ✅ |
 
 ### 5.4 凭据处理（脚本零接触）
 
@@ -326,11 +393,22 @@ await hd.dns.updateRecord({
 `hd.http.fetch` 固定受以下约束（脚本无法覆盖）：
 
 - 必须走 `fetchWithFallback`（复用现有代理配置与降级逻辑）；
-- **域名/协议白名单**：仅 `https:`（可选允许 `http:`），禁止访问内网地址（`127.0.0.0/8`、`10/8`、`172.16/12`、`192.168/16`、`169.254/16`、`::1`、fc00::/7），防 SSRF；
-- 响应体大小上限（建议 1 MiB）、超时上限（建议 15s）、重定向上限与**重定向目标同样校验**；
+- **出站域名白名单由管理员在系统设置中维护**（见 §5.5.1）；
+- 仅允许 `https:`（可选放开 `http:`）；
+- 无论白名单如何配置，**始终拒绝内网地址**（`127.0.0.0/8`、`10/8`、`172.16/12`、`192.168/16`、`169.254/16`、`::1`、`fc00::/7`），防 SSRF；
+- 响应体大小上限（1 MiB）、超时上限（15s）、重定向上限，且**重定向目标同样逐跳校验**；
 - 出站请求计入审计。
 
-> 这部分与 `root.ai.md` §代理模块 一致：脚本无需也**不应**感知代理配置。
+> 与 `root.ai.md` §代理模块 一致：脚本无需也**不应**感知代理配置。
+
+#### 5.5.1 管理员维护的出站白名单
+
+- 存储：`SettingsOperations` 的 `workflow_http_allowlist`（系统设置项，复用现有设置机制，不新建表）。
+- 形如：`["api.ipify.org", "*.cloudflare.com", "ifconfig.me"]`，支持精确域名与 `*.` 前缀通配。
+- 匹配规则：**主机名精确或后缀匹配**，不匹配 IP 字面量；匹配前先做 IDN→Punycode 归一化（与 `root.ai.md` §外部集成 806 一致）。
+- 空白名单 = **禁止一切出站**（fail-closed），而非"允许一切"。
+- 修改白名单属于系统设置，**仅管理员**，且必须经 `system.read` / 管理员权限校验；变更写入审计。
+- 前端在脚本编辑器中**实时展示当前白名单**，避免用户写完后才发现被拦。
 
 ---
 
@@ -379,16 +457,31 @@ async function main(ctx) {
 - 脚本**不能** `return` 凭据或原始 `http` 响应对象；
 - 脚本内抛错 → 运行标记 `failed`，按工作流策略重试或终止。
 
-### 6.4 与"表达式"的关系（重要）
+### 6.4 脚本启用策略（**仅管理员**）
+
+脚本能力**默认全局关闭**，需管理员显式开启，且分级生效：
+
+| 层 | 规则 |
+|---|---|
+| 全局开关 | 系统设置项 `workflow_script_enabled`（默认 `false`），**仅管理员**可改 |
+| 创建/编辑 | 脚本类动作**仅管理员**可创建与修改；普通用户的工作流只能使用表达式 |
+| 执行 | 即使工作流由普通用户创建，只要含脚本动作，运行身份仍受 §5.2 约束，且脚本自身受沙箱限制 |
+| 审计 | 开启/关闭开关、创建含脚本的工作流，均写入审计 |
+
+> 依据：脚本是攻击面最大的能力（见 §6.2）。**表达式是默认形态，脚本是管理员特权**。
+
+### 6.5 与"表达式"的关系（重要）
 
 本设计提供**两条互补路径**，而非二选一：
 
 | | 表达式（结构化） | 脚本（受限 JS） |
 |---|---|---|
 | 面向 | 常见自动化（90% 场景） | 复杂逻辑、循环、数据处理 |
+| 谁能用 | **所有有 `workflow.write` 的用户** | **仅管理员**（§6.4） |
 | 可审计性 | **完全可枚举**（节点树可逐项校验权限） | 需运行时审计 |
 | 权限预检 | **保存时即可精确判定**需要哪些能力 | 只能运行时判定 |
 | 安全面 | 小（无代码执行） | 较大（沙箱） |
+
 
 **设计主张**：**默认用表达式**；只有表达式无法表达时才降级到脚本，并在 UI 明确标注风险等级。这样既保住可审计性，又保留扩展性。
 
@@ -427,6 +520,28 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | 整体运行超时 | 30s | 5min |
 
 > 重试必须遵守 §日志相关 9 的限流要求。
+
+### 7.5 禁止工作流调用工作流（**禁止项**）
+
+> **本版本不提供 `workflow.call` 能力。** 工作流之间不得互相调用，也不得由工作流触发另一个工作流。
+
+理由：
+
+1. **闭环不可判定**：`A → B → A` 在保存期无法可靠检测，只能靠运行期深度限制兜底，与 §4.0 属同一类设计缺陷。
+2. **权限放大**：被调用工作流的执行身份若取"调用者"，会造成权限在链上叠加；若取"创建者"，则等于让低权限用户借用高权限工作流，违反 §5.2。
+3. **可观测性崩塌**：一次触发引发多跳执行，运行记录、耗时与失败归因都难以还原。
+
+落地方式：
+
+| 层 | 措施 |
+|---|---|
+| 能力注册表 | **不注册** `workflow.call` 动作 |
+| 保存校验 | 表达式/脚本中出现任何工作流调用语法 → 拒绝保存（422） |
+| 脚本沙箱 | `hd` 对象**不暴露** `workflow` 命名空间 |
+| 候选源 | 不提供 `workflows` 候选（§3.3） |
+
+> 若未来确需编排，应引入**显式的 DAG 定义**（拓扑序 + 环检测），而不是自由互调；本版本不做。
+
 
 ---
 
@@ -499,14 +614,14 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 
 | 阶段 | 内容 | 产出 |
 |---|---|---|
-| P0 | 事件总线 + `WorkflowOperations` + 表达式求值器 + `meta` 候选接口 + **§4.0 组合裁决** | 能跑"记录变了 → 更新另一条记录"；非法组合在保存期即被拒 |
-| P1 | 能力代理与鉴权裁决 + dry-run 测试 | 安全边界成型 |
-| P2 | 脚本沙箱（Worker + `hd` 能力） | 复杂场景 |
+| P0 | 事件总线 + `WorkflowOperations` + 表达式求值器 + `meta` 候选接口 + **§4.0 组合裁决** + **EdgeOne 源站组能力** | 能跑"记录变了 → 更新源站组/另一条记录" |
+| P1 | 能力代理与鉴权裁决 + 管理员出站白名单 + dry-run 测试 | 安全边界成型 |
+| P2 | 脚本沙箱（Worker + `hd` 能力），**仅管理员可控开关** | 复杂场景 |
 | P3 | 防循环、重试、审计、前端编辑器 | 可生产 |
 
 **每阶段必须同步**：`docs/api.md`（第一权威）、`root.ai.md` 新增「工作流与脚本沙箱」章节、CHANGELOG。
 
-> **P0 必须包含 §4.0 的强制项**，不能留到 P3。理由：一旦允许非法组合落库，后续每一条运行路径都要重新兜底，成本远高于在保存期拦住。
+> **P0 必须包含 §4.0 的强制项与 §7.5 的禁用项**，不能留到 P3。理由：一旦允许非法组合落库，后续每一条运行路径都要重新兜底，成本远高于在保存期拦住。
 
 ### 12.1 需要同步修订 `root.ai.md` 的章节
 
@@ -515,29 +630,40 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | §服务层 | 增补 `WorkflowEngine` / `WorkflowEventBus` / `CapabilityBroker` 的职责边界 |
 | §数据库 7 | `WorkflowOperations` 纳入操作模块清单 |
 | §路由 | 新增 `/api/workflows`、`/api/workflows/meta/:source` |
-| §安全规范 | 新增「工作流执行身份」「凭据零接触」「脚本沙箱」三条 |
-| 新增章节 | 「工作流与脚本沙箱」：禁止项（域名变动不写记录）、沙箱能力面、出站代理约束 |
+| §安全规范 | 新增「工作流执行身份」「凭据零接触」「脚本沙箱」「管理员出站白名单」四条 |
+| §DNS提供商适配器 | `DnsCapabilities` 增加 `originGroup` 字段；EdgeOne/DNSPod 复用腾讯云 TC3 鉴权 |
+| 新增章节 | 「工作流与脚本沙箱」：两条禁止项（域名变动不写记录、工作流不调用工作流）、沙箱能力面、出站代理约束、脚本仅管理员 |
 
 ---
 
-## 十三、需要你确认的问题
+## 十三、已确认的决策（v1 定稿）
 
-1. **「源站组」映射到什么？**（Q1，影响 `option.source` 设计）
-2. **脚本是否默认开放**，还是仅管理员可启用？（Q2）
-3. **工作流调用工作流**是否 v1 支持？（Q4）
-4. 出站 `http.fetch` 是否需要**域名白名单由管理员配置**，还是仅做内网拦截即可？
-5. **「域名变动不得写记录」是否也要约束只读动作？**（Q5）当前设计只禁写，允许 `domain.changed` 触发 `dns.listRecords` 做校验/告警。
-6. **是否为定时器开放 `schedule` 触发记录写入？** 按 §4.1 目前允许。若你的本意是"只有记录变化才能改记录"，需一并收窄。
+| 编号 | 决策 | 落点 |
+|---|---|---|
+| D1 | 「源站组」由 **EdgeOne/DNSPod 适配器**提供，复用腾讯云鉴权 | §3.7 |
+| D2 | **仅管理员**可启用脚本与创建脚本动作 | §6.4 |
+| D3 | **禁止**工作流调用工作流（不提供 `workflow.call`） | §7.5 |
+| D4 | 出站域名白名单由**管理员在系统设置中维护列表**，空白名单=全禁 | §5.5.1 |
+| D5 | **不设计定时器**，无 `schedule` 触发器 | §4.1 |
+
+## 十四、仍待确认
+
+1. **「域名变动不得写记录」是否也要约束只读动作？**（当前只禁写，允许 `domain.changed` 触发 `dns.listRecords` 做校验/告警）
+2. **`dnspod` 是否也声明 `originGroup: true`？** 需按实际 API 核对后确认（§3.7.4）。
+3. **动作分类方式**（§十五）是否认可，以便 P0 落地。
 
 ---
 
-## 十四、需要你确认的另一个前提
+## 十五、动作分类（P0 落地前置）
 
-§4.0 的禁止项落地需要一个**可判定的动作分类**。建议在能力注册表里给每个动作打标签：
+§4.0 / §7.5 的裁决需要一个**可判定的动作分类**。建议在能力注册表里给每个动作打标签：
 
 ```ts
-type ActionClass = 'dns.record.write' | 'dns.record.read' | 'http' | 'notify' | 'workflow';
+type ActionClass = 'dns.record.write' | 'dns.record.read' | 'origin.write' | 'origin.read' | 'http' | 'notify';
 ```
 
-裁决只需比较 `(triggerType, actionClass)`，避免每次新增动作都要改判断逻辑。若你认可这个分类方式，我会在 P0 一并落地。
+裁决只需比较 `(triggerType, actionClass)`，避免每新增一个动作都要改判断逻辑。
+
+> 注意：`workflow` 类**不出现**在分类里——因为工作流调用已被完全禁用（§7.5）。
+
 
