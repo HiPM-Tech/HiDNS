@@ -145,44 +145,63 @@
 | `records` | 指定域名的记录（**依赖上游选择，形成级联**） | `DnsProviderService.getRecords` |
 | `recordTypes` | 厂商支持的记录类型 | `registry` 的 `capabilities.recordTypes` |
 | `lines` | 线路 | `DnsProviderService.getLines` |
-| **`originGroups`** | **EdgeOne/DNSPod 源站组**（见 §3.7） | **EdgeOne 适配器新增能力** |
-| **`originServers`** | 指定源站组下的源站（级联依赖 `originGroupId`） | 同上 |
+| **`originGroups`** | **EdgeOne 源站组**（边缘加速回源配置，见 §3.7） | **EdgeOne 适配器新增能力** |
+| **`originServers`** | 指定源站组下的回源地址与权重（级联依赖 `originGroupId`） | 同上 |
 | `workflows` | ~~其他工作流（用于串联）~~ | **v1 不提供**（禁止工作流调用工作流，见 §7.5） |
 
 > **级联候选**：`records`、`lines`、`originServers` 依赖前一字段。前端按依赖顺序串行获取，未就绪时显示禁用态。这直接支撑"联动"体验。
 
-### 3.7 「源站组」能力（EdgeOne / DNSPod）
+### 3.7 「源站组」能力（EdgeOne 边缘加速，附加组件）
+
+> **重要界定（据此纠正前一版设计的错误）**：EdgeOne 的**源站组不是域名解析记录**，而是**边缘加速（TEO）侧的源站配置**——用于指定加速回源地址，并支持**回源地址的权重分配**。它与 DNS 记录是两个不同的资源域。
 
 #### 3.7.1 现状（已核实）
 
-- `server/src/lib/dns/providers/tencenteo/adapter.ts` **当前只有 DNS 记录 CRUD**（`getDomainList` / `getDomainRecords` / `addDomainRecord` / `updateDomainRecord` / `deleteDomainRecord` / `setDomainRecordStatus` / `getRecordLines` / `getMinTTL` / `addDomain`），**没有任何源站 / 源站组方法**，`capabilities` 中也无对应字段。
-- 因此「源站组」是**净新增能力**，不是对既有能力的暴露。
+- `server/src/lib/dns/providers/tencenteo/adapter.ts` **当前只有 DNS 记录 CRUD**（`getDomainList` / `getDomainRecords` / `addDomainRecord` / `updateDomainRecord` / `deleteDomainRecord` / `setDomainRecordStatus` / `getRecordLines` / `getMinTTL` / `addDomain`）。
+- 已使用的 API action 仅三个：`DescribeZones` / `DescribeDnsRecords` / `CreateDnsRecord`。
+- **源站组方法一个都没有**，`capabilities` 中也无对应字段。
+- 因此「源站组」是**净新增能力**。
 
 #### 3.7.2 鉴权可复用（已核实）
 
-`TencenteoAdapter` 继承 `TencentCloudAdapter`（TC3-HMAC-SHA256 基类，`common.ts`），DNSPod 适配器同源同鉴权：
+`TencenteoAdapter` 继承 `TencentCloudAdapter`（TC3-HMAC-SHA256 基类），DNSPod 同源同鉴权：
 
 | 项 | 值 |
 |---|---|
 | 凭据 | `SecretId` / `SecretKey`（腾讯云） |
 | 签名 | TC3-HMAC-SHA256，由 `TencentCloudAdapter.call()` 统一处理 |
-| 端点/服务 | 由子类实现 `endpoint()` / `service()` / `version()` |
+| `service()` | `teo` |
+| `endpoint()` | `teo.intl.tencentcloudapi.com`（`site_type=intl`）或 `teo.tencentcloudapi.com` |
+| `version()` | `2022-09-01` |
 
-**结论**：源站组能力**复用同一套腾讯云鉴权**，无需新增凭据类型；`dns_accounts.config` 结构不变，`SecretId/SecretKey` 既可服务 DNS 记录，也可服务源站组。
+**结论**：源站组**复用同一 `teo` 服务的同一套腾讯云鉴权**，无需新增凭据类型；`dns_accounts.config` 结构不变。
 
-> 这意味着 `{鉴权账号}` 在 UI 层就是选择一个 `tencenteo` 或 `dnspod` 类型的账号，运行时由宿主按 `account.type` 分派到对应适配器。**脚本永远不接触 SecretKey**（§5.4）。
+> 这印证了需求的表述：**本质上它是附加组件**——鉴权套用 DNSPod/EdgeOne，但资源域独立于 DNS 解析。
 
-#### 3.7.3 新增能力接口（草案）
+#### 3.7.3 能力接口（草案）
+
+源站组**不挂在 `DnsAdapter` 上**。它是一个独立的附加能力接口，由支持它的适配器**额外实现**（类似 mixin），避免污染 DNS 适配器的语义：
 
 ```ts
-// 扩展 DnsAdapter（仅具备该能力的厂商实现；其余返回空/不支持）
+// 独立能力接口，支持者实现，其余不做
 interface OriginGroupCapability {
   listOriginGroups(zoneId?: string): Promise<OriginGroup[]>;
   getOriginGroup(groupId: string): Promise<OriginGroup | null>;
+  // 更新源站组成员与权重（回源权重分配）
   updateOriginGroup(groupId: string, patch: OriginGroupPatch): Promise<boolean>;
   listOriginServers(groupId: string): Promise<OriginServer[]>;
 }
+
+interface OriginServer {
+  id: string;
+  address: string;      // 回源地址
+  type: 'IP_DOMAIN' | 'ORIGIN';  // 按 EdgeOne 实际枚举校准
+  weight: number;       // 权重，支持加权回源
+  port?: number;
+}
 ```
+
+> 若后续确认 EdgeOne 支持"负载均衡/回源规则"等更细的模型，接口按实际 API 扩展，不预先猜测。
 
 #### 3.7.4 能力声明（registry 扩展）
 
@@ -191,26 +210,40 @@ interface OriginGroupCapability {
 ```ts
 interface DnsCapabilities {
   // ...既有字段
-  originGroup: boolean;   // 新增：是否支持源站组
+  originGroup: boolean;   // 新增：是否支持 EdgeOne 源站组
 }
 ```
 
-| 厂商 | `originGroup` |
-|---|---|
-| `tencenteo` | `true`（本次新增） |
-| `dnspod` | 视核对结果置 `true` |
-| 其余 | `false` |
-
-> 这条设计保证：**表达式的候选源 `originGroups` 只对 `originGroup: true` 的账号出现**，避免用户选到不支持的能力。
-
-#### 3.7.5 动作与权限
-
-| 动作 | 所需服务权限 | 说明 |
+| 厂商 | `originGroup` | 说明 |
 |---|---|---|
-| `dns.listOriginGroups` | `records.read` | 只读 |
-| `dns.updateOriginGroup` | `records.write` | **写动作**，受 §4.0 触发源约束 |
+| `tencenteo` | `true` | 本次新增 |
+| `dnspod` | **`false`**（建议） | DNSPod 是纯解析，**没有**边缘加速源站组；仅鉴权方式相同 |
+| 其余 | `false` | — |
 
-> `dns.updateOriginGroup` 在语义上属于「解析目标变更」，与记录写等价，因此**同样禁止由 `domain.changed` 触发**。
+> **纠正**：前一版设计写「dnspod 视核对结果置 true」是错的。用户已明确"鉴权套用 dnspod 和 edgeone"，指的是**凭据体系相同**，而非 DNSPod 也有源站组。源站组是 EdgeOne（TEO）侧的产品能力。若后续发现 DNSPod 确有同类能力，再单独评估。
+
+这条设计保证：**候选源 `originGroups` 只对 `originGroup: true` 的账号出现**。
+
+#### 3.7.5 动作、权限与触发约束
+
+| 动作 | `ActionClass` | 所需服务权限 | 说明 |
+|---|---|---|---|
+| `origin.listGroups` | `origin.read` | `records.read` | 只读 |
+| `origin.listServers` | `origin.read` | `records.read` | 只读 |
+| `origin.updateGroup` | `origin.write` | `records.write` | 写动作 |
+
+**触发约束**：`origin.write` 与 `dns.record.write` 同属「解析/回源目标变更」，因此**同样禁止由 `domain.changed` 触发**（§4.0 的理由完全适用：语义不成立、必然自激、`third_id` 同步窗口可致错写）。
+
+> `origin.read` 不受 §4.0 约束——按本轮确认，**只读动作不设触发源限制**。
+
+#### 3.7.6 候选值级联
+
+| 候选源 | 参数 | 依赖 |
+|---|---|---|
+| `originGroups` | `accountId` | 需先选账号且该账号 `originGroup: true` |
+| `originServers` | `accountId`, `originGroupId` | 级联依赖 |
+
+前端在账号不支持源站组时**隐藏整条源站组动作**，而不是显示后报错。
 
 
 ### 3.4 求值与安全
@@ -252,7 +285,7 @@ interface DnsCapabilities {
 
 | 层 | 措施 |
 |---|---|
-| 保存校验 | 若 `trigger.type ∈ {domain.changed, domain.created, domain.deleted, domain.renewed}` 且动作含任何 `dns.*Record*` 写能力 → **拒绝保存**，返回 422 并说明原因 |
+| 保存校验 | 若 `trigger.type ∈ {domain.changed, domain.created, domain.deleted, domain.renewed}` 且动作含任何**写能力**（`dns.record.write` 或 `origin.write`）→ **拒绝保存**，返回 422 并说明原因 |
 | 执行前裁决 | `CapabilityBroker` 在每次记录写动作前校验 `(triggerType, action)` 组合，命中即拒绝（防绕过校验直接改库） |
 | 前端 | 选择「域名变动」触发器后，动作面板**隐藏**记录写动作；选择记录写动作时，触发器下拉中禁用域名变动类 |
 | 审计 | 若被拒，记录 `workflow.violation` 审计事件并告警 |
@@ -265,7 +298,7 @@ interface DnsCapabilities {
 | 域名同步后要校验记录 | 用 `domain.changed` 触发**只读**能力（`dns.listRecords`），仅做检查/告警，**不改写** |
 | 需要"跨厂商同步解析" | 用 `record.changed` 触发 `dns.updateRecord` 到另一个账号/域名 |
 
-> 换言之：**只读能力不受此约束**。`domain.changed` 可以触发 `dns.listRecords`、`notify.send`、`http.fetch`、`workflow.vars` 等；被禁的只有**记录写动作**。
+> 换言之：**只读能力完全不受此约束**（本轮已确认）。`domain.changed` 可以触发 `dns.listRecords`、`origin.listGroups`、`notify.send`、`http.fetch`、`workflow.vars` 等；被禁的只有**写动作**（`dns.record.write` 与 `origin.write`）。
 
 ### 4.1 触发器类型
 
@@ -358,7 +391,7 @@ interface WorkflowPrincipal {
 
 **触发源 × 动作 的组合裁决**（在服务权限之上再加一层，见 §4.0.1）：
 
-| 触发源 | 只读 `dns.*` | **记录写 `dns.*Record*`** |
+| 触发源 | 只读（`*.read`） | **写（`dns.record.write` / `origin.write`）** |
 |---|---|---|
 | `record.changed` | ✅ | ✅ |
 | `domain.changed` | ✅ | ❌ **拒绝（422）** |
@@ -640,17 +673,18 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 
 | 编号 | 决策 | 落点 |
 |---|---|---|
-| D1 | 「源站组」由 **EdgeOne/DNSPod 适配器**提供，复用腾讯云鉴权 | §3.7 |
+| D1 | 「源站组」是 **EdgeOne 边缘加速（TEO）的源站/回源配置**，非 DNS 解析记录；复用 DNSPod/EdgeOne 的腾讯云鉴权，本质是**附加组件** | §3.7 |
 | D2 | **仅管理员**可启用脚本与创建脚本动作 | §6.4 |
 | D3 | **禁止**工作流调用工作流（不提供 `workflow.call`） | §7.5 |
 | D4 | 出站域名白名单由**管理员在系统设置中维护列表**，空白名单=全禁 | §5.5.1 |
 | D5 | **不设计定时器**，无 `schedule` 触发器 | §4.1 |
+| D6 | **只读动作不设触发源限制**；仅写动作受 §4.0 约束 | §4.0.1 |
+| D7 | **DNSPod 不声明 `originGroup`**（纯解析，无边缘加速源站组），仅鉴权体系相同 | §3.7.4 |
 
 ## 十四、仍待确认
 
-1. **「域名变动不得写记录」是否也要约束只读动作？**（当前只禁写，允许 `domain.changed` 触发 `dns.listRecords` 做校验/告警）
-2. **`dnspod` 是否也声明 `originGroup: true`？** 需按实际 API 核对后确认（§3.7.4）。
-3. **动作分类方式**（§十五）是否认可，以便 P0 落地。
+1. **`ActionClass` 分类方式**（§十五）是否认可，以便 P0 落地组合裁决。
+2. EdgeOne 源站组的**实际 API action 名称与字段**（如 `DescribeAccelerationDomains` / 源站组相关 action）需按官方文档核对后补入 §3.7.3，本文只给接口形状、不臆造 action。
 
 ---
 
@@ -659,11 +693,18 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 §4.0 / §7.5 的裁决需要一个**可判定的动作分类**。建议在能力注册表里给每个动作打标签：
 
 ```ts
-type ActionClass = 'dns.record.write' | 'dns.record.read' | 'origin.write' | 'origin.read' | 'http' | 'notify';
+type ActionClass =
+  | 'dns.record.read'    // 记录只读
+  | 'dns.record.write'   // 记录写（受 §4.0 约束）
+  | 'origin.read'        // 源站组只读
+  | 'origin.write'       // 源站组写（受 §4.0 约束）
+  | 'http'
+  | 'notify';
 ```
 
 裁决只需比较 `(triggerType, actionClass)`，避免每新增一个动作都要改判断逻辑。
 
 > 注意：`workflow` 类**不出现**在分类里——因为工作流调用已被完全禁用（§7.5）。
+
 
 
