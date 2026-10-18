@@ -254,6 +254,28 @@ HiDNS 全局主核心（types/namespace.ts）
 
 **回归**：全量 `61 passed | 26 skipped`，12 个失败文件与既有基线完全一致（均为 `No test suite found` 或既有 DB 初始化问题）。
 
+### P1 · 已完成（2026-10-19）
+
+| 动作 | 状态 | 说明 |
+|---|---|---|
+| `http.outbound.fetch` | ✅ | 出站白名单 + 内网拒绝 + 逐跳重定向 + 大小/超时 |
+| `var.workflow.get` | ✅ | 仅读运行期变量快照 |
+| `dns.record.list/get/create/update/delete/setStatus/batch` | ✅ | 经 `DnsProviderService` + BAL；写入后发布事件（`actor.source='workflow'`） |
+| `dns.domain.list` | ✅ | 经 `DomainOperations.getUserAccessibleDomains`，按 `allowedDomains` 过滤 |
+| `notify.channel.send` | ✅ | 复用既有 `sendNotification`（发往全部已配置渠道） |
+
+**权限纵深**：`dns.record.*` 在 `authorize()` 之后仍按解析出的**真实域名**再校验一次（`assertDomainAllowed`），防止 `args.domain` 与 `resource.domainName` 不一致时越权。
+
+**如实记录的边界**：
+
+| 项 | 说明 |
+|---|---|
+| `notify.channel.send` 不支持指定渠道 | 底层服务为广播式；按渠道发送需改造 `notification.ts`，留待 P3 |
+| `dns.record.delete` 不发布事件 | 路由/适配器不返回记录类型，§4.0.5 fail-closed 下无法构造事件 |
+| `dns.record.batch` 上限 50 条 | 防批量动作打穿配额；超限 422 |
+
+**测试**：`dns-record.test.ts` 8 用例（域名越权 403、不存在 404、create 发布事件、update 携带旧值、setStatus 非法值 400、batch 超限 422、delete 不发事件）。工作流测试合计 **49 用例**；全量 `69 passed | 26 skipped`，12 个失败文件与基线一致。
+
 ### 待办
 
 | 项 | 说明 |
