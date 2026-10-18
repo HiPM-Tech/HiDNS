@@ -24,36 +24,44 @@
 ## 二、目标结构
 
 ```
-server/src/workflow/actions/
-├── namespaces.ts            L0 核心白名单（TOP_NAMESPACES，唯一来源）
-├── validate-names.ts        L2 校验逻辑（单一定义源，测试与 CLI 共用）
-├── modules/                 L1 模块认领 + L2 二次下派
-│   ├── dns/index.ts         namespace + 聚合本模块动作
-│   ├── ext/index.ts         二级前缀动态取自 registry 的 providerType
-│   ├── http/index.ts
-│   ├── notify/index.ts
-│   └── var/index.ts
-├── dns/record.ts            L3 实现（按二级前缀分文件）
-├── dns/domain.ts
-├── http/outbound.ts
-├── notify/channel.ts
-├── var/workflow.ts
-├── registry.ts              汇总 MODULES → ALL_ACTIONS（唯一动作索引）
-└── __tests__/namespaces.test.ts
+server/src/
+├── types/namespace.ts       ★ 全局主核心：TOP_NAMESPACES 白名单 + NamespaceClaim
+├── namespace-registry.ts    ★ 组合根：ALL_NAMESPACE_CLAIMS（汇总各子系统认领）
+└── workflow/actions/
+    ├── namespaces.ts        工作流认领：NamespaceClaim[]（只是认领方）
+    ├── validate-names.ts    L2 校验逻辑（单一定义源，测试与 CLI 共用）
+    ├── modules/             L1 认领 + L2 二次下派
+    │   ├── dns/index.ts     认领 dns + 聚合本模块动作
+    │   ├── ext/index.ts     认领 ext，二级前缀动态取 PROVIDER_TYPES
+    │   ├── http/index.ts
+    │   ├── notify/index.ts
+    │   └── var/index.ts
+    ├── dns/record.ts        L3 实现（按二级前缀分文件）
+    ├── dns/domain.ts
+    ├── http/outbound.ts
+    ├── notify/channel.ts
+    ├── var/workflow.ts
+    ├── registry.ts          汇总 MODULES → ALL_ACTIONS（唯一动作索引）
+    └── __tests__/namespaces.test.ts
 ```
 
 ```
-核心 TOP_NAMESPACES
-  └─ 统一下派 → modules/<m>/index.ts 认领 top（一对一）
-       └─ 二次下派 → namespace.second[]
-            └─ L3 实现：动作名前两段必须命中 (top, second)
+HiDNS 全局主核心（types/namespace.ts）
+  └─ TOP_NAMESPACES 白名单（唯一来源，封闭）
+       └─ 统一下派：任一子系统认领 top（一对一，经组合根汇总）
+            └─ 子系统二次下派 → second[]
+                 └─ L3 实现：动作名前两段必须命中 (top, second)
 ```
+
+> **白名单归全局主核心，不归工作流。** 工作流只是认领方之一。若把 `TOP_NAMESPACES` 放进 `workflow/actions/`，等于让工作流给自己发牌照——`dns` 是 HiDNS 的能力域而非工作流私产；将来 MCP、插件系统同样要认领命名空间时，会与工作流的私有白名单冲突且无从仲裁。
 
 ## 三、变更清单
 
 | 类型 | 文件 | 说明 |
 |---|---|---|
-| 新增 | `workflow/actions/namespaces.ts` | 核心白名单 + `ModuleNamespaceDecl` + `ActionNameOf` |
+| 新增 | `types/namespace.ts` | **全局主核心**：`TOP_NAMESPACES` + `RESERVED_TOP_NAMESPACES` + `NamespaceClaim` + `ActionNameOf` |
+| 新增 | `namespace-registry.ts` | **组合根**：`ALL_NAMESPACE_CLAIMS`，允许依赖各子系统 |
+| 新增 | `workflow/actions/namespaces.ts` | 工作流认领的 `NamespaceClaim[]`（**不定义白名单**） |
 | 新增 | `workflow/actions/validate-names.ts` | 5 类命名空间违规 + 重名冲突 |
 | 新增 | `workflow/actions/modules/*/index.ts`（5 个） | 模块认领与二次下派 |
 | 新增 | `workflow/actions/{dns,http,notify,var}/*.ts`（5 个） | L3 实现 |
@@ -72,7 +80,7 @@ server/src/workflow/actions/
 
 | 期 | 内容 | 产出 | 验收 | 回滚 |
 |---|---|---|---|---|
-| **P0** | 命名空间骨架 | `namespaces.ts`、`modules/*`、`validate-names.ts`、CI 门禁 | `tsc` 绿；`check:actions` 绿；未接引擎，**无运行时行为变化** | 删 `workflow/actions/` 即可，零影响 |
+| **P0** | 命名空间骨架 | `types/namespace.ts`（主核心白名单）、`namespace-registry.ts`（组合根）、`workflow/actions/namespaces.ts`（认领）、`validate-names.ts`、CI 门禁 | `tsc` 绿；`check:actions` 绿；未接引擎，**无运行时行为变化** | 删新增文件即可，零影响 |
 | **P1** | 内置动作迁入注册表 | 5 个 L3 实现（声明 + 桩）；设计文档动作表改为从注册表生成 | 注册表动作集合与文档表格**逐条一致**（CI 双向断言） | 移除 `registry.ts` 导出，业务路径未接 |
 | **P2** | 提供商扩展能力 | `extraCapabilities?` 泛型化 + tencenteo `extra.ts` | 21 家无额外声明；tencenteo 4 个动作；CI 绿 | 删 `extraCapabilities` 字段即可 |
 | **P3** | 消费方接入 | 引擎分发、Broker 裁决、前端渲染、`hd.*` 自动生成 | 端到端 dry-run 通过 | 逐消费方开关退回 |
@@ -86,7 +94,7 @@ server/src/workflow/actions/
 | 级 | 位置 | 检查 | 失败表现 |
 |---|---|---|---|
 | **L1 编译期** | 各 L3 实现文件 | 动作名标注为 `ActionNameOf<typeof xNamespace>`，前缀与二级前缀由模板类型强制 | `tsc` 报错 |
-| **L2 声明级** | `validate-names.ts` | 白名单成员、一对一认领、预留未用、二级前缀不重复、跨提供商重名 | CI 红 |
+| **L2 声明级** | `validate-names.ts` | 白名单成员、一对一认领、**每个非预留前缀都被认领**、预留未用、二级前缀不重复、跨提供商重名 | CI 红 |
 | **L3 实现级** | `__tests__/namespaces.test.ts` | 见 5.2 | CI 红 |
 
 ### 5.2 L3 实现级校验（落到各子模块）
@@ -144,7 +152,9 @@ server/src/workflow/actions/
 
 审计时逐条核对，任一不满足即打回：
 
-- [ ] `TOP_NAMESPACES` 全仓**只有一处**定义，无第二份副本
+- [ ] `TOP_NAMESPACES` 全仓**只有一处**定义，且位于 `server/src/types/namespace.ts`（全局主核心），**不在 `workflow/` 下**
+- [ ] 主核心 `types/namespace.ts` **不 import 任何子系统**；依赖方向单向（子系统 → 主核心）
+- [ ] 认领汇总只发生在组合根 `namespace-registry.ts`，无第二处汇总
 - [ ] 5 个模块各认领**恰好一个**顶级前缀，无重复认领
 - [ ] 4 个预留前缀未被任何模块认领、未出现在任何动作名中
 - [ ] `ext` 模块的二级前缀**动态**取自 `PROVIDER_TYPES`，未硬编码
