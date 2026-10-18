@@ -350,6 +350,9 @@ export function RecordForm({ lines, recordTypes, provider, initial, existingReco
     [recordTypes],
   );
 
+  // 华为云不支持修改线路
+  const isLineDisabled = providerType === 'huawei' && formKey !== 'create';
+
   // lineOptions 必须缓存，否则每次按键都会让线路下拉重新渲染上千条
   const lineOptions = useMemo(() => {
     if (proxiable) {
@@ -363,6 +366,7 @@ export function RecordForm({ lines, recordTypes, provider, initial, existingReco
     }
     return [{ label: t('records.defaultLine') || '默认', value: '0' }];
   }, [proxiable, hasMultiLine, lines, t]);
+  const firstLine = lineOptions[0];
 
   // 线路数较多时启用搜索过滤，避免下拉面板过长导致难以定位
   // 注意：TDesign Select 的 scroll.type='virtual' 不响应滚轮（仅响应滚动条拖动），
@@ -516,7 +520,8 @@ export function RecordForm({ lines, recordTypes, provider, initial, existingReco
             tips={!proxiable && !hasMultiLine ? t('records.singleLineHint') || '该提供商仅支持默认线路' : undefined}
           >
             <Select
-              value={String(line ?? '0')}
+              disabled={isLineDisabled}
+              value={String(line ?? firstLine?.value ?? '0')}
               options={lineOptions}
               filterable={lineNeedsFilter}
               onChange={handleLineChange}

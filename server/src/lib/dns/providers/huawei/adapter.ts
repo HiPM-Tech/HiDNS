@@ -289,7 +289,7 @@ export class HuaweiAdapter extends BaseAdapter {
         name: hostName,
         type: this.convertType(type),
         records: records,
-        line: line || '0',
+        line: line || 'default_view',
         ttl: ttl,
         description: remark,
       };
@@ -312,6 +312,7 @@ export class HuaweiAdapter extends BaseAdapter {
     }
   }
 
+  // 华为云不支持修改记录线路
   async updateDomainRecord(
     recordId: string,
     name: string,
@@ -340,7 +341,6 @@ export class HuaweiAdapter extends BaseAdapter {
         name: hostName,
         type: this.convertType(type),
         records: records,
-        line: line || '0',
         ttl: ttl,
         description: remark,
       };
@@ -384,13 +384,22 @@ export class HuaweiAdapter extends BaseAdapter {
   }
 
   async getRecordLines(): Promise<Array<{ id: string; name: string }>> {
-    // Return basic lines, full list requires loading from JSON file
+    try {
+      const res = await this.client.request('GET', '/v2.1/system-lines');
+      if (!Array.isArray(res.lines)) {
+        throw new Error('Invalid response format for system-lines');
+      }
+      return res.lines.map((row) => ({ id: row.id, name: row.name }));
+    } catch (e) {
+      log.warn('getRecordLines failed', {
+        error: e instanceof Error ? e.message : String(e)
+      });
+    }
+    // Return basic lines
     return [
-      { id: '0', name: '默认' },
-      { id: '1', name: '电信' },
-      { id: '2', name: '联通' },
-      { id: '3', name: '移动' },
-      { id: '4', name: '教育网' },
+      { id: 'default_view', name: '全网默认' },
+      { id: 'CN', name: '中国大陆' },
+      { id: 'Abroad', name: '境外' },
     ];
   }
 
