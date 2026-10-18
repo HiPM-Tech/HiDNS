@@ -8,6 +8,7 @@ const DNSNEKO_RECORD_TYPES: RecordType[] = [
   'OPENPGPKEY', 'DS', 'TLSA', 'SSHFP', 'RP', 'HINFO', 'LOC',
 ];
 import * as Adapters from './index';
+import type { ProviderExtraCapability } from './extra-types';
 
 export interface DnsCapabilities {
   remark: boolean;
@@ -45,13 +46,18 @@ export interface ProviderDefinition {
   capabilities: ProviderCapabilities;
   configFields: ProviderConfigField[];
   adapterFactory: (config: Record<string, string>) => DnsAdapter;
+  /**
+   * 提供商独有能力（可选）。核心只校验命名与唯一性，不解释语义。
+   * 设计依据：docs/WORKFLOW_ENGINE_DESIGN.md §3.7.4 / §3.7.6
+   */
+  extraCapabilities?: ProviderExtraCapability[];
 }
 
 export type ProviderInfo = Omit<ProviderDefinition, 'adapterFactory'>;
 
 // ─── 预设记录类型（可直接用于 recordTypes） — 定义见 record-types.ts ────
 
-const providerDefinitions: ProviderDefinition[] = [
+export const providerDefinitions: ProviderDefinition[] = [
   {
     type: 'aliyun',
     name: 'provider.aliyun',
@@ -329,6 +335,12 @@ function validateDefinitions(definitions: ProviderDefinition[]): void {
 validateDefinitions(providerDefinitions);
 
 export const providerDefinitionMap = new Map(providerDefinitions.map((definition) => [definition.type, definition]));
+
+/**
+ * 全部提供商类型。供命名空间二次下派（ext 模块的二级前缀）使用。
+ * 设计依据：docs/WORKFLOW_ENGINE_DESIGN.md §3.7.4
+ */
+export const PROVIDER_TYPES: readonly string[] = providerDefinitions.map((definition) => definition.type);
 
 export function getProviderDefinitions(): ProviderDefinition[] {
   return providerDefinitions;

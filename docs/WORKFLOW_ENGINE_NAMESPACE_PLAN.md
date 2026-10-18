@@ -191,3 +191,46 @@ HiDNS 全局主核心（types/namespace.ts）
 
 1. `ActionClass` 枚举的最终形态（`dns.record.read/write`、`ext.read/write`、`http`、`notify`）——P1 前置。
 2. `modules/<m>` 的 `actions` 汇总方式：静态展开 vs 运行时聚合。建议静态展开（便于 tree-shaking 与编译期类型收窄）。
+---
+
+## 十、执行记录
+
+### P0 · 已完成（2026-10-19）
+
+| 交付物 | 路径 | 状态 |
+|---|---|---|
+| 全局主核心白名单 | `server/src/types/namespace.ts` | ✅ |
+| 组合根 | `server/src/namespace-registry.ts` | ✅ |
+| 工作流认领 | `server/src/workflow/actions/namespaces.ts` | ✅ |
+| 五个模块认领与聚合 | `server/src/workflow/actions/modules/{dns,ext,http,notify,var}.ts` | ✅ |
+| L3 动作声明与桩 | `server/src/workflow/actions/{dns,http,notify,var}/*.ts` | ✅ |
+| 动作注册表 | `server/src/workflow/actions/registry.ts` | ✅ |
+| 校验逻辑（单一定义源） | `server/src/workflow/actions/validate-names.ts` | ✅ |
+| 鉴权闸门 | `server/src/workflow/auth.ts`（`ActionContext` 私有 brand + 八步裁决） | ✅ |
+| 动作契约与品牌类型 | `server/src/workflow/actions/types.ts`（`defineAction`） | ✅ |
+| CI 门禁测试 | `server/src/workflow/actions/__tests__/namespaces.test.ts`（6 用例） | ✅ |
+| CI 接线 | `.github/workflows/test-suite.yml` 独立步骤；移除 `|| echo` 容错 | ✅ |
+
+**验证证据**：
+
+| 项 | 结果 |
+|---|---|
+| `tsc --noEmit` | 通过（0 错误） |
+| `check:actions` | 6 用例全过 |
+| **P-2 门禁有效性** | 注入重名 `dns.record.list` → 2 个用例失败、退出码 1；还原后恢复 6 通过 |
+| 全量测试 | 12 失败文件 / 26 跳过，与既有基线**完全一致**（失败均为 `No test suite found` 的既有配置问题，非断言失败） |
+
+### 执行中发现的既有缺陷（已修）
+
+`internal.ts` 与 `DnsHelper` 之间存在**循环依赖**：`internal → DnsHelper → providers/index → <adapter> → internal`。ESM 下 `export ... from` 会被提升，导致 adapter 求值时 `createProviderAdapterLogger` 仍处于未初始化状态。
+
+该缺陷在既有入口顺序下未暴露，但**任何先加载 `providers/registry` 的代码都会触发**（本次 P0 的 `ext` 模块正是如此）。已移除 `internal.ts` 对 `DnsHelper` 的再导出以打断环路；四个真实调用方本就直连 `DnsHelper`，无行为变化。
+
+### 待办
+
+| 项 | 说明 |
+|---|---|
+| P1 | 内置动作接入真实实现（当前为 `ActionNotImplementedError` 桩） |
+| P2 | `tencenteo` 的 `extra.ts`（`ext.tencenteo.originGroup.*`） |
+| P3 | 引擎、Broker、前端、DSL facade 接入 |
+| P-3 | 修 `root.ai.md` §302 的陈旧描述 |

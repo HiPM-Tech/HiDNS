@@ -65,10 +65,9 @@ export type {
 
 // ============================================================================
 // Helper Functions
+// 注意：此处**不得**再导出 ../DnsHelper。
+// 依赖链 DnsHelper → providers/index → <adapter> → internal 与
+// internal → DnsHelper 构成循环，ESM 下 export-from 会被提升，
+// 导致 adapter 执行时 createProviderAdapterLogger 尚未初始化（TDZ）。
+// 需要 createAdapter 的调用方请直接 import '../lib/dns/DnsHelper'。
 // ============================================================================
-export {
-  createAdapter,
-  getProvider,
-  getProviders,
-  isStubProvider,
-} from '../DnsHelper';

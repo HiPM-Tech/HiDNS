@@ -57,6 +57,11 @@ export const AVAILABLE_SERVICES = [
   'tunnels.read',
   'tunnels.write',
   'system.read',
+  'network.fetch',
+  'notify.send',
+  'workflow.read',
+  'workflow.write',
+  'workflow.run',
 ] as const;
 
 export type AvailableService = typeof AVAILABLE_SERVICES[number];

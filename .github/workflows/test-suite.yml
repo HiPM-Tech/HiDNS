@@ -102,6 +102,11 @@ jobs:
           pnpm --filter dnsmgr-server run build
           pnpm --filter client run build
 
+      # 动作命名空间与唯一性门禁。**不得**附加 || echo / || true 等容错，
+      # 否则该校验形同虚设（历史教训：Test Suite 曾经吞掉退出码）。
+      - name: Check action namespaces & uniqueness
+        run: pnpm --filter dnsmgr-server run check:actions
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -146,7 +151,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run unit tests
-        run: pnpm --filter dnsmgr-server run test || echo "Server unit tests completed"
+        run: pnpm --filter dnsmgr-server run test
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5

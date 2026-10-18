@@ -11,6 +11,7 @@
         "build": "tsc && node scripts/copy-icons.js",
         "start": "node dist/app.js",
         "test": "vitest run",
+        "check:actions": "vitest run src/workflow/actions/__tests__/namespaces.test.ts",
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage",
         "test:init": "ts-node scripts/test-init.ts",
