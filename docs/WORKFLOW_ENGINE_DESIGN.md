@@ -71,6 +71,12 @@
 | §安全规范：细粒度权限 | 复用 `AVAILABLE_SERVICES` 与 `TokenPayload`（见 §5） |
 | §提交相关 3：根目录不放 MD | 本文档位于 `docs/` |
 | §外部集成 768：`docs/api.md` 是第一权威 | 新增端点必须同步 `docs/api.md`（见 §9 交付清单） |
+| §应用初始化 470：系统状态统一由 `systemState` 维护 | 引擎与 Broker 一律经 `isSystemInitialized()` 判定，**禁止**自行探测数据库或初始化态；事件总线订阅必须在 `start()` 内注册，**禁止模块作用域副作用**（`groupedCacheJob` 的教训） |
+| §路由 354-355：`initCheckMiddleware` 默认拒绝 + 显式豁免 | `/api/workflows` 天然落入默认拒绝；**严禁**把它加入豁免清单（豁免清单仅 `/api/init` 与明确公开路由，如 `/api/rdap`） |
+| §服务层 401-405：任务管理器强制语义 | 若复用 `taskManager` 执行工作流：异步延后重排 + 重排次数上限 + 兜底超时 + 同源日志限流，四条缺一不可 |
+| §数据库 5：DSM 声明式 | 新表在 `complete-schema.ts` 声明，由 `schema-reconciler` 同步；**禁止手写 DDL** |
+| §客户端 506+：前端模块化强制约束 | 落位见 §十；禁止重复实现既有组件、禁止页面内直接 `fetch`、文案走 i18n |
+| §代码审核团 4：审查留档 | 设计/代码审查文件落 `ai-censorship/[模型名]_review-YYYYMMDD.md` |
 
 ---
 
@@ -1036,6 +1042,8 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 
 > 重试必须遵守 §日志相关 9 的限流要求。
 
+**若复用 `taskManager` 承载工作流执行**，必须同时满足 `root.ai.md` §服务层 401-405 的四条强制语义：同 ID 冲突任务**异步延后重排**（禁止在 `processQueue` 循环内同步塞回队首）、重排次数上限、兜底超时（不允许无界运行）、同源高频日志限流。少任一条都会重现那次活锁事故。
+
 ### 7.5 禁止工作流调用工作流（**禁止项**）
 
 > **本版本不提供 `workflow.call` 能力。** 工作流之间不得互相调用，也不得由工作流触发另一个工作流。
@@ -1090,6 +1098,16 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 
 **管理端点必须 `requireJwtAuth`**（禁止 API Token 管理工作流），与 `root.ai.md` 对管理员/敏感路由的既有做法一致。
 
+**路由归属与门禁**：
+
+| 项 | 要求 | 依据 |
+|---|---|---|
+| 认证 | 全部端点注册 `authMiddleware` | §中间件 332 |
+| 管理动作 | 创建 / 更新 / 删除 / 测试 / 手动运行追加 `adminOnly` + `requireJwtAuth` | §中间件 333-334 |
+| 初始化门禁 | `/api/workflows` **不加入** `initCheckMiddleware` 豁免清单，天然受 503 保护 | §路由 354-355 |
+| 状态判定 | 路由内**不得**自行判断初始化状态，一律由中间件与 `systemState` 承担 | §应用初始化 470 |
+| 频率限制 | `POST /:id/test` 与 `POST /:id/run` 必须挂 `rateLimit` | §安全规范 3 |
+
 `meta/{source}` 需实现 §3.3 的候选源，并对 `records`/`lines` 支持 `?domainId=` 级联参数。
 
 ---
@@ -1103,6 +1121,19 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | `(...)` 预览 | 使用**最近一次真实事件**渲染 | 无事件时显示"等待触发" |
 
 **预览渲染**：`(...)` 必须用"样例事件"或"上次运行的真实事件"渲染真实值，而不是显示变量名——这直接对应需求中"实时渲染的预览"。
+
+### 10.1 前端落位（遵守 `root.ai.md` §客户端架构 2 的强制模块化约束）
+
+| 内容 | 位置 | 约束 |
+|---|---|---|
+| API 封装 | `client/src/api/workflows.ts` | 按模块分组，统一从 `api/index.ts` 导出 |
+| 页面 | `client/src/pages/` | 工作流列表 / 编辑器各一个页面 |
+| 可复用组件 | `client/src/components/` | 如 `WorkflowActionPicker.tsx`、`ExpressionInput.tsx` |
+| 业务 Hook | `client/src/hooks/` | 如 `useWorkflows.ts`，复用既有 `useQueryConfig` / `useToast` |
+| 纯函数 | `client/src/utils/` | 表达式序列化与校验，**无副作用** |
+| 文案 | `client/src/i18n/` | 新增 key，**禁止硬编码中文** |
+
+> 另外三条硬禁止：**页面内不得直接 `fetch`**（一律经 `api/` 封装）；**不得重复实现**既有的 `Table` / `PaginatedSelect` / `ConfirmDialog`（§客户端 507「禁止重复代码和自由发挥」）；**不得新造表单同步逻辑**，优先复用 `useFormSync`（§客户端 549 标注 P0+ 强制使用）。
 
 ---
 
@@ -1146,7 +1177,10 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 |---|---|
 | §服务层 | 增补 `WorkflowEngine` / `WorkflowEventBus` / `CapabilityBroker` 的职责边界 |
 | §数据库 7 | `WorkflowOperations` 纳入操作模块清单 |
-| §路由 | 新增 `/api/workflows`、`/api/workflows/meta/:source` |
+| §路由 | 新增 `/api/workflows`、`/api/workflows/meta/:source`；并写明二者**不进入** `initCheckMiddleware` 豁免清单 |
+| §应用初始化 | 补一条：工作流引擎与事件总线**必须**经 `systemState.isSystemInitialized()` 判定，总线订阅在 `start()` 内注册，禁止模块作用域副作用 |
+| §客户端架构 | 新增 `client/src/api/workflows.ts`、页面/组件/Hook 落位，与既有目录约束一致 |
+| **§DNS提供商适配器 302（勘误）** | 该条现写作「`ProviderCapabilities` 包含 remark、status、redirect、log、weight、line、cnameFlattening」，与代码不符：`registry.ts:12` 的 `DnsCapabilities` 才是 `{ remark, status, redirect, weight, proxiable, cnameFlattening, recordTypes }`，`registry.ts:22` 的 `ProviderCapabilities` 是 `{ dns, log, renewal }`；且**不存在 `line` 字段**。本设计的 `originGroup` 应加在 `DnsCapabilities` 上，故需同步修正该条描述 |
 | §安全规范 | 新增「工作流执行身份」「凭据零接触」「脚本沙箱」「管理员出站白名单」四条 |
 | §DNS提供商适配器 | `DnsCapabilities` 增加 `originGroup` 字段；EdgeOne/DNSPod 复用腾讯云 TC3 鉴权 |
 | **§DNS提供商适配器（新增硬约束）** | **核心不得建模 Provider 私有资源层级**：能力接口一律使用不透明字符串（`scopeId` 等），由 Provider 把自己的概念映射进通用槽位（参照 `domains.third_id`）。任何为某厂商某资源新增核心表/核心列的提案，必须先判定"是否为 Provider 私有结构"，若是则一律下沉到适配器 |
