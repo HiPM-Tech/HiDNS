@@ -53,7 +53,7 @@
                                           ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                     CapabilityBroker（能力代理）               │
-│  dns.* · ext.*（提供商扩展）· http.fetch · notify.send      │
+│  dns.* · ext.*（提供商扩展）· http.outbound.fetch · notify.channel.send      │
 │  ── 负责：鉴权裁决 · 凭据注入 · 出站代理 · 限流 · 审计          │
 └───────────────────────────┬──────────────────────────────────┘
                             ▼
@@ -67,7 +67,7 @@
 | §数据库 2：所有 DB 操作经 BAL | 持久化全部经新增的 `WorkflowOperations`（BAL 层），路由与引擎**不触碰** `db/dal`、`db/dl` |
 | §服务层 376：禁止路由直接操作数据库 | 路由只做参数校验与转发，逻辑在 `service/workflow/` |
 | §日志相关：`createLogger` + 子模块 + 限流 | 引擎统一 `createLogger('Workflow')`，同源日志限流（见 §3.6） |
-| §DNS提供商适配器 272：必须经 `fetchWithFallback` | `http.fetch` 能力内部固定走 `fetchWithFallback`，脚本无法绕过 |
+| §DNS提供商适配器 272：必须经 `fetchWithFallback` | `http.outbound.fetch` 能力内部固定走 `fetchWithFallback`，脚本无法绕过 |
 | §安全规范：细粒度权限 | 复用 `AVAILABLE_SERVICES` 与 `TokenPayload`（见 §5） |
 | §提交相关 3：根目录不放 MD | 本文档位于 `docs/` |
 | §外部集成 768：`docs/api.md` 是第一权威 | 新增端点必须同步 `docs/api.md`（见 §9 交付清单） |
@@ -146,7 +146,7 @@ server/src/
 ```json
 {
   "type": "call",
-  "fn": "dns.updateRecord",
+  "fn": "dns.record.update",
   "args": {
     "domain": { "type": "field", "expr": { "type": "ref", "path": "event.domain.name" } },
     "provider": { "type": "option", "source": "providers" },
@@ -258,39 +258,56 @@ server/src/
 
 > **重要**：官方描述明确「此处配置的源站组可于**添加加速域名**和**四层代理**等功能中引用」。这直接印证 §3.7 的界定——源站组服务于**边缘加速回源**，不是 DNS 解析记录。
 
-#### 3.7.4 提供商特有能力的通用扩展机制（统一前缀命名）
+#### 3.7.4 提供商特有能力的通用扩展机制（两级前缀命名）
 
 > **这不是给 EdgeOne 开的特例，而是一套通用机制。** 任何提供商都可以在自己的目录里声明**独有的特有能力**；核心不认识它们的语义，只校验**命名**与**唯一性**。
 
-**命名规则（强制）**
+**命名规则（强制）：两级前缀 + 自定后缀**
 
 ```
-<providerType>.<后缀>
+<顶级前缀>.<二级前缀>.<后缀>
 ```
 
-| 段 | 由谁决定 | 约束 |
-|---|---|---|
-| 前缀 `<providerType>` | **统一**：取 `registry.ts` 中该提供商的 `type` 原值 | 必须与 `ProviderDefinition.type` **完全一致**，否则启动即失败 |
-| 后缀 | **由提供商自行决定** | 形如 `[a-z][a-zA-Z0-9]*`，语义自明（`originGroup`、`wafPolicy`、`edgeRule` …） |
-| 全名 | 二者拼接 | **全局唯一**（跨全部提供商扫描校验） |
+| 段 | 归属 | 封闭性 | 约束 |
+|---|---|---|---|
+| **顶级前缀** | **HiDNS 平台** | **封闭枚举**，新增须走规范变更 | 提供商**不得**占用 |
+| **二级前缀** | **HiDNS 各模块** | 由所属模块定义 | `ext` 模块把它固定为 `providerType` |
+| **后缀** | 归属方（模块 / 提供商） | 自由 | 全名**全局唯一** |
 
-动作名在能力名后再接一级动词：
+**前两级是 HiDNS 的保留空间**——留给各模块做后续逻辑细分。提供商的名字**只能**出现在 `ext` 之下的二级前缀里。这是本规则的核心：不是把命名权交给提供商，而是由 HiDNS 先占住两级，再按模块分配。
+
+**已分配的命名空间**
+
+| 顶级前缀 | 归属模块 | 二级前缀 | 示例 |
+|---|---|---|---|
+| `dns` | 解析记录 | `record` / `domain` | `dns.record.update`、`dns.domain.list` |
+| `ext` | 提供商扩展 | **providerType**（取自 `registry.ts` 的 `type`） | `ext.tencenteo.originGroup.replace` |
+| `http` | 出站 | `outbound` | `http.outbound.fetch` |
+| `notify` | 通知 | `channel` | `notify.channel.send` |
+| `var` | 变量 | `workflow` | `var.workflow.get` |
+| **预留** | 未来模块 | — | `cache.*`、`queue.*`、`storage.*`、`platform.*` |
+
+**提供商侧只有后缀是自定的**：
 
 ```
-tencenteo.originGroup              ← 能力名
-tencenteo.originGroup.list         ← 动作
-tencenteo.originGroup.get
-tencenteo.originGroup.plan
-tencenteo.originGroup.replace
+ext.tencenteo.originGroup            ← 能力名
+ext.tencenteo.originGroup.list       ← 动作
+ext.tencenteo.originGroup.get
+ext.tencenteo.originGroup.plan
+ext.tencenteo.originGroup.replace
 ```
 
-> **为什么不用共享的 `ext.` 前缀**：那样两家厂商都可能想叫 `originGroup`，全名就不再唯一，只能靠人工避让。把提供商类型放进前缀，唯一性由**结构**保证，注册期校验只是兜底。
+- `ext` —— 顶级前缀，HiDNS 的扩展模块（封闭）
+- `tencenteo` —— 二级前缀，等于该提供商的 `type`，必须与 `ProviderDefinition.type` **完全一致**
+- `originGroup` + 动词 —— 后缀，**由提供商自行决定**，语义自明（`originGroup`、`wafPolicy`、`edgeRule` …）
+
+> **为什么不给提供商一级前缀**：那样两家厂商都可能想叫 `originGroup`，甚至可能出现一家类型名为 `dns` 的厂商直接撞掉解析模块的命名空间。把提供商压到 `ext` 的二级前缀，唯一性由**结构**保证，且 HiDNS 永远保留顶级前缀的分配权——将来要加 `cache` / `queue` / `platform` 等模块，不会与任何厂商名冲突。
 
 **能力声明结构**（提供商在 `providers/<provider>/extra.ts` 导出）
 
 ```ts
 export interface ProviderExtraCapability {
-  /** 全名：<providerType>.<suffix>，全局唯一 */
+  /** 全名：ext.<providerType>.<suffix>，全局唯一 */
   name: string;
   /** 面向用户的能力名（i18n key），核心不解释语义 */
   label: string;
@@ -317,10 +334,12 @@ export interface ProviderExtraAction {
 
 | 校验 | 失败后果 |
 |---|---|
-| `capability.name` 前缀 === `provider.type` | 抛错 |
-| 全名匹配 `^[a-z][a-z0-9]*\.[a-z][a-zA-Z0-9]*$` | 抛错 |
+| 顶级前缀 === `ext` | 抛错（提供商不得占用顶级前缀） |
+| 二级前缀 === `provider.type` | 抛错 |
+| 全名匹配 `^ext\.[a-z][a-z0-9]*\.[a-z][a-zA-Z0-9]*$` | 抛错 |
+| 动作全名以 `<capability.name>.` 开头 | 抛错 |
 | 能力全名**跨提供商**唯一 | 抛错，并指出冲突的两家 |
-| 动作全名唯一（含内置 `dns.*` / `http.*` / `notify.*`） | 抛错 |
+| 动作全名唯一（含内置 `dns.*` / `http.*` / `notify.*` / `var.*`） | 抛错 |
 | `actionClass` ∈ 已定义枚举；`service` ∈ `AVAILABLE_SERVICES` | 抛错 |
 
 > 校验放在**启动期**而非调用期：能力名冲突一旦上线，表现为"某家厂商的动作被另一家覆盖"，是最难排查的一类故障。
@@ -790,7 +809,7 @@ v1 只有收敛写动作，这直接决定了一条部署约束：
 
 ### 4.0 硬性约束：不得以「域名」为单位修改解析（**禁止项**）
 
-> **「域名变动」类触发器（`domain.changed`）禁止作为任何解析写动作（`dns.createRecord` / `dns.updateRecord` / `dns.deleteRecord` / `dns.setRecordStatus` / `dns.batchRecords`）的触发源。**
+> **「域名变动」类触发器（`domain.changed`）禁止作为任何解析写动作（`dns.record.create` / `dns.record.update` / `dns.record.delete` / `dns.record.setStatus` / `dns.record.batch`）的触发源。**
 
 理由：**1 条技术理由（决定性）+ 2 条工程理由（仍成立）**。
 
@@ -824,7 +843,7 @@ v1 只有收敛写动作，这直接决定了一条部署约束：
 | **以域名**为单位（无 `recordId`，隐含「改这个域名的解析」） | ❌ 禁止 | 目标不唯一（§4.0.1） |
 | **以记录**为单位（携 `recordId` 或唯一 `(name,type,value)`） | ✅ 允许 | 目标唯一 |
 
-> 本约束禁止的是**按域名**的写入，不是禁止工作流写解析。若需彻底禁止工作流写 DNS 记录（`dns.*.write` 整体移出动作集），改动点只有三处：§3.7.7 动作表、§十五 `ActionClass`、§4.0.4 组合裁决表——结构与其余章节不受影响。
+> 本约束禁止的是**按域名**的写入，不是禁止工作流写解析。若需彻底禁止工作流写 DNS 记录（`dns.record.*` 整体移出动作集），改动点只有三处：§3.7.7 动作表、§十五 `ActionClass`、§4.0.4 组合裁决表——结构与其余章节不受影响。
 
 ### 4.0.4 运行时强制（不只是文档约定）
 
@@ -839,11 +858,11 @@ v1 只有收敛写动作，这直接决定了一条部署约束：
 
 | 意图 | 正确做法 |
 |---|---|
-| IP 变了要更新解析 | 用 `record.changed` 触发 `dns.updateRecord`；或由外部 DDNS 客户端经 API 上报后触发 |
-| 域名同步后要校验记录 | 用 `domain.changed` 触发**只读**能力（`dns.listRecords`），仅做检查/告警，**不改写** |
-| 需要"跨厂商同步解析" | 用 `record.changed` 触发 `dns.updateRecord` 到另一个账号/域名 |
+| IP 变了要更新解析 | 用 `record.changed` 触发 `dns.record.update`；或由外部 DDNS 客户端经 API 上报后触发 |
+| 域名同步后要校验记录 | 用 `domain.changed` 触发**只读**能力（`dns.record.list`），仅做检查/告警，**不改写** |
+| 需要"跨厂商同步解析" | 用 `record.changed` 触发 `dns.record.update` 到另一个账号/域名 |
 
-> 换言之：**只读能力完全不受此约束**（本轮已确认）。`domain.changed` 可以触发 `dns.listRecords`、`tencenteo.originGroup.list`、`notify.send`、`http.fetch`、`workflow.vars` 等；被禁的只有**写动作**（`dns.record.write` 与 `ext.write`）。
+> 换言之：**只读能力完全不受此约束**（本轮已确认）。`domain.changed` 可以触发 `dns.record.list`、`tencenteo.originGroup.list`、`notify.channel.send`、`http.outbound.fetch`、`var.workflow.get` 等；被禁的只有**写动作**（`dns.record.write` 与 `ext.write`）。
 
 ### 4.0.5 记录类型收窄：只监听 `A` / `AAAA`
 
@@ -956,12 +975,15 @@ interface WorkflowPrincipal {
 
 | 动作 | requiredService |
 |---|---|
-| `dns.listRecords` / `dns.getRecord` | `records.read` |
-| `dns.createRecord` / `updateRecord` / `deleteRecord` / `setStatus` | `records.write` |
-| `dns.listDomains` | `domains.read` |
-| `http.fetch` | `network.fetch`（新增） |
-| `notify.send` | `notify.send`（新增） |
+| `dns.record.list` / `dns.record.get` | `records.read` |
+| `dns.record.create` / `dns.record.update` / `dns.record.delete` / `dns.record.setStatus` / `dns.record.batch` | `records.write` |
+| `dns.domain.list` | `domains.read` |
+| `http.outbound.fetch` | `network.fetch`（新增服务权限） |
+| `ext.*`（提供商扩展动作） | 由该动作声明的 `service` 决定，见 §3.7.4 |
+| `notify.channel.send` | `notify.send`（新增服务权限） |
 | ~~`workflow.call`~~ | **不提供**（§7.5 完全禁用工作流互调，此条仅为存证） |
+
+> **服务权限命名沿用既有枚举**（`server/src/types/token.ts:50` 的 `AVAILABLE_SERVICES`，形如 `<资源>.<读|写>`：`domains.read/write`、`records.read/write`、`accounts.read/write`、`tunnels.read/write`、`system.read`）。本次新增 `network.fetch`、`notify.send`、`workflow.read`、`workflow.write`、`workflow.run`，与既有条目同形。
 
 **触发源 × 动作 的组合裁决**（在服务权限之上再加一层，见 §4.0.4）：
 
@@ -984,8 +1006,8 @@ interface WorkflowPrincipal {
 
 ```js
 // 脚本能做的：只描述意图
-const value = await hd.http.fetch({ url: 'https://api.ipify.org' });
-await hd.dns.updateRecord({
+const value = await hd.http.outbound.fetch({ url: 'https://api.ipify.org' });
+await hd.dns.record.update({
   domain: 'example.com',
   name: 'www',
   type: 'A',
@@ -995,9 +1017,11 @@ await hd.dns.updateRecord({
 // 脚本看不到：账号、密钥、代理配置、数据库连接
 ```
 
+> **脚本能力面与动作全名 1:1**：`hd.<动作全名>`，由动作注册表**自动生成**，不手工维护。这样不会出现"表达式里叫 A、脚本里叫 B"的两套命名；新增动作时沙箱能力面自动跟上，且未声明 `scriptable: true` 的动作不会出现在 `hd` 上。
+
 ### 5.5 出站访问代理
 
-`hd.http.fetch` 固定受以下约束（脚本无法覆盖）：
+`hd.http.outbound.fetch` 固定受以下约束（脚本无法覆盖）：
 
 - 必须走 `fetchWithFallback`（复用现有代理配置与降级逻辑）；
 - **出站域名白名单由管理员在系统设置中维护**（见 §5.5.1）；
@@ -1114,7 +1138,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 
 ### 7.3 幂等
 
-- 动作层幂等：`dns.updateRecord` 先查后写；值相同则**跳过**并记录 `skipped`。
+- 动作层幂等：`dns.record.update` 先查后写；值相同则**跳过**并记录 `skipped`。
 - 与 `root.ai.md` §外部集成 804"创建记录前先查询、存在则更新"一致。
 
 ### 7.4 重试与超时
@@ -1230,7 +1254,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | R1 | `vm` 可被原型链逃逸 | 多层防御（§6.2），Worker 不加载危险模块；后续可升级为独立进程 |
 | R2 | 工作流自激循环 | 三重防循环（§7.2） |
 | R3 | 凭据经日志/运行记录泄露 | 凭据不入沙箱；`input_digest` 只存摘要（§5.4、§8） |
-| R4 | SSRF（`http.fetch` 打内网） | 协议白名单 + 内网地址拒绝 + 重定向复检（§5.5） |
+| R4 | SSRF（`http.outbound.fetch` 打内网） | 协议白名单 + 内网地址拒绝 + 重定向复检（§5.5） |
 | R5 | 权限提升 | Principal 取创建者现行权限，Token 触发不得提权（§5.2） |
 | R6 | 表达式伪造成交值 | 提交时复校验候选集合（§3.4） |
 | R7 | 域名变动误触发记录写入（**目标不唯一** → 改错或批量覆盖；自激；`third_id` 窗口错写） | **硬性禁止 + 四层强制**（§4.0、§4.0.4）；技术上由「解析值不唯一」直接排除（§4.0.1） |
@@ -1295,7 +1319,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | D13 | **不得以「域名」为单位修改解析**——`A`/`AAAA` 是多值记录，「域名的解析值」不是可观测对象，按域名写入无法定义唯一目标。写入必须落到**具体记录**（`recordId` 唯一）。域名变动类触发器禁止作为任何解析写动作的触发源 | §4.0 |
 | D14 | **`record.changed` 只监听 `A` / `AAAA`**；其余记录类型（CNAME/MX/TXT/NS/SRV/CAA…）不产生事件、不可订阅 | §4.0.5 |
 | D15 | **v1 无「只改一条」动作**，工作流对源站组的任何写入都是收敛 → 工作流应只操作**专用单源站组**，多源站组由人工维护 | §3.7.10 |
-| D17 | **提供商特有能力采用「统一前缀 + 提供商自定后缀」命名**：`<providerType>.<后缀>`，动作再加一级动词；全名**全局唯一**，注册期校验，冲突即拒绝启动 | §3.7.4 |
+| D17 | **动作命名统一为「两级前缀 + 自定后缀」**：`<顶级前缀>.<二级前缀>.<后缀>`。**前两级留给 HiDNS 各模块**——顶级为封闭枚举（`dns`/`ext`/`http`/`notify`/`var`，另预留 `cache`/`queue`/`storage`/`platform`），二级由所属模块定义（`ext` 固定为 `providerType`）；提供商**只能**自定后缀。全名全局唯一，注册期校验，冲突即拒绝启动 | §3.7.4 |
 | D18 | 工作流引擎是**独立一级模块** `server/src/workflow/`，不并入 `service/`；动作分类用 `ext.read` / `ext.write` 而非厂商语义的 `origin.*` | §2.2、§十五 |
 | D16 | 源站 `Record` **接受 IPv4 / IPv6 / 域名**（项目方确认）。预检按形态分流、**不做 DNS 解析**；`type` 固定 `IP_DOMAIN`，**不开放 `AWS_S3` 作为写入目标**（凭据零接触） | §3.7.9.5.1 |
 
@@ -1326,6 +1350,8 @@ type ActionClass =
 ```
 
 裁决只需比较 `(triggerType, actionClass)`，避免每新增一个动作都要改判断逻辑。新增一家厂商的特有能力时，**只要它声明的 `actionClass` 落在上述枚举内，裁决逻辑一行不用改**。
+
+**动作名与 `ActionClass` 是两个正交维度**：动作名（`ext.tencenteo.originGroup.replace`）回答"这是谁的什么能力"，`ActionClass`（`ext.write`）回答"这类动作为什么要受限"。前者按 §3.7.4 的两级前缀命名，后者是封闭枚举。**不得**从动作名反推 `ActionClass`，也不得把厂商名写进 `ActionClass`。
 
 > **`ext.*` 取代了原草案的 `origin.read` / `origin.write`。** 理由与 D11 同源：`origin`（源站组）是 EdgeOne 的概念，写进**核心的动作分类枚举**就是把厂商结构建模进核心——正是上一轮被否掉的那类错误。核心只知道"这是某家厂商扩展能力的读 / 写"，不知道"源站组"这四个字。具体动作 `tencenteo.originGroup.replace` 通过 `actionClass: 'ext.write'` 参与裁决。
 
