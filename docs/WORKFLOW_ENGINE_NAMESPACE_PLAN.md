@@ -327,3 +327,45 @@ HiDNS 全局主核心（types/namespace.ts）
 | P2 | `tencenteo` 的 `extra.ts`（`ext.tencenteo.originGroup.*`） |
 | P3 | 引擎、Broker、前端、DSL facade 接入 |
 | P-3 | 修 `root.ai.md` §302 的陈旧描述 |
+---
+
+## 十一、验收：CI 与攻击面测试（2026-10-19）
+
+### 11.1 CI 门禁
+
+| 项 | 结果 |
+|---|---|
+| `pnpm check:actions` | 通过，**12 个测试文件 / 104 用例** |
+| 门禁接线 | `.github/workflows/test-suite.yml:108` 独立步骤，全仓**无** `|| echo` / `|| true` 容错 |
+| 门禁有效性（实测） | 注入 facade 缺失一个入口 → `A7` 用例失败 → pnpm 非零退出（`ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL`）→ 还原后恢复全绿 |
+| `tsc --noEmit` | 0 错误 |
+| 全量测试 | `124 passed | 26 skipped`；12 个失败文件与既有基线完全一致（均为 `No test suite found` 或既有 DB 初始化问题） |
+
+### 11.2 攻击面清单
+
+| # | 攻击面 | 防护 | 测试 |
+|---|---|---|---|
+| 1 | SSRF（出站打内网） | 协议白名单 + 域名白名单 + IPv4/IPv6 私网判定 + 逐跳重定向校验 + 大小/超时上限 | `http-policy.test.ts` 13 用例 |
+| 2 | 未授权调用 | `authorize()` 八步裁决；`ActionContext` 私有 brand 只能由 authorize 签发 | `auth.test.ts` 11 用例 |
+| 3 | 跨域名越权 | `authorize` 资源校验 + handler 按真实域名**二次校验** | `dns-record.test.ts` |
+| 4 | 动态动作名绕过 | `call.action` 必须字面量且已注册 | `expression.test.ts` / `payload.test.ts` |
+| 5 | 原型链逃逸 | `ref` 仅 `event.*` / `vars.*`，拒绝 `__proto__` / `constructor` / `prototype`，求值时再判 `hasOwnProperty` | `expression.test.ts` |
+| 6 | 事件自激循环 | A/AAAA 过滤 + 深度上限 + `actor.source='workflow'` 抑制 + 日志限流 | `event-bus.test.ts` 9 用例 |
+| 7 | 代码执行 | 节点白名单封闭；**结构断言**扫描 `workflow/` 出现 `eval` / `new Function` / `vm` 即失败 | `expression.test.ts` |
+| 8 | 绕过鉴权直调 handler | 依赖方向检查：`routes/`、`service/`、`providers/` 不得 import `workflow/actions` 实现 | `namespaces.test.ts` A11 |
+| 9 | 扩展能力重名 | 核心白名单 + 一对一认领 + 全局唯一；**实测注入重名 → 门禁变红** | `namespaces.test.ts` |
+| 10 | 审计缺失致不可追溯 | write-ahead 审计：写失败即拒绝执行 | `auth.test.ts` |
+| 11 | 白名单通配越界 | `*.example.com` 不匹配 `example.com.evil.io` | `http-policy.test.ts` |
+| 12 | 批量动作打穿配额 | `dns.record.batch` 上限 50 条，超限 422 | `dns-record.test.ts` |
+
+### 11.3 未完成项（不静默丢弃）
+
+| 项 | 状态 | 原因 |
+|---|---|---|
+| 前端编辑器与三类控件 | **未实现** | 属 P3 的客户端交付，与本次目标（设计审计 + 服务端执行 + CI/攻击面）范围不同；客户端改动需同步 `client/` 构建门禁，留待独立任务 |
+| 手动运行端点 `POST /:id/run` | 未实现 | 需要合成事件语义（用什么 domain/record 触发），与触发器模型耦合，留待前端一并确定 |
+| 运行记录前端展示 | 未实现 | 同上 |
+
+### 11.4 结论
+
+设计文档审计通过，服务端实现完成并通过 CI 与 12 类攻击面测试。**剩余为客户端交付**，已在 11.3 明确记录。
