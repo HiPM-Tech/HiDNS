@@ -526,12 +526,12 @@ describe('动作命名空间', () => {
 
 ```json
 // server/package.json
-"check:actions": "vitest run src/lib/dns/providers/registry.test.ts"
+"check:actions": "vitest run src/workflow/actions/__tests__/namespaces.test.ts"
 ```
 
 ```yaml
 # .github/workflows/test-suite.yml（独立步骤，失败即红）
-- name: Check action name uniqueness
+- name: Check action namespaces & uniqueness
   run: pnpm --filter dnsmgr-server run check:actions
 ```
 
@@ -544,9 +544,12 @@ describe('动作命名空间', () => {
 | 校验项 | 归属层 |
 |---|---|
 | 顶级前缀 ∈ `TOP_NAMESPACES`、二级前缀 ∈ 该模块 `second`、全名格式 | L1（编译期） |
-| 顶级前缀**一对一认领**（无模块抢占）、**预留前缀未被使用** | **L2（CI）** |
-| 能力全名跨提供商唯一、动作全名唯一（含内置） | **L2（CI）** |
+| 顶级前缀**一对一认领**（无模块抢占）、**预留前缀未被使用**、每个非预留前缀都被认领 | **L2（CI · 声明级）** |
+| 能力全名跨提供商唯一、动作全名唯一（含内置） | **L2（CI · 声明级）** |
 | `actionClass` ∈ 枚举、`service` ∈ `AVAILABLE_SERVICES` | L1 + L2 |
+| 每个 L3 实现导出的动作名前两段命中 `(top, second)`；实现的二级前缀**不得多于**声明；`second` 每项**至少一个**实现；与 `ALL_ACTIONS` 索引**双向一致** | **L2（CI · 实现级）** |
+
+> **实现级校验**（上表最后一行）是必须的：只校验声明，等于默许"声明一套、实现另一套"。落到每个 `modules/<m>/index.ts` 的 `{ namespace, actions }` 做双向比对，才算真正落到子模块。完整规则见 `docs/WORKFLOW_ENGINE_NAMESPACE_PLAN.md` §5.2。
 
 **适配器侧**：具体实现仍写在 `providers/<provider>/` 内（如 `origin-group.ts`），对外只暴露**裸原语**，所有保护在 `CapabilityBroker` 的动作层。
 
@@ -1473,6 +1476,8 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 ---
 
 ## 十二、分期落地建议
+
+> **命名空间的实施计划单独成文**：`docs/WORKFLOW_ENGINE_NAMESPACE_PLAN.md`（含 P0–P3 分期、变更清单、CI 三级校验落地、审计检查表）。该计划是一次性全局架构变更，需先审计再动手。
 
 | 阶段 | 内容 | 产出 |
 |---|---|---|
