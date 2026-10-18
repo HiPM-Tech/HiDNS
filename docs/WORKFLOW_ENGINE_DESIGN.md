@@ -366,6 +366,7 @@ origin.updateRecord({
 | `OperationDenied.AccelerationDomainStatusNotInOnline` | 引用该组加速域名部署中 → **可重试**（退避），不可当永久失败 |
 | `OperationDenied.L4StatusNotInOnline` / `LoadBalanceStatusNotInOnline` | 绑定资源非运行中 → 重试或明确报错 |
 | `InvalidParameter.InvalidOriginIp` | 服务端拒绝内网 IP/回环地址 —— 与 §5.5 的内网拦截**方向一致**，前端应提前校验 |
+| `AAAA` 触发的 IPv6 目标 | 源站是否接受 IPv6 地址**未核实**。F5 预检须先判定：若不接受则报 `OriginIpVersionUnsupported` 并中止，**不得把非法地址写进去**（宁可失败，不要留下一个静默失效的源站） |
 | `OperationDenied.ConfigLocked` / `InternalError.ConfigLocked` | 配置锁定 → 明确报错，提示解锁，不重试 |
 | 频率限制 20 次/秒 | 能力层统一节流，避免工作流批量触发打满 |
 
@@ -646,17 +647,45 @@ origin.replaceGroup({
 
 ## 四、触发器（Trigger）
 
-### 4.0 硬性约束：域名变动不得触发记录写入（**禁止项**）
+### 4.0 硬性约束：不得以「域名」为单位修改解析（**禁止项**）
 
-> **「域名变动」类触发器（`domain.changed`）禁止作为任何记录写动作（`dns.createRecord` / `dns.updateRecord` / `dns.deleteRecord` / `dns.setRecordStatus` / `dns.batchRecords`）的触发源。**
+> **「域名变动」类触发器（`domain.changed`）禁止作为任何解析写动作（`dns.createRecord` / `dns.updateRecord` / `dns.deleteRecord` / `dns.setRecordStatus` / `dns.batchRecords`）的触发源。**
 
-理由（三条，缺一不可）：
+理由：**1 条技术理由（决定性）+ 2 条工程理由（仍成立）**。
 
-1. **语义不成立**：`root.ai.md` §外部集成 811-833 的 DDNS 语义是「客户端上报 IP → 更新解析记录」，触发源是**记录值变化**（`record.changed`），不是域名元信息变化。域名变动（`domain_updated`，见 `routes/domains.ts` 仅覆盖 `remark` / `is_hidden` / `enabled`）与解析值无关，拿它触发记录写入纯属滥用。
+#### 4.0.1 首要理由是技术性的：A / AAAA 是多值记录
+
+**一个域名可以同时存在多条 `A` 与多条 `AAAA`。** 因此「某域名的解析值」**不存在唯一解**——`www.example.com` 完全可以同时指向 `1.2.3.4`、`5.6.7.8` 与 `2001:db8::1`。
+
+这直接否定了「按域名改解析」的可定义性：
+
+| 假想的表达式 | 为什么写不出来 |
+|---|---|
+| 当域名变动 → 把解析改为 X | 改**哪一条**？域名下有多条 A/AAAA，事件里没有任何信息能唯一确定目标记录 |
+| 当域名变动 → 把所有 A/AAAA 都改为 X | 等价于批量覆盖，会摧毁多线路 / 多活 / 灰度等合法配置，且不可逆 |
+| 当域名变动 → 取「当前解析值」作为事件值 | **没有「当前解析值」这个对象**，只有一组值 |
+
+也就是说：**「域名的解析值」不是一个可观测对象，「某条 A 记录的 value」才是。** 这就是为什么触发源必须是**记录级事件**——它携带 `recordId` + `oldValue`，目标唯一。
+
+> 这条技术理由**优先于**下面两条工程理由：即使不考虑自激与错写，「按域名改解析」也无法被定义成确定的操作。
+
+旁证：`root.ai.md` §外部集成 811-833 的 DDNS 语义是「客户端上报 IP → 更新解析记录」，其输入本就是**一条记录**（`subdomain` + `type` + IP），与上述结论一致。
+
+#### 4.0.2 工程理由（仍然成立）
+
 2. **必然自激**：记录写入会再次产生 `record.*` 事件；若经由域名变动回到记录写入，形成 `domain → record → domain` 闭环，只能靠深度限制兜底，属于设计缺陷而非保护。
 3. **绕过更新链路**：检测记录同一性依赖 `domain.third_id`。`domain_sync_job` 会重写 `third_id`（上游域名 ID 可能变化），若域名变动触发记录写入，会在 `third_id` 已变、记录尚未重新枚举的窗口内，把修改写到**错误的记录**上，造成静默数据损坏。
 
-### 4.0.1 运行时强制（不只是文档约定）
+#### 4.0.3 约束的精确边界
+
+| 写入粒度 | 是否允许 | 依据 |
+|---|---|---|
+| **以域名**为单位（无 `recordId`，隐含「改这个域名的解析」） | ❌ 禁止 | 目标不唯一（§4.0.1） |
+| **以记录**为单位（携 `recordId` 或唯一 `(name,type,value)`） | ✅ 允许 | 目标唯一 |
+
+> 本约束禁止的是**按域名**的写入，不是禁止工作流写解析。若需彻底禁止工作流写 DNS 记录（`dns.*.write` 整体移出动作集），改动点只有三处：§3.7.7 动作表、§十五 `ActionClass`、§4.0.4 组合裁决表——结构与其余章节不受影响。
+
+### 4.0.4 运行时强制（不只是文档约定）
 
 | 层 | 措施 |
 |---|---|
@@ -675,13 +704,42 @@ origin.replaceGroup({
 
 > 换言之：**只读能力完全不受此约束**（本轮已确认）。`domain.changed` 可以触发 `dns.listRecords`、`origin.listGroups`、`notify.send`、`http.fetch`、`workflow.vars` 等；被禁的只有**写动作**（`dns.record.write` 与 `origin.write`）。
 
+### 4.0.5 记录类型收窄：只监听 `A` / `AAAA`
+
+> **`record.changed` 只对 `A` 与 `AAAA` 两种记录类型产生工作流事件。** 其余类型（`CNAME` / `MX` / `TXT` / `NS` / `SRV` / `CAA` / `URL` …）的变更**不产生事件、不可被订阅**。
+
+理由：
+
+1. **只有 A/AAAA 携带地址** —— 源站组回源、DDNS、IP 漂移联动的输入都是「地址」。CNAME 指向主机名，MX/TXT/NS 与回源无关；把它们放进事件面只会产生无法映射到任何动作的噪声。
+2. **与 `event.record.oldValue` 的语义匹配** —— 只有 A/AAAA 的 value 是可直接比较的地址，能天然承担「旧值 → 新值」的锚点；§3.7.5.6 的点对点定位正是依赖它。
+3. **收窄事件面 = 收窄鉴权面与审计面** —— 事件类型是组合裁决的输入之一（§4.0.4），枚举越少，可判定性越高。
+
+强制：
+
+| 层 | 措施 |
+|---|---|
+| 保存校验 | 触发器的 `recordTypes` 只能取 `['A']` / `['AAAA']` / `['A','AAAA']`（默认后者）；出现其他类型 → **422** |
+| 执行前裁决 | `CapabilityBroker` 收到的事件若 `record.type ∉ {A, AAAA}` → 丢弃并记 `workflow.violation` |
+| 事件总线 | 发布端即过滤，非 A/AAAA 的 `record_*` 事件**不进总线**（避免无谓唤醒与审计噪声） |
+| 前端 | 记录类型多选只渲染 `A` / `AAAA` |
+
+**能力影响（必须让使用者知道）**：
+
+| 场景 | v1 |
+|---|---|
+| A/AAAA 变了 → 更新源站组回源 | ✅ |
+| A/AAAA 变了 → 通知 / webhook / 只读核对 | ✅ |
+| CNAME 变了 → 同步到另一厂商 | ❌ **不产生事件，不可用** |
+| TXT 变了（如证书验证）→ 联动 | ❌ 不可用 |
+
+> 扩展点：将来若要支持 CNAME 联动，只需放开 `recordTypes` 枚举 + 对应动作的地址类型校验，**现有结构不变**。
 ### 4.1 触发器类型
 
 > **本版本不设计定时器（`schedule`）。** 工作流只能由真实事件或手动触发，**不存在 cron / 周期调度**。
 
 | 类型 | 说明 | 来源 | 可触发的记录写动作 |
 |---|---|---|---|
-| `record.changed` | 记录创建/更新/删除/启停 | 现有 `record_*` WS 事件 | ✅ 允许 |
+| `record.changed` | 记录创建/更新/删除/启停（**仅 `A` / `AAAA`**，见 §4.0.5） | 现有 `record_*` WS 事件 | ✅ 允许 |
 | `domain.changed` | 域名新增/更新/删除/续费 | 现有 `domain_*` 事件 | ❌ **禁止**（见 §4.0） |
 | `ns.changed` | NS 监控状态变化 | `ns_monitor_*` | ✅ 允许 |
 | `whois.expiring` | WHOIS 到期临近 | WHOIS 调度器 | ✅ 允许 |
@@ -696,7 +754,7 @@ origin.replaceGroup({
 interface WorkflowEvent {
   type: 'record.updated';
   domain: { id: number; name: string; accountId: number };
-  record?: { id: string; name: string; type: string; value: string; oldValue?: string; ttl: number };
+  record?: { id: string; name: string; type: 'A' | 'AAAA'; value: string; oldValue?: string; ttl: number };
   actor?: { userId?: number; source: 'ui' | 'api' | 'token' | 'workflow' };
   at: string; // ISO8601
 }
@@ -762,14 +820,14 @@ interface WorkflowPrincipal {
 | `dns.listDomains` | `domains.read` |
 | `http.fetch` | `network.fetch`（新增） |
 | `notify.send` | `notify.send`（新增） |
-| `workflow.call` | `workflow.run` |
+| ~~`workflow.call`~~ | **不提供**（§7.5 完全禁用工作流互调，此条仅为存证） |
 
-**触发源 × 动作 的组合裁决**（在服务权限之上再加一层，见 §4.0.1）：
+**触发源 × 动作 的组合裁决**（在服务权限之上再加一层，见 §4.0.4）：
 
 | 触发源 | 只读（`*.read`） | **写（`dns.record.write` / `origin.write`）** |
 |---|---|---|
-| `record.changed` | ✅ | ✅ |
-| `domain.changed` | ✅ | ❌ **拒绝（422）** |
+| `record.changed`（**仅 `A` / `AAAA`**，§4.0.5） | ✅ | ✅ |
+| `domain.changed` | ✅ | ❌ **拒绝（422）**（§4.0：解析值不唯一） |
 | `ns.changed` / `whois.expiring` / `manual` | ✅ | ✅ |
 
 ### 5.4 凭据处理（脚本零接触）
@@ -1009,13 +1067,13 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | R4 | SSRF（`http.fetch` 打内网） | 协议白名单 + 内网地址拒绝 + 重定向复检（§5.5） |
 | R5 | 权限提升 | Principal 取创建者现行权限，Token 触发不得提权（§5.2） |
 | R6 | 表达式伪造成交值 | 提交时复校验候选集合（§3.4） |
-| R7 | 域名变动误触发记录写入（自激 / 错写记录） | **硬性禁止 + 三层强制**（§4.0、§4.0.1） |
+| R7 | 域名变动误触发记录写入（**目标不唯一** → 改错或批量覆盖；自激；`third_id` 窗口错写） | **硬性禁止 + 四层强制**（§4.0、§4.0.4）；技术上由「解析值不唯一」直接排除（§4.0.1） |
 | **R8** | **`ModifyOriginGroup` 是整组覆盖语义，直接使用会丢失更新 / 误删源站 / 权重被清空** | 不再提供“自备完整数组”的形态；I1 走 read-modify-write（串行化 + 基线比对 + 原样回传），I2 走显式收敛（`collapse` 声明 + 影响面可见 + 被移除记录逐条 + 快照 + 写后校验），见 §3.7.9 |
 | **Q1** | 「源站组」在 HiDNS 中**没有对应概念** | 需你确认是映射到 Cloudflare Tunnel、还是新增抽象；本文暂按 `tunnels` 候选处理 |
 | **Q2** | 表达式与脚本并存是否会失控 | 建议 UI 默认只开放表达式，脚本作为"高级模式"并需管理员开启 |
 | Q3 | 定时器的时区语义 | 建议统一 UTC 存储、按用户偏好渲染 |
 | Q4 | 工作流级联（工作流调用工作流） | 建议 v1 不做，仅允许 `dns.*` 等基础动作 |
-| **Q5** | 「域名变动不得写记录」是否也约束**只读**动作 | 按 §4.0.1 **只约束写动作**；若需连只读也禁，请明确，我会改为全禁 |
+| **Q5** | 「域名变动不得写记录」是否也约束**只读**动作 | 按 §4.0.4 **只约束写动作**；若需连只读也禁，请明确，我会改为全禁 |
 
 ---
 
@@ -1055,13 +1113,15 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | D3 | **禁止**工作流调用工作流（不提供 `workflow.call`） | §7.5 |
 | D4 | 出站域名白名单由**管理员在系统设置中维护列表**，空白名单=全禁 | §5.5.1 |
 | D5 | **不设计定时器**，无 `schedule` 触发器 | §4.1 |
-| D6 | **只读动作不设触发源限制**；仅写动作受 §4.0 约束 | §4.0.1 |
+| D6 | **只读动作不设触发源限制**；仅写动作受 §4.0 约束 | §4.0.4 |
 | D7 | **DNSPod 不声明 `originGroup`**（纯解析，无边缘加速源站组），仅鉴权体系相同 | §3.7.4 |
 | D8 | 源站组写入提供**两种写入意图**：**I1 点对点** `origin.updateRecord`（默认）与 **I2 点对面** `origin.replaceGroup`（整组收敛为单一目标，须 `collapse: true`）。**不再提供“调用方自备完整数组”的形态** | §3.7.7、§3.7.9 |
 | D9 | 源站组定位默认用 **`record` 地址**（DDNS 场景用事件 `oldValue`），`recordId` 不持久化，命中数必须恰好 1，`>1` 一律报错 | §3.7.5.2 |
 | D10 | **不能用备注定位**——EdgeOne `OriginRecord` 无备注字段。**也不得在核心库存别名**（`origin_aliases` 已否决：会把 Provider 资源层级写进核心）。可读名只作表达式节点的显示标签，不参与定位；定位只用 `record`/`recordId` | §3.7.5.1、§3.7.5.8 |
 | D11 | **核心不得建模 Provider 私有结构**：能力接口一律用不透明字符串（如 `scopeId`），Provider 自行把概念映射进通用槽位，与 `domains.third_id` 同构 | §3.7.4、§3.7.5.8 |
 | D12 | **EdgeOne 源站组允许只有 1 条源站**（项目方确认）。I2 收敛后组内恰为单条，**不设**"整组广播"退化路径；服务端若拒绝则 `CollapseUnsupported` fail-closed | §3.7.9.6 |
+| D13 | **不得以「域名」为单位修改解析**——`A`/`AAAA` 是多值记录，「域名的解析值」不是可观测对象，按域名写入无法定义唯一目标。写入必须落到**具体记录**（`recordId` 唯一）。域名变动类触发器禁止作为任何解析写动作的触发源 | §4.0 |
+| D14 | **`record.changed` 只监听 `A` / `AAAA`**；其余记录类型（CNAME/MX/TXT/NS/SRV/CAA…）不产生事件、不可订阅 | §4.0.5 |
 
 ## 十四、仍待确认
 
