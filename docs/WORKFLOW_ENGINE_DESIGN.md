@@ -53,7 +53,7 @@
                                           ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                     CapabilityBroker（能力代理）               │
-│  dns.read · dns.write · http.fetch · notify.send · workflow.* │
+│  dns.* · ext.*（提供商扩展）· http.fetch · notify.send      │
 │  ── 负责：鉴权裁决 · 凭据注入 · 出站代理 · 限流 · 审计          │
 └───────────────────────────┬──────────────────────────────────┘
                             ▼
@@ -80,6 +80,43 @@
 
 ---
 
+### 2.2 模块归属：`server/src/workflow/`（独立一级模块，不并入 `service/`）
+
+工作流引擎是**抽象功能**，不属于任何单一业务域——它同时消费 DNS 事件、调用 DNS 能力、发出网络请求、写审计。因此**不放进 `service/`**，而是作为 `server/` 下的独立模块单独列出：
+
+```
+server/src/
+├── workflow/                  ← 新增：独立模块
+│   ├── index.ts               统一出口 startWorkflowModule() / stopWorkflowModule()
+│   ├── engine.ts              触发器匹配、执行编排
+│   ├── event-bus.ts           进程内发布/订阅（订阅在 start() 内注册）
+│   ├── broker.ts              能力代理：鉴权裁决 · 凭据注入 · 出站代理 · 限流 · 审计
+│   ├── expression/
+│   │   ├── parser.ts          表达式 AST
+│   │   ├── evaluator.ts       纯函数求值
+│   │   └── validate.ts        保存期校验（含 §4.0 组合裁决）
+│   ├── sandbox/
+│   │   ├── worker.ts          Worker 内运行，不加载 fs / child_process / net
+│   │   └── capabilities.ts    注入给脚本的 hd.* 能力面
+│   ├── actions/
+│   │   ├── registry.ts        内置动作（dns.* / http.* / notify.*）+ 提供商扩展动作汇总
+│   │   └── dns.ts
+│   └── types.ts
+├── service/                   既有业务服务（不含工作流）
+├── routes/workflows.ts        ← 新增：只做参数校验与转发
+├── lib/dns/providers/         既有：提供商目录（含各自的 extra.ts）
+└── db/                        既有：四层数据库架构
+```
+
+**三条边界**：
+
+| 边界 | 规则 |
+|---|---|
+| 与路由 | `routes/workflows.ts` 只做参数校验与转发；**不得**直接触达 `workflow/` 内部实现或数据库（§服务层 387） |
+| 与数据库 | `workflow/` 经 **BAL**（`WorkflowOperations`）持久化，禁止 `db/dal`、`db/dl`、`db/dsm`（§数据库 2） |
+| 与初始化 | 启停由 `app.ts` 调用 `startWorkflowModule()` / `stopWorkflowModule()`；状态判定一律经 `systemState.isSystemInitialized()`（§应用初始化 470） |
+
+> **为什么独立成模块而不是 `service/workflow/`**：`service/` 的语义是"某个业务域的服务"。工作流是**跨域编排层**——它会调用 `service/` 里的服务（如 `dns-provider-service`），但反过来 `service/` 不应依赖它。独立一级模块让这条依赖方向在目录结构上就成立，而不是靠口头约定。
 ## 三、表达式模型
 
 ### 3.1 三种书写形式（对应需求中的三类标记）
@@ -221,36 +258,80 @@
 
 > **重要**：官方描述明确「此处配置的源站组可于**添加加速域名**和**四层代理**等功能中引用」。这直接印证 §3.7 的界定——源站组服务于**边缘加速回源**，不是 DNS 解析记录。
 
-#### 3.7.4 能力接口（按真实契约）
+#### 3.7.4 提供商特有能力的通用扩展机制（统一前缀命名）
 
-源站组**不挂在 `DnsAdapter` 上**，是独立的附加能力接口，由支持它的适配器额外实现：
+> **这不是给 EdgeOne 开的特例，而是一套通用机制。** 任何提供商都可以在自己的目录里声明**独有的特有能力**；核心不认识它们的语义，只校验**命名**与**唯一性**。
+
+**命名规则（强制）**
+
+```
+<providerType>.<后缀>
+```
+
+| 段 | 由谁决定 | 约束 |
+|---|---|---|
+| 前缀 `<providerType>` | **统一**：取 `registry.ts` 中该提供商的 `type` 原值 | 必须与 `ProviderDefinition.type` **完全一致**，否则启动即失败 |
+| 后缀 | **由提供商自行决定** | 形如 `[a-z][a-zA-Z0-9]*`，语义自明（`originGroup`、`wafPolicy`、`edgeRule` …） |
+| 全名 | 二者拼接 | **全局唯一**（跨全部提供商扫描校验） |
+
+动作名在能力名后再接一级动词：
+
+```
+tencenteo.originGroup              ← 能力名
+tencenteo.originGroup.list         ← 动作
+tencenteo.originGroup.get
+tencenteo.originGroup.plan
+tencenteo.originGroup.replace
+```
+
+> **为什么不用共享的 `ext.` 前缀**：那样两家厂商都可能想叫 `originGroup`，全名就不再唯一，只能靠人工避让。把提供商类型放进前缀，唯一性由**结构**保证，注册期校验只是兜底。
+
+**能力声明结构**（提供商在 `providers/<provider>/extra.ts` 导出）
 
 ```ts
-// 独立能力接口，支持者实现，其余不做
-interface OriginGroupCapability {
-  /**
-   * scopeId：Provider 定义的**不透明作用域**，核心不解释其含义。
-   * - tencenteo：站点 ID（形如 zone-xxx）
-   * - 未来其他厂商：可为区域 / 项目 / 集群，或空字符串
-   * 与既有 domains.third_id 的处理方式一致：Provider 把自己的概念映射进通用槽位。
-   */
-  listOriginGroups(scopeId: string, opts?: { offset?: number; limit?: number }): Promise<OriginGroup[]>;
-  getOriginGroup(scopeId: string, groupId: string): Promise<OriginGroup | null>;
+export interface ProviderExtraCapability {
+  /** 全名：<providerType>.<suffix>，全局唯一 */
+  name: string;
+  /** 面向用户的能力名（i18n key），核心不解释语义 */
+  label: string;
+  /** 该能力对外暴露的动作 */
+  actions: ProviderExtraAction[];
+}
 
-  /**
-   * 整组覆盖写（对应 ModifyOriginGroup 的原始语义）。
-   * ⚠️ 这是**裸原语**：不做定位、不做保留、不做校验，传入什么就写什么。
-   * 只允许由 CapabilityBroker 的 origin.replaceGroup（v2 起含 origin.updateRecord）调用，
-   * 不得被路由或脚本直接触达（见 §3.7.9 安全契约）。
-   */
-  replaceOriginRecords(scopeId: string, groupId: string, records: OriginRecord[]): Promise<void>;
+export interface ProviderExtraAction {
+  /** 动作全名：<capability.name>.<verb>，全局唯一 */
+  name: string;
+  /** 语义分类，供 §4.0 组合裁决使用 */
+  actionClass: ActionClass;
+  risk: 'low' | 'medium' | 'high';
+  /** 所需服务权限，取自 AVAILABLE_SERVICES */
+  service: AvailableService;
+  /** 是否允许脚本调用（D2：默认 false） */
+  scriptable: boolean;
+  /** 参数 schema，供表达式层渲染 {...} / [...] / (...) 三类控件 */
+  params: ProviderActionParam[];
 }
 ```
 
-> 适配器层是**裸的**（与腾讯云 API 一一对应），所有保护都在 `CapabilityBroker` 的动作层实现。这样"原始能力"与"受保护动作"边界清晰，代码审查时一眼能看出哪层该有守卫。
+**注册期校验**（`registry.ts` 初始化时执行，任一失败即**拒绝启动**）
 
+| 校验 | 失败后果 |
+|---|---|
+| `capability.name` 前缀 === `provider.type` | 抛错 |
+| 全名匹配 `^[a-z][a-z0-9]*\.[a-z][a-zA-Z0-9]*$` | 抛错 |
+| 能力全名**跨提供商**唯一 | 抛错，并指出冲突的两家 |
+| 动作全名唯一（含内置 `dns.*` / `http.*` / `notify.*`） | 抛错 |
+| `actionClass` ∈ 已定义枚举；`service` ∈ `AVAILABLE_SERVICES` | 抛错 |
 
-// 与官方 OriginGroup / OriginRecord 一一对应
+> 校验放在**启动期**而非调用期：能力名冲突一旦上线，表现为"某家厂商的动作被另一家覆盖"，是最难排查的一类故障。
+
+**适配器侧**：具体实现仍写在 `providers/<provider>/` 内（如 `origin-group.ts`），对外只暴露**裸原语**，所有保护在 `CapabilityBroker` 的动作层。
+
+> 适配器层是**裸的**（与腾讯云 API 一一对应）：不做定位、不做保留、不做校验，传入什么就写什么。所有保护都在 `CapabilityBroker` 的动作层实现——这样"原始能力"与"受保护动作"的边界清晰，代码审查时一眼能看出哪层该有守卫。
+
+**tencenteo 的私有 DTO**（核心只透传，从不解释）：
+
+```ts
 interface OriginGroup {
   groupId: string;
   name: string;
@@ -272,7 +353,7 @@ interface OriginRecord {
 
 #### 3.7.5 点对点定位（**v2 设计底稿，v1 不实现**）
 
-> **本章在 v1 中不落地。** 点对点在复杂场景下性能不佳（read-modify-write + O(N) 复核 + 按组串行），且匹配依赖 `oldValue` 与当前状态一致，地址快速漂移时失败方式不直观；实际使用场景也很少——**DDNS 走的是点对面**。v1 唯一写动作是 `origin.replaceGroup`（§3.7.9）。保留本章是为了让 v2 重启时有据可依，并让评审者看到"为什么不做"。
+> **本章在 v1 中不落地。** 点对点在复杂场景下性能不佳（read-modify-write + O(N) 复核 + 按组串行），且匹配依赖 `oldValue` 与当前状态一致，地址快速漂移时失败方式不直观；实际使用场景也很少——**DDNS 走的是点对面**。v1 唯一写动作是 `tencenteo.originGroup.replace`（§3.7.9）。保留本章是为了让 v2 重启时有据可依，并让评审者看到"为什么不做"。
 
 官方 `ModifyOriginGroup` 只接受整组 `Records`，**没有"改第 N 条"的入参**。因此"点对点更新"必须由宿主在 read-modify-write 中实现。定位分三步：**解析 → 唯一性裁决 → 保留式回写**。
 
@@ -357,7 +438,7 @@ interface OriginRecord {
 对应动作调用：
 
 ```ts
-origin.updateRecord({
+tencenteo.originGroup.updateRecord({
   accountId, scopeId, groupId,
   match: { field: 'record', value: expr('event.record.oldValue') },
   set:   { record: expr('event.record.value') },   // 只改地址
@@ -415,38 +496,43 @@ origin.updateRecord({
 > **判定准则（新增，写入 §12.1 规范同步项）**：任何"为了某个厂商的某个资源"而提议新增核心表或核心列的设计，都必须先问——**这是不是 Provider 的私有结构？** 若是，一律下沉到适配器或退化为不透明槽位，禁止建模进核心。
 
 
-#### 3.7.6 能力声明（registry 扩展）
+#### 3.7.6 能力声明（`ProviderDefinition` 扩展）
 
-`DnsCapabilities` 增加字段，声明式告知前端某厂商是否支持源站组：
+**不往 `DnsCapabilities` 加布尔位。** 布尔位只能表达"有 / 无"，承载不了动作、参数、权限与风险级别——而提供商特有能力恰恰每样都需要。改为在 `ProviderDefinition` 上挂扩展能力列表：
 
 ```ts
-interface DnsCapabilities {
-  // ...既有字段
-  originGroup: boolean;
+interface ProviderDefinition {
+  // ...既有字段（type / name / capabilities / configFields / adapterFactory）
+  /** 提供商独有能力，可为空；核心只校验命名与唯一性（§3.7.4） */
+  extraCapabilities?: ProviderExtraCapability[];
 }
 ```
 
-| 厂商 | `originGroup` | 说明 |
+| 厂商 | 声明 | 说明 |
 |---|---|---|
-| `tencenteo` | `true` | 本次新增 |
-| `dnspod` | **`false`** | DNSPod 是纯解析，**没有**边缘加速源站组；仅鉴权体系相同 |
-| 其余 | `false` | — |
+| `tencenteo` | `tencenteo.originGroup`（4 个动作） | 本次新增 |
+| `dnspod` | **不声明** | DNSPod 是纯解析，**没有**边缘加速源站组；仅鉴权体系相同 |
+| 其余 20 家 | 不声明 | — |
 
 > 用户所述"鉴权套用 dnspod 和 edgeone"指**凭据体系相同**（均为腾讯云 `SecretId/SecretKey` + TC3），而非 DNSPod 也具备源站组能力。
+
+**前端据此渲染**：某厂商未声明 `extraCapabilities` 时，表达式编辑器中**不出现**对应动作；声明了则按 `params` 自动生成控件（`{...}` 下拉 / `[...]` 可输入 / `(...)` 预览），核心与前端都不硬编码任何厂商名。
+
+> **与 `root.ai.md` §适配器 302 的关系**：该条把 `DnsCapabilities` 与 `ProviderCapabilities` 混写、且写了不存在的 `line` 字段。本设计**不往 `DnsCapabilities` 加字段**，而是扩展 `ProviderDefinition`，因此该勘误**不阻塞本设计**；规范仍建议修正（见 §12.1）。
 
 #### 3.7.7 动作、权限与触发约束
 
 | 动作 | `ActionClass` | 风险级别 | 所需服务权限 | 写入意图 | 说明 |
 |---|---|---|---|---|---|
-| `origin.listGroups` | `origin.read` | 低 | `records.read` | — | 只读 |
-| `origin.getGroup` | `origin.read` | 低 | `records.read` | — | 只读 |
-| `origin.planReplaceGroup` | `origin.read` | 低 | `records.read` | — | 只读：生成 diff / 影响面 / digest（§3.7.9.2） |
-| `origin.replaceGroup` | `origin.write` | **高** | `records.write` | **I2 点对面** | **v1 唯一写动作**：整组收敛为单一目标（§3.7.9） |
-| ~~`origin.updateRecord`~~ | — | — | — | I1 点对点 | **v2 延期**，见 §3.7.5 与 §3.7.9.1 |
+| `tencenteo.originGroup.list` | `ext.read` | 低 | `records.read` | — | 只读 |
+| `tencenteo.originGroup.get` | `ext.read` | 低 | `records.read` | — | 只读 |
+| `tencenteo.originGroup.plan` | `ext.read` | 低 | `records.read` | — | 只读：生成 diff / 影响面 / digest（§3.7.9.2） |
+| `tencenteo.originGroup.replace` | `ext.write` | **高** | `records.write` | **I2 点对面** | **v1 唯一写动作**：整组收敛为单一目标（§3.7.9） |
+| ~~`tencenteo.originGroup.updateRecord`~~ | — | — | — | I1 点对点 | **v2 延期**，见 §3.7.5 与 §3.7.9.1 |
 
-**v1 只有一个写动作：`origin.replaceGroup`。**
+**v1 只有一个写动作：`tencenteo.originGroup.replace`。**
 
-点对点（`origin.updateRecord`）**延期到 v2**，理由按权重排序：
+点对点（`tencenteo.originGroup.updateRecord`）**延期到 v2**，理由按权重排序：
 
 | # | 理由 | 具体表现 |
 |---|---|---|
@@ -458,16 +544,16 @@ interface DnsCapabilities {
 
 > 原草案的 `origin.replaceRecords({ records: [...] })`（调用方自备完整数组）**已移除**，理由见 §3.7.9.1。
 
-**`origin.replaceGroup` 的能力边界**：
+**`tencenteo.originGroup.replace` 的能力边界**：
 
 - 只会让条数**减少**（收敛到 1），绝不增加；
 - 不能改组的 `Type`（`GENERAL`/`HTTP`）与 `HostHeader`；
 - 不能跨组移动源站；
 - **v1 没有任何"只改一条"的动作** → 工作流对源站组的每一次写入都是收敛。多源站组（多活 / 加权）**不应交给工作流维护**，见 §3.7.10。
 
-**触发约束**：`origin.write`（v1 即 `replaceGroup`）与 `dns.record.write` 同属「回源/解析目标变更」，因此**同样禁止由 `domain.changed` 触发**（§4.0 理由完全适用）。
+**触发约束**：`ext.write`（v1 即 `tencenteo.originGroup.replace` 这一个动作）与 `dns.record.write` 同属「回源/解析目标变更」，因此**同样禁止由 `domain.changed` 触发**（§4.0 理由完全适用）。
 
-> `origin.read` 不受 §4.0 约束——按已确认的 D6，**只读动作不设触发源限制**。
+> `ext.read` 不受 §4.0 约束——按已确认的 D6，**只读动作不设触发源限制**。
 
 #### 3.7.8 候选值级联
 
@@ -486,7 +572,7 @@ interface DnsCapabilities {
 
 两条路线回答的是**两个不同的问题**。**v1 只实现 I2**；I1 延期的理由（性能、竞态、使用频次）见 §3.7.7。
 
-| | **I1 点对点** `origin.updateRecord`（v2） | **I2 点对面** `origin.replaceGroup`（v1） |
+| | **I1 点对点** `tencenteo.originGroup.updateRecord`（v2） | **I2 点对面** `tencenteo.originGroup.replace`（v1） |
 |---|---|---|
 | 要回答 | 改**哪一条** | 整组**应该是什么** |
 | 使用者需知道 | 目标那一条的锚点（`record` / `recordId`） | **一个**目标值 |
@@ -551,7 +637,7 @@ interface DnsCapabilities {
 
 ##### 3.7.9.5.1 目标值预检：三类地址各自的规则
 
-源站 `Record` 接受 **IPv4 / IPv6 / 域名** 三种形态，`Type` 统一为 `IP_DOMAIN`（只有对象存储源站才是 `AWS_S3`）。因此 `origin.replaceGroup` 的 `target` 只需两个字段：
+源站 `Record` 接受 **IPv4 / IPv6 / 域名** 三种形态，`Type` 统一为 `IP_DOMAIN`（只有对象存储源站才是 `AWS_S3`）。因此 `tencenteo.originGroup.replace` 的 `target` 只需两个字段：
 
 ```ts
 interface OriginTarget {
@@ -610,7 +696,7 @@ interface OriginTarget {
 ```
 
 ```ts
-origin.updateRecord({
+tencenteo.originGroup.updateRecord({
   accountId, scopeId, groupId,
   match: { field: 'record', value: expr('event.record.oldValue') },
   set:   { record: expr('event.record.value') },
@@ -629,13 +715,13 @@ origin.updateRecord({
 
 ```ts
 // 第一步：plan（只读，绝不写）
-origin.planReplaceGroup({ accountId, scopeId, groupId,
+tencenteo.originGroup.plan({ accountId, scopeId, groupId,
   target: { record: expr('event.record.value'), type: 'IP_DOMAIN' } })
   // → { collapsedFrom: 3, removed: [...], target: {...},
   //     references: [...], digest: 'sha256:…' }
 
 // 第二步：commit（digest 必填）
-origin.replaceGroup({
+tencenteo.originGroup.replace({
   accountId, scopeId, groupId,
   target: { record: expr('event.record.value'), type: 'IP_DOMAIN' },
   collapse: true,
@@ -744,7 +830,7 @@ v1 只有收敛写动作，这直接决定了一条部署约束：
 
 | 层 | 措施 |
 |---|---|
-| 保存校验 | 若 `trigger.type ∈ {domain.changed, domain.created, domain.deleted, domain.renewed}` 且动作含任何**写能力**（`dns.record.write` 或 `origin.write`）→ **拒绝保存**，返回 422 并说明原因 |
+| 保存校验 | 若 `trigger.type ∈ {domain.changed, domain.created, domain.deleted, domain.renewed}` 且动作含任何**写能力**（`dns.record.write` 或 `ext.write`）→ **拒绝保存**，返回 422 并说明原因 |
 | 执行前裁决 | `CapabilityBroker` 在每次记录写动作前校验 `(triggerType, action)` 组合，命中即拒绝（防绕过校验直接改库） |
 | 前端 | 选择「域名变动」触发器后，动作面板**隐藏**记录写动作；选择记录写动作时，触发器下拉中禁用域名变动类 |
 | 审计 | 若被拒，记录 `workflow.violation` 审计事件并告警 |
@@ -757,7 +843,7 @@ v1 只有收敛写动作，这直接决定了一条部署约束：
 | 域名同步后要校验记录 | 用 `domain.changed` 触发**只读**能力（`dns.listRecords`），仅做检查/告警，**不改写** |
 | 需要"跨厂商同步解析" | 用 `record.changed` 触发 `dns.updateRecord` 到另一个账号/域名 |
 
-> 换言之：**只读能力完全不受此约束**（本轮已确认）。`domain.changed` 可以触发 `dns.listRecords`、`origin.listGroups`、`notify.send`、`http.fetch`、`workflow.vars` 等；被禁的只有**写动作**（`dns.record.write` 与 `origin.write`）。
+> 换言之：**只读能力完全不受此约束**（本轮已确认）。`domain.changed` 可以触发 `dns.listRecords`、`tencenteo.originGroup.list`、`notify.send`、`http.fetch`、`workflow.vars` 等；被禁的只有**写动作**（`dns.record.write` 与 `ext.write`）。
 
 ### 4.0.5 记录类型收窄：只监听 `A` / `AAAA`
 
@@ -879,7 +965,7 @@ interface WorkflowPrincipal {
 
 **触发源 × 动作 的组合裁决**（在服务权限之上再加一层，见 §4.0.4）：
 
-| 触发源 | 只读（`*.read`） | **写（`dns.record.write` / `origin.write`）** |
+| 触发源 | 只读（`*.read`） | **写（`dns.record.write` / `ext.write`）** |
 |---|---|---|
 | `record.changed`（**仅 `A` / `AAAA`**，§4.0.5） | ✅ | ✅ |
 | `domain.changed` | ✅ | ❌ **拒绝（422）**（§4.0：解析值不唯一） |
@@ -1184,7 +1270,9 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | §安全规范 | 新增「工作流执行身份」「凭据零接触」「脚本沙箱」「管理员出站白名单」四条 |
 | §DNS提供商适配器 | `DnsCapabilities` 增加 `originGroup` 字段；EdgeOne/DNSPod 复用腾讯云 TC3 鉴权 |
 | **§DNS提供商适配器（新增硬约束）** | **核心不得建模 Provider 私有资源层级**：能力接口一律使用不透明字符串（`scopeId` 等），由 Provider 把自己的概念映射进通用槽位（参照 `domains.third_id`）。任何为某厂商某资源新增核心表/核心列的提案，必须先判定"是否为 Provider 私有结构"，若是则一律下沉到适配器 |
-| 新增章节 | 「工作流与脚本沙箱」：两条禁止项（域名变动不写记录、工作流不调用工作流）、沙箱能力面、出站代理约束、脚本仅管理员 |
+| 新增章节 | 「工作流与脚本沙箱」：**独立模块目录 `server/src/workflow/`**、两条禁止项（域名变动不写记录、工作流不调用工作流）、沙箱能力面、出站代理约束、脚本仅管理员 |
+| **§DNS提供商适配器（新增机制）** | **提供商特有能力扩展**：`ProviderDefinition.extraCapabilities` + 统一前缀命名（`<providerType>.<后缀>`）+ 启动期唯一性校验。核心只校验命名与唯一性，不解释语义 |
+| **§服务层 / §路由** | 声明 `server/src/workflow/` 为独立一级模块；`routes/workflows.ts` 只做转发；`WorkflowOperations` 纳入 BAL |
 
 ---
 
@@ -1198,8 +1286,8 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | D4 | 出站域名白名单由**管理员在系统设置中维护列表**，空白名单=全禁 | §5.5.1 |
 | D5 | **不设计定时器**，无 `schedule` 触发器 | §4.1 |
 | D6 | **只读动作不设触发源限制**；仅写动作受 §4.0 约束 | §4.0.4 |
-| D7 | **DNSPod 不声明 `originGroup`**（纯解析，无边缘加速源站组），仅鉴权体系相同 | §3.7.4 |
-| D8 | 源站组写入 **v1 只提供 I2 点对面** `origin.replaceGroup`（整组收敛为单一目标，须 `collapse: true`）；**I1 点对点延期 v2**（性能 / 竞态 / 使用频次）。**不提供“调用方自备完整数组”的形态** | §3.7.7、§3.7.9 |
+| D7 | **DNSPod 不声明任何扩展能力**（纯解析，无边缘加速源站组），仅鉴权体系相同 | §3.7.6 |
+| D8 | 源站组写入 **v1 只提供 I2 点对面** `tencenteo.originGroup.replace`（整组收敛为单一目标，须 `collapse: true`）；**I1 点对点延期 v2**（性能 / 竞态 / 使用频次）。**不提供“调用方自备完整数组”的形态** | §3.7.7、§3.7.9 |
 | D9 | 点对点的定位键（**v2 启用时才适用**）：默认用 **`record` 地址**（DDNS 场景用事件 `oldValue`），`recordId` 不持久化，命中数必须恰好 1，`>1` 一律报错。**v1 不涉及定位** | §3.7.5.2 |
 | D10 | **不能用备注定位**——EdgeOne `OriginRecord` 无备注字段。**也不得在核心库存别名**（`origin_aliases` 已否决：会把 Provider 资源层级写进核心）。可读名只作表达式节点的显示标签，不参与定位；定位只用 `record`/`recordId` | §3.7.5.1、§3.7.5.8 |
 | D11 | **核心不得建模 Provider 私有结构**：能力接口一律用不透明字符串（如 `scopeId`），Provider 自行把概念映射进通用槽位，与 `domains.third_id` 同构 | §3.7.4、§3.7.5.8 |
@@ -1207,6 +1295,8 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | D13 | **不得以「域名」为单位修改解析**——`A`/`AAAA` 是多值记录，「域名的解析值」不是可观测对象，按域名写入无法定义唯一目标。写入必须落到**具体记录**（`recordId` 唯一）。域名变动类触发器禁止作为任何解析写动作的触发源 | §4.0 |
 | D14 | **`record.changed` 只监听 `A` / `AAAA`**；其余记录类型（CNAME/MX/TXT/NS/SRV/CAA…）不产生事件、不可订阅 | §4.0.5 |
 | D15 | **v1 无「只改一条」动作**，工作流对源站组的任何写入都是收敛 → 工作流应只操作**专用单源站组**，多源站组由人工维护 | §3.7.10 |
+| D17 | **提供商特有能力采用「统一前缀 + 提供商自定后缀」命名**：`<providerType>.<后缀>`，动作再加一级动词；全名**全局唯一**，注册期校验，冲突即拒绝启动 | §3.7.4 |
+| D18 | 工作流引擎是**独立一级模块** `server/src/workflow/`，不并入 `service/`；动作分类用 `ext.read` / `ext.write` 而非厂商语义的 `origin.*` | §2.2、§十五 |
 | D16 | 源站 `Record` **接受 IPv4 / IPv6 / 域名**（项目方确认）。预检按形态分流、**不做 DNS 解析**；`type` 固定 `IP_DOMAIN`，**不开放 `AWS_S3` 作为写入目标**（凭据零接触） | §3.7.9.5.1 |
 
 ## 十四、仍待确认
@@ -1223,19 +1313,21 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 
 ## 十五、动作分类（P0 落地前置）
 
-§4.0 / §7.5 的裁决需要一个**可判定的动作分类**。建议在能力注册表里给每个动作打标签：
+§4.0 / §7.5 的裁决需要一个**可判定的动作分类**。分类挂在**动作声明**上（§3.7.4 的 `ProviderExtraAction.actionClass`），内置动作同样声明：
 
 ```ts
 type ActionClass =
-  | 'dns.record.read'    // 记录只读
-  | 'dns.record.write'   // 记录写（受 §4.0 约束）
-  | 'origin.read'        // 源站组只读
-  | 'origin.write'       // 源站组写（受 §4.0 约束）
+  | 'dns.record.read'    // 解析记录只读
+  | 'dns.record.write'   // 解析记录写（受 §4.0 约束）
+  | 'ext.read'           // 提供商扩展能力 · 只读
+  | 'ext.write'          // 提供商扩展能力 · 写（受 §4.0 约束）
   | 'http'
   | 'notify';
 ```
 
-裁决只需比较 `(triggerType, actionClass)`，避免每新增一个动作都要改判断逻辑。
+裁决只需比较 `(triggerType, actionClass)`，避免每新增一个动作都要改判断逻辑。新增一家厂商的特有能力时，**只要它声明的 `actionClass` 落在上述枚举内，裁决逻辑一行不用改**。
+
+> **`ext.*` 取代了原草案的 `origin.read` / `origin.write`。** 理由与 D11 同源：`origin`（源站组）是 EdgeOne 的概念，写进**核心的动作分类枚举**就是把厂商结构建模进核心——正是上一轮被否掉的那类错误。核心只知道"这是某家厂商扩展能力的读 / 写"，不知道"源站组"这四个字。具体动作 `tencenteo.originGroup.replace` 通过 `actionClass: 'ext.write'` 参与裁决。
 
 > 注意：`workflow` 类**不出现**在分类里——因为工作流调用已被完全禁用（§7.5）。
 
