@@ -12,6 +12,7 @@ import { normalizeRole } from '../utils/roles';
 import { logAuditOperation } from '../service/audit';
 import { parseInteger, sendError, sendSuccess } from '../utils/http';
 import { DomainOperations, DnsAccountOperations } from '../db/bal/business-adapter';
+import { hasWorkflowSubscribers, publishRecordEvent } from '../workflow/publish';
 import { createLogger } from '../lib/logger';
 import { wsService } from '../service/websocket';
 import { normalizeDomain, isValidDomain } from '../utils/dns';
@@ -442,6 +443,14 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
     // 获取新创建的记录数据用于 WebSocket 推送
     const newRecord = await dnsAdapter.getDomainRecordInfo(recordId);
 
+    // 发布到工作流事件总线（无订阅者时零成本；非 A/AAAA 自动丢弃）
+    publishRecordEvent({
+      action: 'created',
+      domain: { id: domainId, name: access.domain.name },
+      record: { id: recordId, name, type, value },
+      actor: { userId: req.user!.userId, source: 'ui' },
+    });
+
     // 推送 WebSocket 消息
     try {
       wsService.broadcast({
@@ -670,12 +679,23 @@ router.put('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
       : aliyunesa?.proxied !== undefined
         ? (aliyunesa.proxied ? '1' : '0')
         : (line ?? '0');
+    // 仅在存在工作流订阅者时才回查旧值，避免给热路径增加固定开销
+    const previousRecord = hasWorkflowSubscribers()
+      ? await dnsAdapter.getDomainRecordInfo(recordId).catch(() => null)
+      : null;
     const success = await dnsAdapter.updateDomainRecord(recordId, name, type, value, effectiveLine, ttl, mx, weight, remark);
     if (!success) {
       sendError(res, 'Failed to update record');
       return;
     }
     await logAuditOperation(req.user!.userId, 'update_record', access.domain.name, { recordId, name, type, value }, req);
+
+    publishRecordEvent({
+      action: 'updated',
+      domain: { id: domainId, name: access.domain.name },
+      record: { id: recordId, name, type, value, oldValue: previousRecord?.Value },
+      actor: { userId: req.user!.userId, source: 'ui' },
+    });
 
     // 推送 WebSocket 消息
     try {

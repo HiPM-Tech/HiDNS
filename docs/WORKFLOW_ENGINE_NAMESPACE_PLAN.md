@@ -241,6 +241,19 @@ HiDNS 全局主核心（types/namespace.ts）
 
 @@check:actions@@ 已扩大为 @@vitest run src/workflow@@，当前 **32 用例全绿**。
 
+### P3 前置 · 事件总线（已完成）
+
+| 项 | 状态 |
+|---|---|
+| `workflow/event-bus.ts` | ✅ `WorkflowEventBus` + `buildRecordEvent`，过滤 A/AAAA、深度上限、工作流自身写入抑制、订阅者异常隔离、同源日志限流 |
+| `workflow/publish.ts` | ✅ 路由侧发布入口：无订阅者零成本、非 A/AAAA 丢弃、发布失败不影响业务 |
+| `routes/records.ts` | ✅ 创建/更新两处接入；更新时**仅在存在订阅者**才回查旧值，避免热路径固定开销 |
+| 测试 | ✅ `event-bus.test.ts` 9 用例 |
+
+**未接入（原因）**：`record_deleted` / `record_status_changed` 两处路由不携带记录类型，按 §4.0.5 fail-closed 无法构造事件。需在删除前回查类型才能补齐，留待 P3 与引擎一并处理。
+
+**回归**：全量 `61 passed | 26 skipped`，12 个失败文件与既有基线完全一致（均为 `No test suite found` 或既有 DB 初始化问题）。
+
 ### 待办
 
 | 项 | 说明 |
