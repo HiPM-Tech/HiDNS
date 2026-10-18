@@ -234,7 +234,7 @@ interface OriginGroupCapability {
   /**
    * 整组覆盖写（对应 ModifyOriginGroup 的原始语义）。
    * ⚠️ 这是**裸原语**：不做定位、不做保留、不做校验，传入什么就写什么。
-   * 只允许由 CapabilityBroker 的 origin.updateRecord / origin.replaceRecords 调用，
+   * 只允许由 CapabilityBroker 的 origin.updateRecord / origin.replaceGroup 调用，
    * 不得被路由或脚本直接触达（见 §3.7.9 安全契约）。
    */
   replaceOriginRecords(scopeId: string, groupId: string, records: OriginRecord[]): Promise<void>;
@@ -264,11 +264,11 @@ interface OriginRecord {
 }
 ```
 
-#### 3.7.5 定位语义：如何在"全量覆盖"的 API 上做点对点更新
+#### 3.7.5 点对点定位：如何在"全量覆盖"的 API 上精确改一条
 
 官方 `ModifyOriginGroup` 只接受整组 `Records`，**没有"改第 N 条"的入参**。因此"点对点更新"必须由宿主在 read-modify-write 中实现。定位分三步：**解析 → 唯一性裁决 → 保留式回写**。
 
-> **适用范围**：本章描述的是 **`origin.updateRecord`** 的实现。若直接使用 §3.7.9 的 `origin.replaceRecords`，则**不需要定位**——调用方提供的就是最终状态；但相应的完整性责任转移到调用方，并由 §3.7.9 的契约强制。
+> **适用范围**：本章描述**写入意图 I1（点对点）** 的实现。两种写入意图的完整定义见 §3.7.9；点对面（I2）**不做定位**——它没有"哪一条"的问题。
 
 ##### 3.7.5.1 可用的定位键
 
@@ -427,19 +427,21 @@ interface DnsCapabilities {
 
 #### 3.7.7 动作、权限与触发约束
 
-| 动作 | `ActionClass` | 风险级别 | 所需服务权限 | 说明 |
-|---|---|---|---|---|
-| `origin.listGroups` | `origin.read` | 低 | `records.read` | 只读 |
-| `origin.getGroup` | `origin.read` | 低 | `records.read` | 只读 |
-| `origin.updateRecord` | `origin.write` | 中 | `records.write` | **默认动作**：改单条源站（内部 read-modify-write，见 §3.7.5） |
-| `origin.replaceRecords` | `origin.write` | **高** | `records.write` | **整组覆盖**：调用方给出最终 `Records` 数组，受 §3.7.9 安全契约强制约束 |
+| 动作 | `ActionClass` | 风险级别 | 所需服务权限 | 写入意图 | 说明 |
+|---|---|---|---|---|---|
+| `origin.listGroups` | `origin.read` | 低 | `records.read` | — | 只读 |
+| `origin.getGroup` | `origin.read` | 低 | `records.read` | — | 只读 |
+| `origin.updateRecord` | `origin.write` | 中 | `records.write` | **I1 点对点** | **默认动作**：定位一条并改（§3.7.5） |
+| `origin.replaceGroup` | `origin.write` | **高** | `records.write` | **I2 点对面** | 整组收敛为单一目标（§3.7.9） |
 
 **两个写动作的关系**：
 
-- `origin.updateRecord` 是**默认**。它用旧值/ID 定位、保留其余源站、写后校验——使用者不需要知道整组长什么样。
-- `origin.replaceRecords` 是**显式例外**。用于"我确实要一次性重排整组"（例如重新分配全部权重、整体替换回源池）。它**跳过定位**，因为调用方提供的就是最终状态。
+- 二者**不是替代关系，也不是二选一**——它们回答不同的问题：`updateRecord` 回答"改**哪一条**"，`replaceGroup` 回答"整组**应该是什么**"。
+- `origin.updateRecord` 是**默认**。使用者只需知道目标那一条的锚点，无需知晓整组长什么样。
+- `origin.replaceGroup` 是**显式收敛**。用于"这个加速域名应该回源到 X"这类场景（含 DDNS 动态 IP 回源）。它把整组压成一条，**代价是权重分配消失、影响面扩散到所有引用方**。
+- 二者可以表达同一结果（先 I2 收敛，再用 I1 微调），但**不会**互相退化：I1 永不改变条数，I2 永不保留多条。
 
-> 二者不是替代关系：`replaceRecords` 能表达 `updateRecord` 的全部能力（外加增删），但代价是**调用方承担完整性责任**。UI 默认引导用户走 `updateRecord`，`replaceRecords` 需主动切换并二次确认。
+> 原草案的 `origin.replaceRecords({ records: [...] })`（调用方自备完整数组）**已移除**，理由见 §3.7.9.1。
 
 **`origin.updateRecord` 的能力边界**（保持收窄）：
 
@@ -447,7 +449,13 @@ interface DnsCapabilities {
 - 只能改 `record` / `weight` / `private` 等**既有字段**，不能增删源站；
 - 未命中则跳过或报错，**不会创建新源站**。
 
-**触发约束**：`origin.write`（含 `replaceRecords`）与 `dns.record.write` 同属「回源/解析目标变更」，因此**同样禁止由 `domain.changed` 触发**（§4.0 理由完全适用）。
+**`origin.replaceGroup` 的能力边界**：
+
+- 只会让条数**减少或不变**，绝不增加；
+- 不能改组的 `Type`（`GENERAL`/`HTTP`）与 `HostHeader`；
+- 不能跨组移动源站。
+
+**触发约束**：`origin.write`（含 `updateRecord` 与 `replaceGroup`）与 `dns.record.write` 同属「回源/解析目标变更」，因此**同样禁止由 `domain.changed` 触发**（§4.0 理由完全适用）。
 
 > `origin.read` 不受 §4.0 约束——按已确认的 D6，**只读动作不设触发源限制**。
 
@@ -462,42 +470,146 @@ interface DnsCapabilities {
 
 > **`scopeId` 是核心的中性词汇**，对应 §3.7.4 的不透明作用域。`tencenteo` 的作用域是**站点（Zone）**，故该厂商的 UI 表现为"先选站点"；其他厂商若作用域为区域/项目，仅换 UI 措辞，**核心与表达式结构不变**。这与 `domains.third_id` 的处理方式完全一致。
 
-#### 3.7.9 全量覆盖的安全契约（`origin.replaceRecords` 强制）
+#### 3.7.9 两种写入意图：I1 点对点 / I2 点对面
 
-`origin.replaceRecords` **已开放使用**，但每次执行必须满足以下契约。这些不是"建议"，是**动作层的硬门槛**，任一不满足即拒绝执行：
+##### 3.7.9.1 为什么是两条路线，而不是"二选一"或"自备数组"
+
+两条路线回答的是**两个不同的问题**，因此都要存在：
+
+| | **I1 点对点** `origin.updateRecord` | **I2 点对面** `origin.replaceGroup` |
+|---|---|---|
+| 要回答 | 改**哪一条** | 整组**应该是什么** |
+| 使用者需知道 | 目标那一条的锚点（`record` / `recordId`） | **一个**目标值 |
+| 结果形态 | 条数不变，其中一条被改 | 条数 → **1** |
+| 权重 | 原样保留 | 无意义（单源站不做加权分配） |
+| 典型失败 | 改错源站 | 所有引用方的回源被改 |
+| DDNS 用法 | 某条源站跟随某条记录 | 加速域名回源跟随动态 IP |
+
+**已移除的形态**：原草案的 `origin.replaceRecords({ records: [...] })`（调用方自备完整 `Records` 数组）不再提供。它既不是点对点也不是点对面——它要求调用方在**看不见当前整组**的前提下构造整组，而这恰恰是调用方最不该需要知道的信息。原 C1/C2/C3 那套"数组完整性"契约，本质是在给这个错误形态打补丁；形态去掉，补丁也就不需要了。
+
+##### 3.7.9.2 两条路线共用三段式
+
+```
+① 解析 Resolve（只读） → ResolutionReport
+② 计划 Plan（只读）    → diff + 影响面 + digest
+③ 提交 Commit          → 携 digest 执行，写后校验
+```
+
+两种 `ResolutionReport` 形态不同，但阶段一致：
+
+| | I1 | I2 |
+|---|---|---|
+| Resolve 产物 | `{ matched: 1, before, after, preserved[] }` | `{ collapsedFrom: N, removed[], target, references[] }` |
+| Plan 产物 | 单条字段级 diff | 整组前后对照 + 被移除记录逐条 + 引用方清单 |
+| digest | 由字段级 diff 计算 | 由整组 diff + 引用方清单计算 |
+
+`digest` 的语义：**提交时重算，与预览不一致即拒绝执行**。这堵住"预览时看着没问题、提交时已经变了"的时间窗。
+
+##### 3.7.9.3 通用契约（两条路线都强制）
 
 | # | 契约 | 拒绝条件 | 理由 |
 |---|---|---|---|
-| C1 | **显式声明可增删** | 未声明 `allowAdd: true` 却新增了源站；未声明 `allowRemove: true` 却减少了源站 | 默认不允许改变源站集合，只允许改值 |
-| C2 | **数量红线** | 记录数变为 `0`；或减少比例超过 `maxShrinkRatio`（默认 50%） | 防止算错数组把回源池清空 |
-| C3 | **权重完整性** | 基线中有 `Weight` 的记录，在新列表里缺失 `Weight` | 避免"覆盖后权重被静默重置"（官方示例 2 即未带 Weight） |
-| C4 | **内网地址预检** | 任一 `record` 是内网/回环地址 | 腾讯云会返回 `InvalidParameter.InvalidOriginIp`；提前拦截给出可读错误 |
-| C5 | **差异必须可见** | 未生成 diff（新增/删除/修改逐条列出）就提交 | 使用者必须看到"我要删掉哪几个" |
-| C6 | **写入前快照** | 未保存基线快照 | 支持回滚；`ModifyOriginGroup` 只返回 `RequestId`，出错无迹可寻 |
-| C7 | **写后校验** | 未按 §3.7.5.4 三项断言复核 | 确认真的写入且无旁路改动 |
-| C8 | **并发串行** | 同一 `groupId` 存在未完成的写 | 避免两个整组覆盖互相覆盖 |
-| C9 | **审计留痕** | 未记录操作者、diff、快照引用 | 高危动作必须可追溯 |
+| U1 | **解析可读** | 未产出 `ResolutionReport` 就提交 | 使用者必须能看懂"将要改什么" |
+| U2 | **差异可见** | 未携带 `digest`，或提交时重算的 diff 与 digest 不符 | 防止预览与提交不一致 |
+| U3 | **写入前快照** | 未保存基线快照 | `ModifyOriginGroup` 只返回 `RequestId`，出错无迹可寻，快照是唯一回滚依据 |
+| U4 | **写后校验** | 未按 §3.7.5.4 三项断言复核 | 确认真的写入且无旁路改动 |
+| U5 | **审计留痕** | 未记录操作者、diff、快照引用 | 高危动作必须可追溯 |
 
-**推荐用法（表达式层）**：先预览、再提交。
+##### 3.7.9.4 I1 专属契约
+
+| # | 契约 | 落点 |
+|---|---|---|
+| P1 | **唯一性裁决**：命中必须恰好 1 条，`>1` 一律报错 `AmbiguousOriginMatch` | §3.7.5.2 |
+| P2 | **保留式回写**：未 `set` 的字段原样保留，其余记录逐字段原样回传，断言条数不变 | §3.7.5.3 |
+| P3 | **未命中策略**：默认 `skipped`（幂等友好），显式 `onMissing: 'error'` 才失败 | §3.7.5.2 |
+
+##### 3.7.9.5 I2 专属契约
+
+点对面没有数组，因此**不适用**"数量红线""权重完整性"这类针对数组算错的契约。它的风险性质不同——**影响面扩散**与**不可重建数据丢失**：
+
+| # | 契约 | 拒绝条件 | 理由 |
+|---|---|---|---|
+| F1 | **收敛必须显式** | 未声明 `collapse: true` | 默认绝不把整组压成一条；这是不可逆的形态改变 |
+| F2 | **影响面必须可见** | `References` 非空但 report 未列出被引用资源 | 收敛后**所有**引用方的回源都变了（加速域名 / 四层代理 / 负载均衡），使用者必须知道影响谁 |
+| F3 | **被销毁记录逐条列出** | diff 未逐条列出被移除记录的 `record` + `weight` + `type` | 只给"N→1"不够，必须看得见具体丢了哪几条 |
+| F4 | **不可重建数据额外确认** | 被移除记录含 `type='AWS_S3'` 或非空 `Private` / `PrivateParameters`，且未声明 `acknowledgeDataLoss: true` | 对象存储私有访问参数（凭据）无法从目标值反推，收敛即销毁 |
+| F5 | **目标值预检** | `record` 为内网/回环地址；或未显式给 `type` | 腾讯云返回 `InvalidParameter.InvalidOriginIp`；提前拦截给出可读错误 |
+| F6 | **权重处理明确** | — | 收敛后单条不带 `Weight`（单源站无分配语义），写后回读确认 |
+| F7 | **幂等** | 组内已恰好 1 条且等于目标 → `skipped`，不发写请求 | 避免重复触发产生无意义写入与审计噪声 |
+
+##### 3.7.9.6 一个未核实的可行性前提
+
+**I2 依赖"源站组允许只有 1 条源站"。官方文档未明确最小条数。**
+
+| 情况 | 行为 |
+|---|---|
+| 允许 1 条 | 直接收敛，report 显示 `N → 1` |
+| 服务端拒绝（要求 ≥2 条） | **退化路径**：整组每条都改写为同一目标，**保留原条数与权重** |
+
+退化路径对使用者**可观测**——report 会标注 `collapseMode: 'single' | 'broadcast'`，diff 相应显示 `N→1` 或 `N→N`（每条 after 都是同一地址）。因此**不需要两套动作**，只需能力层按错误码自适应，并把实际采用的模式写进运行记录。
+
+##### 3.7.9.7 两条路线都做不到的事（能力边界）
+
+| 做不到 | 原因 | 正确做法 |
+|---|---|---|
+| **新增源站** | I1 只改既有条目；I2 只会收敛 | 走腾讯云控制台（避免工作流自动扩充回源池这类事后难审计的行为） |
+| 改组的 `Type` / `HostHeader` | 属 `OriginGroup` 自身属性，不在 `Records` 里 | 控制台 |
+| 跨组移动源站 | 无此 API | 控制台 |
+
+##### 3.7.9.8 表达式写法
+
+**I1 点对点**（DDNS：一条源站跟随一条记录）
 
 ```
-# 第一步：生成 diff（只读，绝不写）
-origin.planReplaceRecords({ accountId, scopeId, groupId, records: [...] })
-  → { added: [...], removed: [...], changed: [...], warnings: [...] }
-
-# 第二步：人工确认后提交（diffDigest 必填，防止预览与提交不一致）
-origin.replaceRecords({ accountId, scopeId, groupId, records: [...], diffDigest, allowRemove: true })
+当 记录 [www.example.com] 的 A 记录 值 发生变动
+  设置 EdgeOne 源站组 (eo-origin-a) 中
+    定位 源站地址 = (事件.旧值)
+    更新 源站地址 为 (事件.新值)
+    保留 权重 (当前值 30)
 ```
 
-`diffDigest` 的设计意图：**预览时算出的差异摘要必须与提交时的实际差异一致**，否则说明中间有人改了配置或表达式求值不稳定 → 拒绝执行，强制重新预览。这堵住了"预览时看着没问题、提交时删了一堆"的窗口。
+```ts
+origin.updateRecord({
+  accountId, scopeId, groupId,
+  match: { field: 'record', value: expr('event.record.oldValue') },
+  set:   { record: expr('event.record.value') },
+  onMissing: 'skip'
+})
+```
 
-**与 `dry-run` 的关系**：§九 的 `/api/workflows/:id/test` 对含 `origin.replaceRecords` 的工作流**只执行到 plan 阶段**，不落写入，返回 diff 供确认。
+**I2 点对面**（加速域名回源跟随动态 IP）
 
-**脚本可用性**：脚本**可以**调用 `origin.replaceRecords`，但：
+```
+当 记录 [home.example.com] 的 A 记录 值 发生变动
+  设置 EdgeOne 源站组 (eo-origin-home) 的源站
+    为 (事件.新值)
+    确认影响 (2 个加速域名)
+```
+
+```ts
+// 第一步：plan（只读，绝不写）
+origin.planReplaceGroup({ accountId, scopeId, groupId,
+  target: { record: expr('event.record.value'), type: 'IP_DOMAIN' } })
+  // → { collapsedFrom: 3, removed: [...], target: {...},
+  //     references: [...], collapseMode: 'single', digest: 'sha256:…' }
+
+// 第二步：commit（digest 必填）
+origin.replaceGroup({
+  accountId, scopeId, groupId,
+  target: { record: expr('event.record.value'), type: 'IP_DOMAIN' },
+  collapse: true,
+  acknowledgeDataLoss: false,
+  diffDigest: 'sha256:…'
+})
+```
+
+**与 `dry-run` 的关系**：§九 的 `/api/workflows/:id/test` 对两条路线**都只执行到 Plan 阶段**，不落写入，返回 report 供确认。
+
+**脚本可用性**：脚本**可以**调用两个动作，但：
 
 - 脚本本身已限管理员（D2）；
-- C1–C9 同样强制，脚本无法绕过；
-- 脚本必须自行提供 `diffDigest`（可先调 `planReplaceRecords` 取得），**不得跳过预览**。
+- U1–U5 / P1–P3 / F1–F7 同样强制，脚本无法绕过；
+- 脚本必须自行携带 `diffDigest`（先调 `planReplaceGroup` 或 `planUpdateRecord` 取得），**不得跳过预览**。
 
 > 一句话：开放的是**能力**，收紧的是**流程**——必须"看见再写"。
 
@@ -551,7 +663,7 @@ origin.replaceRecords({ accountId, scopeId, groupId, records: [...], diffDigest,
 
 | 意图 | 正确做法 |
 |---|---|
-| IP 变了要更新解析 | 用 `record.changed` 触发 `dns.updateRecord`；或由外部 DDNS 客户端经 API 上报后触发
+| IP 变了要更新解析 | 用 `record.changed` 触发 `dns.updateRecord`；或由外部 DDNS 客户端经 API 上报后触发 |
 | 域名同步后要校验记录 | 用 `domain.changed` 触发**只读**能力（`dns.listRecords`），仅做检查/告警，**不改写** |
 | 需要"跨厂商同步解析" | 用 `record.changed` 触发 `dns.updateRecord` 到另一个账号/域名 |
 
@@ -892,7 +1004,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | R5 | 权限提升 | Principal 取创建者现行权限，Token 触发不得提权（§5.2） |
 | R6 | 表达式伪造成交值 | 提交时复校验候选集合（§3.4） |
 | R7 | 域名变动误触发记录写入（自激 / 错写记录） | **硬性禁止 + 三层强制**（§4.0、§4.0.1） |
-| **R8** | **`ModifyOriginGroup` 全量覆盖导致丢失更新/误删源站/权重被清空** | 默认走 `updateRecord`（read-modify-write + 串行化 + 基线比对 + 原样回传）；开放 `replaceRecords` 后由 §3.7.9 的 C1–C9 强制契约兜底（diff 前置、快照、数量红线、写后校验） |
+| **R8** | **`ModifyOriginGroup` 是整组覆盖语义，直接使用会丢失更新 / 误删源站 / 权重被清空** | 不再提供“自备完整数组”的形态；I1 走 read-modify-write（串行化 + 基线比对 + 原样回传），I2 走显式收敛（`collapse` 声明 + 影响面可见 + 被移除记录逐条 + 快照 + 写后校验），见 §3.7.9 |
 | **Q1** | 「源站组」在 HiDNS 中**没有对应概念** | 需你确认是映射到 Cloudflare Tunnel、还是新增抽象；本文暂按 `tunnels` 候选处理 |
 | **Q2** | 表达式与脚本并存是否会失控 | 建议 UI 默认只开放表达式，脚本作为"高级模式"并需管理员开启 |
 | Q3 | 定时器的时区语义 | 建议统一 UTC 存储、按用户偏好渲染 |
@@ -939,7 +1051,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | D5 | **不设计定时器**，无 `schedule` 触发器 | §4.1 |
 | D6 | **只读动作不设触发源限制**；仅写动作受 §4.0 约束 | §4.0.1 |
 | D7 | **DNSPod 不声明 `originGroup`**（纯解析，无边缘加速源站组），仅鉴权体系相同 | §3.7.4 |
-| D8 | **开放**整组覆盖动作 `origin.replaceRecords`，但必须满足 §3.7.9 的 C1–C9 强制安全契约（差异前置可见、快照可回滚、数量红线、写后校验）；`origin.updateRecord` 仍是默认推荐 | §3.7.7、§3.7.9 |
+| D8 | 源站组写入提供**两种写入意图**：**I1 点对点** `origin.updateRecord`（默认）与 **I2 点对面** `origin.replaceGroup`（整组收敛为单一目标，须 `collapse: true`）。**不再提供“调用方自备完整数组”的形态** | §3.7.7、§3.7.9 |
 | D9 | 源站组定位默认用 **`record` 地址**（DDNS 场景用事件 `oldValue`），`recordId` 不持久化，命中数必须恰好 1，`>1` 一律报错 | §3.7.5.2 |
 | D10 | **不能用备注定位**——EdgeOne `OriginRecord` 无备注字段。**也不得在核心库存别名**（`origin_aliases` 已否决：会把 Provider 资源层级写进核心）。可读名只作表达式节点的显示标签，不参与定位；定位只用 `record`/`recordId` | §3.7.5.1、§3.7.5.8 |
 | D11 | **核心不得建模 Provider 私有结构**：能力接口一律用不透明字符串（如 `scopeId`），Provider 自行把概念映射进通用槽位，与 `domains.third_id` 同构 | §3.7.4、§3.7.5.8 |
@@ -947,6 +1059,8 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 ## 十四、仍待确认
 
 1. **`ActionClass` 分类方式**（§十五）是否认可，以便 P0 落地组合裁决。
+
+**不需要你决策、但需在实现时实测确认的一项**：EdgeOne 源站组是否允许只有 1 条源站（官方文档未明确最小条数）。这不阻塞设计——§3.7.9.6 已给出退化路径（整组每条改写为同一目标）与可观测标注（`collapseMode`），能力层按错误码自适应即可。
 
 
 > EdgeOne 源站组的 API action 与数据结构已按官方文档核对完毕（§3.7.3），不再待确认。核对来源：
