@@ -171,6 +171,8 @@ ext.tencenteo.originGroup.replace({ scopeId, groupId, target, collapse: true });
 facade 必须是**静态文件**（类型可见、可审计、可 IDE 补全），**不得**用运行时 `Proxy` 动态生成——Proxy 会让类型与实现脱钩，审计时看不出到底暴露了哪些能力。facade 与注册表的一致性由 CI 保证（见计划 A7），不靠人工同步。
 
 **唯一签名**：facade 与注册表共用同一个 `ActionHandler(ctx, args)`；核心对象（BAL、provider adapter、凭据）**不出现在任何参数里**，只在 handler 内部经宿主获取。
+
+> **两条通道的差别只在"怎么找到能力"，不在"要不要鉴权"。** `ctx` 只能由 `authorize()` 签发（私有 brand），所以无论是内部 `import` 还是对外前缀调用，**没有授权就拿不到 ctx，handler 根本调不动**。完整裁决链见 §5.0。
 ## 三、表达式模型
 
 ### 3.1 三种书写形式（对应需求中的三类标记）
@@ -1215,6 +1217,70 @@ interface WorkflowEvent {
 
 ## 五、鉴权复用设计（重点）
 
+### 5.0 统一鉴权闸门：任何调用都必须先过 `authorize()`
+
+> 内部文件引用与对外前缀声明，**只是"怎么找到能力"的差别，不是"要不要鉴权"的差别**。无论走哪条通道，执行前都必须拿到一个由 `authorize()` 签发的 `ActionContext`。
+
+**做法：把授权变成类型约束，而不是流程约定。**
+
+```ts
+declare const AUTHORIZED: unique symbol;
+
+/** 只有 authorize() 能造出这个对象（私有 brand） */
+export interface ActionContext {
+  readonly [AUTHORIZED]: true;
+  readonly principal: Principal;
+  readonly action: string;          // 已精确命中注册表的动作全名
+  readonly resource?: ResourceRef;  // domainId / accountId / scopeId
+  readonly traceId: string;
+  readonly trigger: 'event' | 'manual' | 'api' | 'internal';
+  readonly signal: AbortSignal;
+}
+
+/** 所有动作的唯一签名 —— 第一个参数必须是已授权上下文 */
+export type ActionHandler = (ctx: ActionContext, args: JsonObject) => Promise<JsonValue>;
+```
+
+```ts
+export async function authorize(
+  action: string,
+  principal: Principal,
+  resource?: ResourceRef,
+): Promise<ActionContext>;
+```
+
+`ActionContext` 带私有 brand，**手写一个对象冒充它在编译期就过不去**。因此 handler 无法在未授权状态下被调用——**内部调用同样如此**。
+
+**`authorize()` 的裁决顺序**（任一失败即拒绝，不降级为匿名执行）：
+
+| # | 校验 | 失败响应 |
+|---|---|---|
+| 1 | 动作名在注册表中**精确命中**（禁止前缀 / 通配 / 大小写变体） | 404 |
+| 2 | `principal` 非空且未过期 | 401 |
+| 3 | 服务权限：`principal.services ⊇ decl.service` | 403 |
+| 4 | 资源权限：目标 domain / account 在 `principal.allowedDomains` 内 | 403 |
+| 5 | 组合裁决：`(trigger, decl.actionClass)` 合法（§4.0） | 422 |
+| 6 | 脚本通道：`decl.scriptable === true`（否则仅表达式 / API 可用） | 403 |
+| 7 | 速率与配额：`principal × action` 未超限 | 429 |
+| 8 | **write-ahead 审计**：审计落库成功才放行 | 503 |
+
+> 第 8 条是刻意的：**审计写不进去就不执行**。前缀面直接暴露核心能力，宁可拒绝服务，也不能留下无法追溯的执行痕迹。
+
+**Principal 的三种来源**（全部显式，无隐式身份）：
+
+| 来源 | 构造方式 | 约束 |
+|---|---|---|
+| 用户会话 | JWT → `userId` → 实时查角色与权限 | 权限**每次实时解析**，降权立即生效；缓存 TTL ≤ 60s 且带版本号失效 |
+| API Token | `TokenPayload` → `allowed_services` / `allowed_domains` | 不得超出 Token 自身权限；**不得**因工作流创建者是管理员而提权 |
+| 系统任务 | `SYSTEM_PRINCIPAL` | 权限集合是**枚举白名单**，**不等于管理员**；每次使用记审计 |
+
+**禁止的三件事**：
+
+1. **禁止隐式身份**——任何调用点都必须显式传 `principal`，不存在"内部调用所以免检"。
+2. **禁止绕过 facade 直调注册表**——`dispatch()` 与 facade 共用同一条 `authorize()`，facade 只是语法糖。
+3. **禁止通配匹配**——动作名必须精确等于注册表键；`ext.*`、`dns.record.*` 一律拒绝。
+
+**为什么内部也要鉴权**：内部调用同样是"核心能力被使用"。若内部免检，任何能构造内部调用路径的代码（含将来的插件系统）就是一条提权通道。类型 brand 让"忘记鉴权"变成**编译错误**，而不是指望 code review 每次都能抓到。
 ### 5.1 复用现有三件套，不新造体系
 
 | 既有组件 | 位置 | 复用方式 |
@@ -1603,6 +1669,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | D17 | **动作命名 `<顶级前缀>.<二级前缀>.<后缀>`，三级授权链**：**顶级前缀白名单归 HiDNS 全局主核心**（`server/src/types/namespace.ts`，`dns` / `ext` / `http` / `notify` / `var`；`cache` / `queue` / `storage` / `platform` 登记为**未认领预留，当前禁用**）→ 各子系统认领并**二次下派**二级前缀（`ext` 动态取自 registry 的 `providerType`）→ 提供商**只能**自定后缀。全名全局唯一 | §3.7.4 |
 | D20 | **白名单不得放在子系统内**：工作流只是认领方之一。由组合根 `server/src/namespace-registry.ts` 汇总各子系统认领，主核心不 import 任何子系统 | §3.7.4、§2.2 |
 | D21 | **双通道调用**：内部走**文件引用**（链路清晰），对外走**前缀声明**（只暴露已注册能力，核心不泄露）。注册**双向**：声明→分派、实现→反向收集；**只实现未注册 = 用户不可达**，**只注册未实现 = CI 报错**。facade 必须静态，禁止运行时 Proxy | §2.3 |
+| D22 | **所有调用一律先过 `authorize()`**：`ActionContext` 带私有 brand，只能由 `authorize()` 签发，**内部调用也不例外**。裁决 8 步（精确命中 / principal / 服务权限 / 资源权限 / 组合裁决 / 脚本通道 / 速率配额 / write-ahead 审计），任一失败即拒绝，不降级匿名执行 | §5.0 |
 | D18 | 工作流引擎是**独立一级模块** `server/src/workflow/`，不并入 `service/`；动作分类用 `ext.read` / `ext.write` 而非厂商语义的 `origin.*` | §2.2、§十五 |
 | D19 | **重名在编译期与 CI 拦死**，不以运行期为主界：L1 模板字面量类型绑定前缀与提供商；L2 CI 独立步骤跑 `check:actions`（校验逻辑为单一定义源）；L3 启动期仅兜底 | §3.7.4.1 |
 | D16 | 源站 `Record` **接受 IPv4 / IPv6 / 域名**（项目方确认）。预检按形态分流、**不做 DNS 解析**；`type` 固定 `IP_DOMAIN`，**不开放 `AWS_S3` 作为写入目标**（凭据零接触） | §3.7.9.5.1 |

@@ -83,7 +83,7 @@ HiDNS 全局主核心（types/namespace.ts）
 
 | 期 | 内容 | 产出 | 验收 | 回滚 |
 |---|---|---|---|---|
-| **P0** | 命名空间骨架 | `types/namespace.ts`（主核心白名单）、`namespace-registry.ts`（组合根）、`workflow/actions/namespaces.ts`（认领）、`validate-names.ts`、CI 门禁 | `tsc` 绿；`check:actions` 绿；未接引擎，**无运行时行为变化** | 删新增文件即可，零影响 |
+| **P0** | 命名空间骨架 + 鉴权闸门骨架 | `types/namespace.ts`（主核心白名单）、`namespace-registry.ts`（组合根）、`workflow/actions/namespaces.ts`（认领）、`validate-names.ts`、`authorize()` 与 `ActionContext` brand、CI 门禁 | `tsc` 绿；`check:actions` 绿；未接引擎，**无运行时行为变化** | 删新增文件即可，零影响 |
 | **P1** | 内置动作迁入注册表 | 5 个 L3 实现（声明 + handler 桩）+ 静态 facade；文档动作表与 `docs/api.md` 改为从注册表生成 | 注册表 / handler / facade 三者**逐条一致**（CI A5/A7/A8） | 移除 `registry.ts` 与 `facade/` 导出，业务路径未接 |
 | **P2** | 提供商扩展能力 | `extraCapabilities?` 泛型化 + tencenteo `extra.ts` | 21 家无额外声明；tencenteo 4 个动作；CI 绿 | 删 `extraCapabilities` 字段即可 |
 | **P3** | 消费方接入 | 引擎分发、Broker 裁决、前端渲染、`hd.*` 自动生成 | 端到端 dry-run 通过 | 逐消费方开关退回 |
@@ -114,10 +114,15 @@ HiDNS 全局主核心（types/namespace.ts）
 | A6 | `ext` 模块的 `second` 必须**恰好等于** `PROVIDER_TYPES` | registry 与命名空间漂移 |
 | A7 | 静态 facade 导出的能力集合与 `ALL_ACTIONS` **双向一致** | facade 手写漂移：注册了但用户调不到，或 facade 里有幽灵方法 |
 | A8 | handler 表 `HANDLERS` 的键与 `ALL_ACTIONS` 的 name **双向一致** | 只注册未实现（运行到才炸）／只实现未注册（用户不可达却以为已上线） |
+| A9 | 每个动作声明的 `service` **必填**且 ∈ `AVAILABLE_SERVICES`；`actionClass` ∈ 枚举 | 漏鉴权维度：无 `service` 的动作在 `authorize()` 第 3 步无从裁决 |
+| A10 | 所有 handler 必须由 `defineAction()` 产出（`ActionHandler` brand 类型），registry 只接受该类型 | 手写裸函数绕过 `ActionContext` 约束 |
+| A11 | `routes/**`、`service/**`、`lib/dns/providers/**` **不得** import `workflow/actions/handlers/**` | 绕过 `authorize()` 直调 handler，形成提权通道 |
 
 > A2 / A3 是本次新增的关键：只校验声明，等于默许"声明一套、实现另一套"。**双向一致**才叫落地到子模块。
 
 > A7 / A8 对应**双通道调用模型**（设计 §2.3）：内部走文件引用、对外走前缀声明，两条路都必须与同一份注册表对齐。**特别提醒**：A8 失败时若只报"运行期找不到 handler"，说明注册表与实现已经漂移而 CI 没拦住——这正是本条存在的理由。
+
+> A9 / A10 / A11 对应**统一鉴权闸门**（设计 §5.0）。前两条在编译期就把"漏声明权限"和"绕过授权上下文"变成类型错误；A11 是依赖方向检查——**任何模块都不得跳过 `authorize()` 直调 handler**，包括内部代码。
 
 ### 5.3 CI 接线
 
@@ -172,6 +177,11 @@ HiDNS 全局主核心（types/namespace.ts）
 - [ ] facade 为**静态文件**，无运行时 `Proxy` 生成
 - [ ] `HANDLERS` 与 `ALL_ACTIONS` 双向一致（A8）；facade 与 `ALL_ACTIONS` 双向一致（A7）
 - [ ] 内部模块之间**没有**经注册表调用（注册表不是 IOC 容器）
+- [ ] `ActionContext` 带私有 brand，**无任何**手写伪造点；handler 一律由 `defineAction()` 产出
+- [ ] 每个动作声明都有 `service`，且 `authorize()` 第 3 步**确实**用它裁决（不是只声明不校验）
+- [ ] 无任何路径可绕过 `authorize()` 直调 handler（A11 依赖方向检查）
+- [ ] 审计为 write-ahead：**注入一次审计写失败，确认调用被拒绝**
+- [ ] `SYSTEM_PRINCIPAL` 的权限集合是枚举白名单，**不含**管理员通配
 - [ ] P3 前动作全名已冻结并同步 `docs/api.md`
 
 ## 九、未决项
