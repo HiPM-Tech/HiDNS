@@ -296,6 +296,20 @@ HiDNS 全局主核心（types/namespace.ts）
 
 **测试**：新增 `origin-group.test.ts` 13 用例。工作流测试合计 **62 用例**；全量 `82 passed | 26 skipped`，12 个失败文件与基线一致。
 
+### P3 · 进行中（2026-10-19）
+
+| 组件 | 状态 | 说明 |
+|---|---|---|
+| DSL 节点白名单 | ✅ `workflow/expression/nodes.ts` | 9 类节点封闭枚举；`ref` 仅允许 `event.*` / `vars.*`，拒绝 `__proto__` / `constructor` / `prototype` |
+| 静态校验 | ✅ `workflow/expression/validate.ts` | 节点白名单、深度/节点数、参数白名单、**`call.action` 必须字面量且已注册** |
+| 求值器 | ✅ `workflow/expression/evaluator.ts` | 逐节点解释；调用次数上限 50；超时 5s；除零/未知运算抛错 |
+| 引擎执行编排 | ⏳ | 触发匹配、事件→动作、运行记录 |
+| 路由 | ⏳ | `/api/workflows` 等 8 个端点 |
+| 静态 facade | ⏳ | 见设计 §2.3 |
+| 前端 | ⏳ | 编辑器与预览 |
+
+**关键断言**：`expression.test.ts` 含一条**结构断言**——扫描 `workflow/` 全部 `.ts`，若出现 `eval(`、`new Function(` 或导入 `vm` 即失败。这使"无可执行代码"从文档承诺变成可执行检查。
+
 ### 待办
 
 | 项 | 说明 |
