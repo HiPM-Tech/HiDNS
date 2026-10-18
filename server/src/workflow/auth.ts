@@ -43,6 +43,8 @@ export interface ActionContext {
   readonly traceId: string;
   readonly trigger: TriggerKind;
   readonly signal: AbortSignal;
+  /** 工作流运行期局部变量（只读快照），由引擎注入 */
+  readonly vars?: Readonly<Record<string, unknown>>;
 }
 
 export interface AuditRecord {
@@ -81,6 +83,7 @@ export interface AuthorizeOptions {
   /** 触发器类型（如 'record.changed' / 'domain.changed'），用于组合裁决 */
   readonly triggerType?: string;
   readonly signal?: AbortSignal;
+  readonly vars?: Readonly<Record<string, unknown>>;
 }
 
 /** 组合裁决：域名变动类触发器不得触发写动作（§4.0） */
@@ -201,6 +204,7 @@ export async function authorize(
     traceId,
     trigger,
     signal: options.signal ?? new AbortController().signal,
+    vars: options.vars,
   } as ActionContext;
 
   return ctx;

@@ -227,6 +227,20 @@ HiDNS 全局主核心（types/namespace.ts）
 
 该缺陷在既有入口顺序下未暴露，但**任何先加载 `providers/registry` 的代码都会触发**（本次 P0 的 `ext` 模块正是如此）。已移除 `internal.ts` 对 `DnsHelper` 的再导出以打断环路；四个真实调用方本就直连 `DnsHelper`，无行为变化。
 
+### P1 · 进行中（2026-10-19）
+
+| 动作 | 状态 | 说明 |
+|---|---|---|
+| @@http.outbound.fetch@@ | ✅ 已实现 | 协议白名单 + 域名白名单 + 内网拒绝 + 逐跳重定向校验 + 大小/超时上限 |
+| @@var.workflow.get@@ | ✅ 已实现 | 仅读本次运行注入的变量快照；不可达用户/鉴权/DB |
+| @@dns.record.*@@（7 个） | ⏳ 待实现 | 需接 @@DnsProviderService@@ 与 BAL，且写入后需发布事件（P3） |
+| @@dns.domain.list@@ | ⏳ 待实现 | 需接 @@DomainOperations@@ |
+| @@notify.channel.send@@ | ⏳ 待实现 | 需接 @@notification@@ 服务 |
+
+**攻击面测试（已完成部分）**：@@src/workflow/actions/__tests__/http-policy.test.ts@@（13 用例）覆盖 IPv4/IPv6 内网段、IPv4-mapped 绕过、URL 内嵌凭据、空白名单 fail-closed、通配不越界（@@example.com.evil.io@@）、重定向逐跳校验、重定向上限、响应截断。
+
+@@check:actions@@ 已扩大为 @@vitest run src/workflow@@，当前 **32 用例全绿**。
+
 ### 待办
 
 | 项 | 说明 |
