@@ -80,6 +80,18 @@ export class DnsProviderService {
   }
 
   /**
+   * 按账号构建适配器（不依赖域名）。用于源站组等按账号+作用域访问的能力。
+   */
+  static async getAdapterByAccount(accountId: number, domainName = '', thirdId = ''): Promise<DnsAdapter> {
+    const account = (await DnsAccountOperations.getById(accountId)) as unknown as DnsAccount | undefined;
+    if (!account) throw new Error('Account not found');
+    const cfg = typeof account.config === 'string'
+      ? (JSON.parse(account.config) as Record<string, string>)
+      : (account.config as Record<string, string>);
+    return createAdapter(account.type, cfg, domainName, thirdId, thirdId);
+  }
+
+  /**
    * 获取域名记录（支持线路过滤）
    */
   static async getRecords(

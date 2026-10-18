@@ -9,6 +9,7 @@ const DNSNEKO_RECORD_TYPES: RecordType[] = [
 ];
 import * as Adapters from './index';
 import type { ProviderExtraCapability } from './extra-types';
+import { tencenteoOriginGroupCapability } from './tencenteo/extra';
 
 export interface DnsCapabilities {
   remark: boolean;
@@ -214,6 +215,7 @@ export const providerDefinitions: ProviderDefinition[] = [
     type: 'tencenteo',
     name: 'provider.tencenteo',
     capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    extraCapabilities: [tencenteoOriginGroupCapability],
     configFields: [
       { key: 'SecretId', label: 'provider.config.secret_id', type: 'text', required: true },
       { key: 'SecretKey', label: 'provider.config.secret_key', type: 'password', required: true },

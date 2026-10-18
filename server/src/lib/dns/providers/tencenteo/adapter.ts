@@ -1,4 +1,5 @@
 import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, buildSrvValue, Dict, isSrv, normalizeRrName, parseSrvValue, safeString, TencentCloudAdapter, toNumber } from '../internal';
+import { OriginGroupClient } from './origin-group-client';
 
 const log = createProviderAdapterLogger('TencentEO');
 export class TencenteoAdapter extends TencentCloudAdapter {
@@ -31,6 +32,11 @@ export class TencenteoAdapter extends TencentCloudAdapter {
     this.zoneId = zoneId;
     this.domain = domain;
     log.debug('ZoneInfo set', { zoneId, domain });
+  }
+
+  /** 源站组裸原语（不做定位/保留/校验，保护在能力层） */
+  originGroups(): OriginGroupClient {
+    return new OriginGroupClient((action, payload) => this.call(action, payload), this.zoneId);
   }
 
   private fqdn(name: string): string {

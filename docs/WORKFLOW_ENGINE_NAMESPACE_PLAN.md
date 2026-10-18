@@ -276,6 +276,26 @@ HiDNS 全局主核心（types/namespace.ts）
 
 **测试**：`dns-record.test.ts` 8 用例（域名越权 403、不存在 404、create 发布事件、update 携带旧值、setStatus 非法值 400、batch 超限 422、delete 不发事件）。工作流测试合计 **49 用例**；全量 `69 passed | 26 skipped`，12 个失败文件与基线一致。
 
+### P2 · 已完成（2026-10-19）
+
+| 交付物 | 路径 | 状态 |
+|---|---|---|
+| 收敛计划纯逻辑 | `lib/dns/providers/tencenteo/origin-group.ts` | ✅ |
+| 源站组 API 客户端（裸原语） | `lib/dns/providers/tencenteo/origin-group-client.ts` | ✅ |
+| 扩展能力声明与 handler | `lib/dns/providers/tencenteo/extra.ts` | ✅ |
+| 适配器暴露裸原语 | `TencenteoAdapter.originGroups()` | ✅ |
+| 注册挂载 | `registry.ts` 的 tencenteo 增加 `extraCapabilities` | ✅ |
+| 按账号构建适配器 | `DnsProviderService.getAdapterByAccount()` | ✅ |
+| 扩展 handler 接线 | `workflow/actions/modules/ext.ts` 统一 `defineAction` 包装 | ✅ |
+
+**核心验证**：`ext` 模块的二级前缀**动态取自 `PROVIDER_TYPES`**，四个 `ext.tencenteo.originGroup.*` 动作经「提供商目录 → registry → ext 模块 → 注册表」自动流入，**workflow 侧没有任何一行代码提到 tencenteo**。这正是 D17/D20 想要的效果。
+
+**契约落实**：`replace` 要求 `collapse: true`（F1）、`diffDigest` 与重算值一致（U2）、被移除记录含私有参数需 `acknowledgeDataLoss`（F4）、目标内网/回环拒绝（F5）、已收敛则 `skipped`（F7）、写后重读校验单条且等于目标（U4）。
+
+**如实记录的局限**：handler 的真实 API 调用**未经线上验证**（无腾讯云凭据）；已覆盖的是计划/校验/映射逻辑与注册链路。`get` 目前靠 `list` 全量拉取后匹配，官方 `DescribeOriginGroup` 未提供按 `GroupId` 直接查询的入参——数据量大时需按 `Filters` 优化。
+
+**测试**：新增 `origin-group.test.ts` 13 用例。工作流测试合计 **62 用例**；全量 `82 passed | 26 skipped`，12 个失败文件与基线一致。
+
 ### 待办
 
 | 项 | 说明 |

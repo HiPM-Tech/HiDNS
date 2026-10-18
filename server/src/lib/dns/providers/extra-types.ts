@@ -33,10 +33,17 @@ export interface ProviderExtraAction {
   params: ProviderActionParam[];
 }
 
+export type ProviderActionHandler = (args: Record<string, unknown>) => Promise<unknown>;
+
 export interface ProviderExtraCapability {
   /** 全名：ext.<providerType>.<suffix> */
   name: string;
   /** i18n key */
   label: string;
   actions: ProviderExtraAction[];
+  /**
+   * 动作实现，键为动作全名。
+   * 提供商层不感知工作流的 ActionContext，由 ext 模块用 defineAction 包装。
+   */
+  handlers?: Record<string, ProviderActionHandler>;
 }
