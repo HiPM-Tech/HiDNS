@@ -224,9 +224,17 @@
 interface OriginGroupCapability {
   listOriginGroups(zoneId: string, opts?: { offset?: number; limit?: number }): Promise<OriginGroup[]>;
   getOriginGroup(zoneId: string, groupId: string): Promise<OriginGroup | null>;
-  // 整组覆盖写（对应 ModifyOriginGroup 语义，见 §3.7.5）
-  replaceOriginRecords(zoneId: string, groupId: string, records: OriginRecord[]): Promise<void>;
+
+  /**
+   * 整组覆盖写（对应 ModifyOriginGroup）。
+   * ⚠️ 仅限能力层内部调用，不注册为工作流动作、不暴露给脚本。
+   * 调用方必须是 §3.7.5 的 updateRecord 实现（已完成定位、唯一性裁决、保留式回写、写后校验）。
+   */
+  _replaceOriginRecordsInternal(zoneId: string, groupId: string, records: OriginRecord[]): Promise<void>;
 }
+```
+
+> 命名带 `_` 前缀 + `Internal` 后缀，是为了在类型与代码审查中**一眼可见这是内部高危原语**，防止后续被误注册成动作。
 
 // 与官方 OriginGroup / OriginRecord 一一对应
 interface OriginGroup {
@@ -248,39 +256,101 @@ interface OriginRecord {
 }
 ```
 
-#### 3.7.5 **关键风险：`ModifyOriginGroup` 是全量覆盖**
+#### 3.7.5 定位语义：如何在"全量覆盖"的 API 上做点对点更新
 
-官方原文：「修改源站组配置，**新提交的源站记录将会覆盖原有源站组中的源站记录**。」
+官方 `ModifyOriginGroup` 只接受整组 `Records`，**没有"改第 N 条"的入参**。因此"点对点更新"必须由宿主在 read-modify-write 中实现。定位分三步：**解析 → 唯一性裁决 → 保留式回写**。
 
-这意味着**没有"只改某一条源站"的接口**。而工作流的典型意图恰恰是"把**某一个**源站的地址改为域名的新解析值"。因此必须做 **read-modify-write**，并承担三个后果：
+##### 3.7.5.1 可用的定位键
 
-| 风险 | 说明 | 缓解 |
-|---|---|---|
-| **丢失更新** | 两个工作流并发改同一源站组，后写者用旧快照覆盖前者 | 按 `groupId` 串行化（进程内锁 + 任务队列同 ID 去重）；写入前**重读**，仅当基线未变才提交，否则重试 |
-| **误删源站** | 若调用方只提交"自己关心的那一条"，其余源站会被清空 | **强制**：提交前校验 `records.length` 与读取时一致，且未在本次意图内的记录原样保留 |
-| **权重被清空** | 覆盖时不带 `Weight` 可能重置权重（官方示例 2 即未带 Weight） | 保留式回写：未修改的记录**原样回传**（含 `Weight`、`Private`、`PrivateParameters`） |
+| 定位键 | 来源 | 稳定性 | 适用 |
+|---|---|---|---|
+| `record`（源站地址） | `OriginRecord.Record` | 中：地址本身可能被改，但**恰好是 DDNS 场景的抓手** | **首选** |
+| `recordId` | `OriginRecord.RecordId`（形如 `record-3492ee3b-…`） | **未知**：官方示例在覆盖时**未回传** `RecordId`，是否保留未在文档中说明 | 可选，见下方警告 |
+| `index`（数组下标） | 读取顺序 | **低**：任何一次覆盖都可能改变顺序 | 不推荐 |
 
-**动作语义必须在能力层体现，而不是交给脚本自己拼**：
+> **关于 `recordId` 的诚实说明**：`CreateOriginGroup` 的示例 `Records` 不带 `RecordId`，`ModifyOriginGroup` 的示例也不带。这意味着覆盖后**可能重新生成 ID**。因此设计上：
+> - `recordId` **不得持久化**在表达式里当作长期锚点；
+> - 每次运行都**重新读取并解析**目标；
+> - 若用户选了 `recordId` 定位，且本次运行读不到该 ID → 明确报错，**不降级猜测**。
+
+##### 3.7.5.2 唯一性裁决（硬规则）
+
+解析出候选集合后：
+
+| 命中数 | 行为 |
+|---|---|
+| **恰好 1 条** | 执行更新 |
+| **0 条** | 默认**跳过并标记 `skipped`**（幂等友好：值已是目标态时不报错）；若表达式显式声明 `onMissing: 'error'` 则失败 |
+| **> 1 条** | **一律报错中止**（`AmbiguousOriginMatch`），**绝不猜测**用哪一条 |
+
+> 为什么 >1 必须报错：地址重复在源站组里是合法配置（同一 IP 多条、不同权重/端口）。猜错就是改错源站，且 `ModifyOriginGroup` 只返回 `RequestId`，**从返回值看不出改错**。
+
+##### 3.7.5.3 保留式回写
+
+写入前把整组记录按"是否被本次意图命中"分为两类：
+
+```
+目标记录：只应用 set 中的字段；未被 set 的字段（weight/private/privateParameters）原样保留
+其余记录：逐字段原样回传，包括 recordId、weight、private、privateParameters
+```
+
+**禁止只提交目标记录**——那会清空其余源站。能力层必须在构造 payload 时断言 `payload.length === baseline.length`，不等则拒绝提交。
+
+> 为什么不省略未修改记录的 `Weight`：官方示例 2 覆盖时未带 `Weight`，而 `Weight` 是可选字段；省略后的行为（重置为默认还是保持）文档未明确。**回传原值可消除这个不确定性。**
+
+##### 3.7.5.4 写后校验
+
+`ModifyOriginGroup` 只返回 `RequestId`，**不返回变更结果**。因此每次写入后必须重读并断言：
+
+| 断言 | 失败含义 |
+|---|---|
+| 目标记录的 `Record` 已等于新值 | 写入未生效 |
+| 记录总数与写入前一致 | 有源站被误删/误增 |
+| 其余记录（除目标外）逐字段与写入前相同 | 有旁路改动 |
+
+任一断言失败 → 运行标记 `failed`，**不自动重试**（避免放大损坏），并落审计与告警。
+
+##### 3.7.5.5 并发与丢失更新
+
+| 措施 | 说明 |
+|---|---|
+| 按 `groupId` 串行化 | 进程内互斥（同一目标不允许并发 read-modify-write） |
+| 基线比对 | 提交前重读，若与本次读取的基线不一致 → 放弃并重试（乐观并发控制） |
+| 任务去重 | 复用 `taskManager` 的同 ID 延后重排机制（§P0-2 的修复） |
+
+##### 3.7.5.6 表达式如何写（DDNS 场景实例）
+
+```
+当 记录 [www.example.com] 的 A 记录 值 发生变动
+  设置 EdgeOne 源站组 (eo-origin-a) 中
+    定位 源站地址 = (事件.旧值)        ← 点对点：用旧值定位，天然唯一
+    更新 源站地址 为 (事件.新值)
+    保留 权重 (当前值 30)              ← 未声明则原样保留
+```
+
+对应动作调用：
 
 ```ts
-// 推荐：提供"改单条"的动作，内部完成 read-modify-write
 origin.updateRecord({
   accountId, zoneId, groupId,
-  match: { recordId?: string; record?: string },  // 定位目标源站
-  set: { record?: string; weight?: number }        // 只改这些
+  match: { field: 'record', value: expr('event.record.oldValue') },
+  set:   { record: expr('event.record.value') },   // 只改地址
+  onMissing: 'skip'
 })
 ```
 
-> 若脚本直接调用 `replaceOriginRecords`，属于**高危动作**，需额外权限或直接不暴露给脚本。
+> 用 `oldValue` 定位是这个场景**最稳健的锚点**：它与触发事件同源，不需要任何持久 ID，且天然满足"唯一"约束（同一地址重复出现时按 §3.7.5.2 报错，提示用户改用 `recordId`）。
 
-**其他必须处理的 API 行为**
+##### 3.7.5.7 其他必须处理的 API 行为
 
 | 情况 | 处理 |
 |---|---|
 | `OperationDenied.AccelerationDomainStatusNotInOnline` | 引用该组加速域名部署中 → **可重试**（退避），不可当永久失败 |
 | `OperationDenied.L4StatusNotInOnline` / `LoadBalanceStatusNotInOnline` | 绑定资源非运行中 → 重试或明确报错 |
 | `InvalidParameter.InvalidOriginIp` | 服务端拒绝内网 IP/回环地址 —— 与 §5.5 的内网拦截**方向一致**，前端应提前校验 |
+| `OperationDenied.ConfigLocked` / `InternalError.ConfigLocked` | 配置锁定 → 明确报错，提示解锁，不重试 |
 | 频率限制 20 次/秒 | 能力层统一节流，避免工作流批量触发打满 |
+
 
 #### 3.7.6 能力声明（registry 扩展）
 
@@ -303,12 +373,21 @@ interface DnsCapabilities {
 
 #### 3.7.7 动作、权限与触发约束
 
+> **不提供整组覆盖动作。** `origin.replaceRecords` 已从能力集中移除——底层 `ModifyOriginGroup` 虽为全量覆盖语义，但把它作为独立动作暴露，等于让调用方自行构造最终 `Records` 数组，漏写一条即静默删除源站，且 API 只返回 `RequestId`、无从察觉。需要"批量重排"时应连续调用 `origin.updateRecord`（限流 20 次/秒通常足够）。
+
 | 动作 | `ActionClass` | 所需服务权限 | 说明 |
 |---|---|---|---|
 | `origin.listGroups` | `origin.read` | `records.read` | 只读 |
 | `origin.getGroup` | `origin.read` | `records.read` | 只读 |
-| `origin.updateRecord` | **`origin.write`** | `records.write` | 改单条源站（内部 read-modify-write） |
-| `origin.replaceRecords` | **`origin.write`** | `records.write` | 整组覆盖（**不暴露给脚本**，仅高级用户） |
+| `origin.updateRecord` | **`origin.write`** | `records.write` | 改单条源站（内部 read-modify-write，见 §3.7.5） |
+
+**`origin.updateRecord` 是唯一写动作**，其能力边界被刻意收窄为：
+
+- 只能改**一条**（§3.7.5.2 唯一性裁决）；
+- 只能改 `record` / `weight` / `private` 等**既有字段**，不能增删源站；
+- 未命中则跳过或报错，**不会创建新源站**。
+
+> 换言之：源站组的**增删**在设计上不通过工作流进行，仅人工在控制台操作。这避免了"工作流自动扩充源站池"这类难以审计的行为。
 
 **触发约束**：`origin.write` 与 `dns.record.write` 同属「回源/解析目标变更」，因此**同样禁止由 `domain.changed` 触发**（§4.0 理由完全适用）。
 
@@ -762,11 +841,13 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | D5 | **不设计定时器**，无 `schedule` 触发器 | §4.1 |
 | D6 | **只读动作不设触发源限制**；仅写动作受 §4.0 约束 | §4.0.1 |
 | D7 | **DNSPod 不声明 `originGroup`**（纯解析，无边缘加速源站组），仅鉴权体系相同 | §3.7.4 |
+| D8 | **不提供整组覆盖动作**（`origin.replaceRecords` 已移除）；源站组写操作只有 `origin.updateRecord`，并收窄为「只改一条、不增删源站」 | §3.7.7 |
+| D9 | 源站组定位默认用 **`record` 地址**（DDNS 场景用事件 `oldValue`），`recordId` 不持久化，命中数必须恰好 1，`>1` 一律报错 | §3.7.5.2 |
 
 ## 十四、仍待确认
 
 1. **`ActionClass` 分类方式**（§十五）是否认可，以便 P0 落地组合裁决。
-2. **`origin.replaceRecords`（整组覆盖）是否需要开放给高级用户**？默认设计为"不暴露给脚本"，但管理员是否可在表达式里使用，需确认。
+
 
 > EdgeOne 源站组的 API action 与数据结构已按官方文档核对完毕（§3.7.3），不再待确认。核对来源：
 > [创建源站组](https://cloud.tencent.com/document/api/1552/80598)、[获取源站组列表](https://cloud.tencent.com/document/api/1552/80594)、[修改源站组](https://cloud.tencent.com/document/api/1552/80592)、[负载均衡相关接口](https://cloud.tencent.com/document/api/1552/80591)、[数据结构](https://cloud.tencent.com/document/api/1552/80721)
