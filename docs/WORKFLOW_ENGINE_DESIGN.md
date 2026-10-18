@@ -330,19 +330,122 @@ export interface ProviderExtraAction {
 }
 ```
 
-**注册期校验**（`registry.ts` 初始化时执行，任一失败即**拒绝启动**）
+#### 3.7.4.1 重名防线：编译期 + CI，不以运行期为主界
 
-| 校验 | 失败后果 |
+重名必须在**构建阶段就失败**，不能留到运行时——能力名冲突一旦上线，表现为"某家厂商的动作被另一家覆盖"，是最难排查的一类故障。三层防线，越靠前越便宜：
+
+| 层 | 时机 | 拦得住 | 拦不住 |
+|---|---|---|---|
+| **L1** | 编译期 `tsc` | 前缀与提供商不匹配、格式错误 | 跨提供商的**重复**（类型系统无法表达"全局唯一集合"） |
+| **L2** | 构建 / **CI** | 重复、格式、前缀绑定、`actionClass` / `service` 非法 | 绕过 CI 直接部署 `dist` |
+| **L3** | 运行时启动 | 绕过构建的部署 | —（**不是主防线**，只是兜底） |
+
+**L1 · 编译期绑定**（模板字面量类型）
+
+```ts
+// registry.ts
+export type ProviderType =
+  | 'aliyun' | 'aliyunesa' | 'baidu' | 'bt' | 'caihongdns'
+  | 'cloudflare' | 'dnshe' | 'dnsla' | 'dnspod' | 'gcore'
+  | 'hidns' | 'huawei' | 'huoshan' | 'jdcloud' | 'namesilo'
+  | 'powerdns' | 'qingcloud' | 'rainyun' | 'spaceship' | 'tencenteo'
+  | 'vps8' | 'west';
+
+export type ExtCapabilityName<P extends ProviderType> = `ext.${P}.${string}`;
+export type ExtActionName<P extends ProviderType> = `${ExtCapabilityName<P>}.${string}`;
+
+export interface ProviderExtraCapability<P extends ProviderType> {
+  name: ExtCapabilityName<P>;
+  label: string;
+  actions: ProviderExtraAction<P>[];
+}
+```
+
+```ts
+// tencenteo 的定义必须标注具体 ProviderType，否则模板类型退化为 string
+const tencenteo: ProviderDefinition<'tencenteo'> = {
+  type: 'tencenteo',
+  // ...
+  extraCapabilities: [{
+    name: 'ext.tencenteo.originGroup',   // ✅
+    // name: 'ext.dnspod.originGroup',   // ❌ tsc: 不能赋给 `ext.tencenteo.${string}`
+    label: 'provider.tencenteo.origin_group',
+    actions: [/* ... */],
+  }],
+};
+```
+
+**L2 · CI 门禁**（唯一性只能在这一层拦）
+
+校验逻辑写成**单一定义源**，测试与 CLI 共用，避免两处漂移：
+
+```ts
+// workflow/actions/validate-names.ts
+export interface NameConflict { name: string; owners: string[] }
+
+export function validateActionNames(
+  defs: readonly ProviderDefinition<ProviderType>[],
+  builtins: readonly { name: string }[],
+): NameConflict[] {
+  const conflicts: NameConflict[] = [];
+  const seen = new Map<string, string>();
+  const claim = (name: string, owner: string) => {
+    const prev = seen.get(name);
+    if (prev && prev !== owner) conflicts.push({ name, owners: [prev, owner] });
+    else seen.set(name, owner);
+  };
+  for (const p of defs) {
+    for (const cap of p.extraCapabilities ?? []) {
+      claim(cap.name, p.type);
+      for (const a of cap.actions) claim(a.name, p.type);
+    }
+  }
+  for (const b of builtins) claim(b.name, 'builtin');
+  return conflicts;
+}
+```
+
+```ts
+// src/lib/dns/providers/registry.test.ts —— CI 直接跑
+describe('动作命名空间', () => {
+  it('不存在重名（含内置动作）', () => {
+    expect(validateActionNames(providerDefinitions, BUILTIN_ACTIONS)).toEqual([]);
+  });
+  it('扩展能力全名格式与提供商前缀一致', () => {
+    for (const p of providerDefinitions) {
+      for (const cap of p.extraCapabilities ?? []) {
+        expect(cap.name).toMatch(/^ext\.[a-z][a-z0-9]*\.[a-z][a-zA-Z0-9]*$/);
+        expect(cap.name.startsWith(`ext.${p.type}.`)).toBe(true);
+      }
+    }
+  });
+});
+```
+
+接线：
+
+```json
+// server/package.json
+"check:actions": "vitest run src/lib/dns/providers/registry.test.ts"
+```
+
+```yaml
+# .github/workflows/test-suite.yml（独立步骤，失败即红）
+- name: Check action name uniqueness
+  run: pnpm --filter dnsmgr-server run check:actions
+```
+
+> ⚠️ **现状缺陷（必须在落地前修）**：`.github/workflows/test-suite.yml:149` 现为 `pnpm --filter dnsmgr-server run test || echo "Server unit tests completed"`。`|| echo` 把退出码吞掉了，**测试失败不会让 CI 变红**——任何校验挂在这里都是装饰品。因此本校验必须走**独立步骤**且**不得**再挂 `|| echo`。
+
+**L3 · 运行时兜底**（保留，但明确不是主防线）
+
+`startWorkflowModule()` 启动时调用同一个 `validateActionNames()`，结果非空即抛错拒绝启动。22 家提供商的全量扫描是 O(n)、微秒级，代价可忽略；它的唯一价值是拦住"绕过 CI 直接跑 dist"的部署。
+
+| 校验项 | 归属层 |
 |---|---|
-| 顶级前缀 === `ext` | 抛错（提供商不得占用顶级前缀） |
-| 二级前缀 === `provider.type` | 抛错 |
-| 全名匹配 `^ext\.[a-z][a-z0-9]*\.[a-z][a-zA-Z0-9]*$` | 抛错 |
-| 动作全名以 `<capability.name>.` 开头 | 抛错 |
-| 能力全名**跨提供商**唯一 | 抛错，并指出冲突的两家 |
-| 动作全名唯一（含内置 `dns.*` / `http.*` / `notify.*` / `var.*`） | 抛错 |
-| `actionClass` ∈ 已定义枚举；`service` ∈ `AVAILABLE_SERVICES` | 抛错 |
-
-> 校验放在**启动期**而非调用期：能力名冲突一旦上线，表现为"某家厂商的动作被另一家覆盖"，是最难排查的一类故障。
+| 顶级前缀 === `ext`、二级前缀 === `provider.type`、全名格式 | L1（编译期） |
+| 能力全名跨提供商唯一、动作全名唯一（含内置） | **L2（CI）** |
+| `actionClass` ∈ 枚举、`service` ∈ `AVAILABLE_SERVICES` | L1 + L2 |
 
 **适配器侧**：具体实现仍写在 `providers/<provider>/` 内（如 `origin-group.ts`），对外只暴露**裸原语**，所有保护在 `CapabilityBroker` 的动作层。
 
@@ -1295,7 +1398,8 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | §DNS提供商适配器 | `DnsCapabilities` 增加 `originGroup` 字段；EdgeOne/DNSPod 复用腾讯云 TC3 鉴权 |
 | **§DNS提供商适配器（新增硬约束）** | **核心不得建模 Provider 私有资源层级**：能力接口一律使用不透明字符串（`scopeId` 等），由 Provider 把自己的概念映射进通用槽位（参照 `domains.third_id`）。任何为某厂商某资源新增核心表/核心列的提案，必须先判定"是否为 Provider 私有结构"，若是则一律下沉到适配器 |
 | 新增章节 | 「工作流与脚本沙箱」：**独立模块目录 `server/src/workflow/`**、两条禁止项（域名变动不写记录、工作流不调用工作流）、沙箱能力面、出站代理约束、脚本仅管理员 |
-| **§DNS提供商适配器（新增机制）** | **提供商特有能力扩展**：`ProviderDefinition.extraCapabilities` + 统一前缀命名（`<providerType>.<后缀>`）+ 启动期唯一性校验。核心只校验命名与唯一性，不解释语义 |
+| **§DNS提供商适配器（新增机制）** | **提供商特有能力扩展**：`ProviderDefinition.extraCapabilities` + 两级前缀命名 + **编译期类型绑定与 CI 唯一性门禁**。核心只校验命名与唯一性，不解释语义 |
+| **§DNS提供商适配器（强制约束）** | 新增动作前必须让 `check:actions` 通过；**CI 中该校验不得附加 `|| echo` 之类的容错**，否则门禁形同虚设 |
 | **§服务层 / §路由** | 声明 `server/src/workflow/` 为独立一级模块；`routes/workflows.ts` 只做转发；`WorkflowOperations` 纳入 BAL |
 
 ---
@@ -1321,6 +1425,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | D15 | **v1 无「只改一条」动作**，工作流对源站组的任何写入都是收敛 → 工作流应只操作**专用单源站组**，多源站组由人工维护 | §3.7.10 |
 | D17 | **动作命名统一为「两级前缀 + 自定后缀」**：`<顶级前缀>.<二级前缀>.<后缀>`。**前两级留给 HiDNS 各模块**——顶级为封闭枚举（`dns`/`ext`/`http`/`notify`/`var`，另预留 `cache`/`queue`/`storage`/`platform`），二级由所属模块定义（`ext` 固定为 `providerType`）；提供商**只能**自定后缀。全名全局唯一，注册期校验，冲突即拒绝启动 | §3.7.4 |
 | D18 | 工作流引擎是**独立一级模块** `server/src/workflow/`，不并入 `service/`；动作分类用 `ext.read` / `ext.write` 而非厂商语义的 `origin.*` | §2.2、§十五 |
+| D19 | **重名在编译期与 CI 拦死**，不以运行期为主界：L1 模板字面量类型绑定前缀与提供商；L2 CI 独立步骤跑 `check:actions`（校验逻辑为单一定义源）；L3 启动期仅兜底 | §3.7.4.1 |
 | D16 | 源站 `Record` **接受 IPv4 / IPv6 / 域名**（项目方确认）。预检按形态分流、**不做 DNS 解析**；`type` 固定 `IP_DOMAIN`，**不开放 `AWS_S3` 作为写入目标**（凭据零接触） | §3.7.9.5.1 |
 
 ## 十四、仍待确认
