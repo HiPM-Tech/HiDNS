@@ -209,6 +209,7 @@ HiDNS 全局主核心（types/namespace.ts）
 | 鉴权闸门 | `server/src/workflow/auth.ts`（`ActionContext` 私有 brand + 八步裁决） | ✅ |
 | 动作契约与品牌类型 | `server/src/workflow/actions/types.ts`（`defineAction`） | ✅ |
 | CI 门禁测试 | `server/src/workflow/actions/__tests__/namespaces.test.ts`（6 用例） | ✅ |
+| 鉴权闸门测试 | `server/src/workflow/auth.test.ts`（11 用例，覆盖八步裁决与 write-ahead 审计） | ✅ |
 | CI 接线 | `.github/workflows/test-suite.yml` 独立步骤；移除 `|| echo` 容错 | ✅ |
 
 **验证证据**：

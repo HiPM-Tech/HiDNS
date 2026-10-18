@@ -78,6 +78,8 @@ export interface AuthorizeDeps {
 
 export interface AuthorizeOptions {
   readonly trigger?: TriggerKind;
+  /** 触发器类型（如 'record.changed' / 'domain.changed'），用于组合裁决 */
+  readonly triggerType?: string;
   readonly signal?: AbortSignal;
 }
 
@@ -124,6 +126,7 @@ export async function authorize(
   options: AuthorizeOptions = {},
 ): Promise<ActionContext> {
   const trigger = options.trigger ?? 'internal';
+  const triggerType = options.triggerType ?? trigger;
   const traceId = deps.newTraceId();
 
   const deny = async (status: number, reason: string): Promise<never> => {
@@ -164,8 +167,8 @@ export async function authorize(
   }
 
   // 5) 组合裁决
-  if (!isCombinationAllowed(trigger, meta!.actionClass)) {
-    await deny(422, `触发源 ${trigger} 不得触发 ${meta!.actionClass} 动作`);
+  if (!isCombinationAllowed(triggerType, meta!.actionClass)) {
+    await deny(422, `触发源 ${triggerType} 不得触发 ${meta!.actionClass} 动作`);
   }
 
   // 6) DSL 通道
