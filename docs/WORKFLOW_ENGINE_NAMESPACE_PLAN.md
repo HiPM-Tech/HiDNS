@@ -41,7 +41,9 @@ server/src/
     ├── http/outbound.ts
     ├── notify/channel.ts
     ├── var/workflow.ts
-    ├── registry.ts          汇总 MODULES → ALL_ACTIONS（唯一动作索引）
+    ├── registry.ts          汇总 ALL_ACTIONS（声明）+ HANDLERS（实现）
+    ├── handlers/            动作实现（handler(ctx, args)），按二级前缀分目录
+    ├── facade/              ★ 对外静态 facade：dns.* / ext.* / http.* / notify.* / var.*
     └── __tests__/namespaces.test.ts
 ```
 
@@ -65,7 +67,8 @@ HiDNS 全局主核心（types/namespace.ts）
 | 新增 | `workflow/actions/validate-names.ts` | 5 类命名空间违规 + 重名冲突 |
 | 新增 | `workflow/actions/modules/*/index.ts`（5 个） | 模块认领与二次下派 |
 | 新增 | `workflow/actions/{dns,http,notify,var}/*.ts`（5 个） | L3 实现 |
-| 新增 | `workflow/actions/registry.ts` | `ALL_ACTIONS` 索引 |
+| 新增 | `workflow/actions/registry.ts` | `ALL_ACTIONS`（声明）+ `HANDLERS`（实现）双向注册 |
+| 新增 | `workflow/actions/facade/*.ts` | 对外静态 facade，覆盖五个顶级前缀 |
 | 新增 | `workflow/actions/__tests__/namespaces.test.ts` | CI 门禁 |
 | 新增 | `server/scripts/check-action-names.ts` | CLI 包装，复用同一校验逻辑 |
 | 修改 | `lib/dns/providers/registry.ts` | `ProviderDefinition` 泛型化 + `extraCapabilities?` |
@@ -81,7 +84,7 @@ HiDNS 全局主核心（types/namespace.ts）
 | 期 | 内容 | 产出 | 验收 | 回滚 |
 |---|---|---|---|---|
 | **P0** | 命名空间骨架 | `types/namespace.ts`（主核心白名单）、`namespace-registry.ts`（组合根）、`workflow/actions/namespaces.ts`（认领）、`validate-names.ts`、CI 门禁 | `tsc` 绿；`check:actions` 绿；未接引擎，**无运行时行为变化** | 删新增文件即可，零影响 |
-| **P1** | 内置动作迁入注册表 | 5 个 L3 实现（声明 + 桩）；设计文档动作表改为从注册表生成 | 注册表动作集合与文档表格**逐条一致**（CI 双向断言） | 移除 `registry.ts` 导出，业务路径未接 |
+| **P1** | 内置动作迁入注册表 | 5 个 L3 实现（声明 + handler 桩）+ 静态 facade；文档动作表与 `docs/api.md` 改为从注册表生成 | 注册表 / handler / facade 三者**逐条一致**（CI A5/A7/A8） | 移除 `registry.ts` 与 `facade/` 导出，业务路径未接 |
 | **P2** | 提供商扩展能力 | `extraCapabilities?` 泛型化 + tencenteo `extra.ts` | 21 家无额外声明；tencenteo 4 个动作；CI 绿 | 删 `extraCapabilities` 字段即可 |
 | **P3** | 消费方接入 | 引擎分发、Broker 裁决、前端渲染、`hd.*` 自动生成 | 端到端 dry-run 通过 | 逐消费方开关退回 |
 
@@ -109,8 +112,12 @@ HiDNS 全局主核心（types/namespace.ts）
 | A4 | 所有模块导出的动作名合并后**全局唯一**（含 provider 扩展能力） | 跨模块撞名 |
 | A5 | 声明中出现的动作与 `ALL_ACTIONS` 索引条目**双向一致** | 索引漏挂或重复挂 |
 | A6 | `ext` 模块的 `second` 必须**恰好等于** `PROVIDER_TYPES` | registry 与命名空间漂移 |
+| A7 | 静态 facade 导出的能力集合与 `ALL_ACTIONS` **双向一致** | facade 手写漂移：注册了但用户调不到，或 facade 里有幽灵方法 |
+| A8 | handler 表 `HANDLERS` 的键与 `ALL_ACTIONS` 的 name **双向一致** | 只注册未实现（运行到才炸）／只实现未注册（用户不可达却以为已上线） |
 
 > A2 / A3 是本次新增的关键：只校验声明，等于默许"声明一套、实现另一套"。**双向一致**才叫落地到子模块。
+
+> A7 / A8 对应**双通道调用模型**（设计 §2.3）：内部走文件引用、对外走前缀声明，两条路都必须与同一份注册表对齐。**特别提醒**：A8 失败时若只报"运行期找不到 handler"，说明注册表与实现已经漂移而 CI 没拦住——这正是本条存在的理由。
 
 ### 5.3 CI 接线
 
@@ -162,6 +169,9 @@ HiDNS 全局主核心（types/namespace.ts）
 - [ ] CI 检查为**独立步骤**，无 `|| echo` / `|| true` 等容错
 - [ ] 注入一个重名，CI **确实变红**（留 run 链接）
 - [ ] 21 家提供商 diff 为**空**，仅 tencenteo 有新增
+- [ ] facade 为**静态文件**，无运行时 `Proxy` 生成
+- [ ] `HANDLERS` 与 `ALL_ACTIONS` 双向一致（A8）；facade 与 `ALL_ACTIONS` 双向一致（A7）
+- [ ] 内部模块之间**没有**经注册表调用（注册表不是 IOC 容器）
 - [ ] P3 前动作全名已冻结并同步 `docs/api.md`
 
 ## 九、未决项
