@@ -17,6 +17,8 @@ export interface WorkflowDefinition {
   readonly id: string;
   readonly name: string;
   readonly enabled: boolean;
+  /** 创建者（执行身份来源）；缺省表示不可执行 */
+  readonly ownerId?: number;
   readonly trigger: WorkflowTrigger;
   readonly condition?: ExpressionNode;
   readonly actions: ExpressionNode[];

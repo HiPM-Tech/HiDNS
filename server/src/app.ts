@@ -250,6 +250,8 @@ import { startWhoisJob } from './service/whois';
 import { startNsMonitorJob } from './service/nsMonitorJob';
 import { startDomainRenewalJob } from './service/domainRenewalJob';
 import { startRecordCountCacheRefresh } from './service/recordCountCache';
+import workflowsRouter from './routes/workflows';
+import { startWorkflowModule, stopWorkflowModule } from './workflow';
 import { startDomainSyncJob } from './service/domainSyncJob';
 import { startGroupedCacheRefreshJob } from './service/groupedCacheJob';
 import { startMcpOAuthCleanupJob } from './service/mcpOAuthCleanupJob';
@@ -516,6 +518,9 @@ app.use('/api/ns-monitor', nsMonitorRouter);
 app.use('/api/network', networkRouter);
 app.use('/api/servicemonitor', servicemonitorRouter);
 app.use('/api/resource-monitor', resourceMonitorRouter);
+// 工作流：按 §路由 354 的「默认拒绝 + 显式豁免」，此处注册即受 initCheckMiddleware 保护，
+// **不得**加入豁免清单。
+app.use('/api/workflows', workflowsRouter);
 
 // MCP 路由 - 统一合并到父级路由器，避免重复注册 /api/mcp
 const mcpRouter = express.Router();
@@ -675,6 +680,9 @@ async function gracefulShutdown(
 
   log.info(`${signal} received, starting graceful shutdown...`);
 
+  // 停止工作流模块（先退订总线，再断开数据库）
+  stopWorkflowModule();
+
   // Shutdown WebSocket service
   wsService.shutdown();
 
@@ -745,6 +753,7 @@ async function initializeApp() {
       startGroupedCacheRefreshJob();
       startResourceMonitorJob();
       startResourcePruneJob();
+      startWorkflowModule();
     };
 
     // 探测系统状态：严格区分「数据库不可达」与「系统未初始化」
@@ -850,6 +859,7 @@ async function initializeApp() {
           startDomainSyncJob(0.5); // Sync every 30 minutes
           startResourceMonitorJob();
           startResourcePruneJob();
+          startWorkflowModule();
           log.info('System initialized detected. Normal routes are now enabled.');
           log.info('You may need to refresh the page.');
         } else if (state === 'uninitialized') {

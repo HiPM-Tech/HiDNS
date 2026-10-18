@@ -310,10 +310,10 @@ HiDNS 全局主核心（types/namespace.ts）
 | DSM 表 | ✅ `complete-schema.ts` 新增 `workflows` / `workflow_runs` | 声明式定义，由 schema-reconciler 同步，无手写 DDL |
 | BAL 操作 | ✅ `WorkflowOperations` | listByOwner / listEnabled / getById / create / update / remove / insertRun / listRuns |
 | 持久化映射 | ✅ `workflow/store.ts` + 5 用例 | 损坏 JSON 回退默认值；非 A/AAAA 触发类型过滤（fail-closed） |
-| 路由 | ⏳ | `/api/workflows` 等 8 个端点 |
+| 路由 | ✅ `routes/workflows.ts` | 六个端点，全部 `authMiddleware` + `adminOnly`，写操作叠 `requireJwtAuth` |
 | 静态 facade | ⏳ | 见设计 §2.3 |
 | 前端 | ⏳ | 编辑器与预览 |
-| 路由 | ⏳ | `/api/workflows` 等 8 个端点 |
+| 路由 | ✅ `routes/workflows.ts` | 六个端点，全部 `authMiddleware` + `adminOnly`，写操作叠 `requireJwtAuth` |
 | 静态 facade | ⏳ | 见设计 §2.3 |
 | 前端 | ⏳ | 编辑器与预览 |
 

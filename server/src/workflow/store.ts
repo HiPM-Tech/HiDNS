@@ -60,6 +60,7 @@ export function storedToDefinition(stored: StoredWorkflow): WorkflowDefinition {
     id: String(stored.id),
     name: stored.name,
     enabled: stored.enabled,
+    ownerId: stored.ownerId,
     trigger: { type: 'record.changed', recordTypes },
     condition: stored.condition,
     actions: stored.actions,
