@@ -222,8 +222,14 @@
 ```ts
 // 独立能力接口，支持者实现，其余不做
 interface OriginGroupCapability {
-  listOriginGroups(zoneId: string, opts?: { offset?: number; limit?: number }): Promise<OriginGroup[]>;
-  getOriginGroup(zoneId: string, groupId: string): Promise<OriginGroup | null>;
+  /**
+   * scopeId：Provider 定义的**不透明作用域**，核心不解释其含义。
+   * - tencenteo：站点 ID（形如 zone-xxx）
+   * - 未来其他厂商：可为区域 / 项目 / 集群，或空字符串
+   * 与既有 domains.third_id 的处理方式一致：Provider 把自己的概念映射进通用槽位。
+   */
+  listOriginGroups(scopeId: string, opts?: { offset?: number; limit?: number }): Promise<OriginGroup[]>;
+  getOriginGroup(scopeId: string, groupId: string): Promise<OriginGroup | null>;
 
   /**
    * 整组覆盖写（对应 ModifyOriginGroup 的原始语义）。
@@ -231,7 +237,7 @@ interface OriginGroupCapability {
    * 只允许由 CapabilityBroker 的 origin.updateRecord / origin.replaceRecords 调用，
    * 不得被路由或脚本直接触达（见 §3.7.9 安全契约）。
    */
-  replaceOriginRecords(zoneId: string, groupId: string, records: OriginRecord[]): Promise<void>;
+  replaceOriginRecords(scopeId: string, groupId: string, records: OriginRecord[]): Promise<void>;
 }
 ```
 
@@ -344,7 +350,7 @@ interface OriginRecord {
 
 ```ts
 origin.updateRecord({
-  accountId, zoneId, groupId,
+  accountId, scopeId, groupId,
   match: { field: 'record', value: expr('event.record.oldValue') },
   set:   { record: expr('event.record.value') },   // 只改地址
   onMissing: 'skip'
@@ -363,25 +369,41 @@ origin.updateRecord({
 | `OperationDenied.ConfigLocked` / `InternalError.ConfigLocked` | 配置锁定 → 明确报错，提示解锁，不重试 |
 | 频率限制 20 次/秒 | 能力层统一节流，避免工作流批量触发打满 |
 
-##### 3.7.5.8 想要"可读定位"怎么办：HiDNS 侧本地别名
+##### 3.7.5.8 为什么**不能**在核心库存别名（已否决的方案）
 
-既然 EdgeOne 不提供备注，而"用可读名字选源站"的需求是真实的，方案是**在 HiDNS 自己的库里存别名**（不写入 EdgeOne）：
+> 本方案曾被提出并**已被否决**，记录在此以防复发。
 
-| 项 | 设计 |
+**被否决的方案**：在 HiDNS 自己的库里建 `origin_aliases` 表（`account_id`、`zone_id`、`group_id`、`record_id`、`alias`、`anchor_record`），让用户用可读名定位源站。
+
+**否决理由——它把 Provider 的资源层级写进了核心数据模型**：
+
+| 问题 | 说明 |
 |---|---|
-| 存储 | 新增 `origin_aliases`（经 BAL `OriginAliasOperations`）：`account_id`、`zone_id`、`group_id`、`record_id`、`alias`、`anchor_record` |
-| 唯一性 | `(account_id, zone_id, group_id, alias)` 唯一 |
-| **失效锚点** | 别名同时记录 `anchor_record`（建立别名时的源站地址），因为 `record_id` 可能不稳定 |
-| 定位顺序 | ① 按 `record_id` 精确匹配 → ② 失败则按 `anchor_record` 匹配 → ③ 仍失败则**报错并提示别名已失效**，要求用户重挂 |
-| 写入 | 只写 HiDNS 本地库，**从不写 EdgeOne**；EdgeOne 侧无感知 |
+| **核心学懂了 EdgeOne 的层级** | `zone → group → record` 是 TEO 的私有结构。一旦成为核心表结构，核心就"知道"了站点与源站组，违背 §DNS提供商适配器 1「提供商保持模块化、核心只依赖 `DnsAdapter` 契约」 |
+| **出现第二个真相源** | 别名表声称"record_id X 叫主源站"，但权威在 EdgeOne。两边必然漂移，且漂移后无从判定谁对 |
+| **新 Provider 无法复用** | 另一个厂商的源站模型若有/无站点层、有/无组概念，核心表要么冗余列要么塞空值——典型的核心与适配器强绑定 |
+| **灾难形态不可控** | 核心 schema 一旦长入厂商概念，后续每次适配器演进都要反向改核心；这类绑定在 DSM 版本协调与多库（SQLite/MySQL/PostgreSQL）下扩散极难预判 |
 
-**别名只是"人读的入口"，不能替代唯一性裁决**：
+**正确的分层（与既有实现一致）**：
 
-- 别名未命中 → 报错（不是跳过），因为用户明确指名了一个源站
-- 别名命中 1 条 → 仍走 §3.7.5.2 的裁决与 §3.7.5.3 的保留式回写
-- 别名映射本身失效（`record_id` 变了且 `anchor_record` 也对不上）→ 明确告警，**不静默改错**
+项目已经有标准做法——`domains.third_id` 是**不透明字符串槽**（`complete-schema.ts:90`，length 500），`tencenteo` 把 `ZoneId` 放进 `ThirdId`（`adapter.ts:93`）。也就是说：
 
-> 取舍：这增加了一张表与一套失效检测。若 v1 不想要这部分复杂度，可先只提供 `record` / `recordId` 两种定位，把别名放到 P2 之后。**但不要退回到"用备注定位"——那个字段不存在。**
+> **Provider 把自己的概念映射进核心的通用槽位；核心永远不认识"Zone"这三个字母。**
+
+因此"可读定位"按此原则改为**两级下沉**，核心零改动：
+
+| 层 | 做法 | 是否落库 |
+|---|---|---|
+| **表达式节点** | 可读名只是该节点的**显示标签**（`label: "主源站"`），存于工作流定义的 JSON 内。**它不参与定位**，仅用于 UI 与 diff 展示 | 存于工作流配置，**不是核心实体表** |
+| **Provider 适配器** | 若某厂商原生有备注/名称，由适配器在自己的 DTO 里返回（如 `listOriginGroups` 的结果附带 `label?`），核心只当普通字段透传 | **不落核心库** |
+
+**定位仍只用 `record` / `recordId`**（§3.7.5.1），可读名从不参与匹配。这样：
+
+- 用户依然看到"主源站""备用源站"这种可读文本；
+- 核心 schema 一行不用加；
+- 换一个 Provider、换一套资源层级，核心不受影响。
+
+> **判定准则（新增，写入 §12.1 规范同步项）**：任何"为了某个厂商的某个资源"而提议新增核心表或核心列的设计，都必须先问——**这是不是 Provider 的私有结构？** 若是，一律下沉到适配器或退化为不透明槽位，禁止建模进核心。
 
 
 #### 3.7.6 能力声明（registry 扩展）
@@ -433,12 +455,12 @@ interface DnsCapabilities {
 
 | 候选源 | 参数 | 依赖 |
 |---|---|---|
-| `originGroups` | `accountId`、`zoneId` | 需先选账号（且 `originGroup: true`）与站点 |
-| `originServers` | `accountId`、`zoneId`、`originGroupId` | 级联依赖 |
+| `originGroups` | `accountId`、`scopeId` | 需先选账号（且 `originGroup: true`）与作用域 |
+| `originServers` | `accountId`、`scopeId`、`originGroupId` | 级联依赖 |
 
 前端在账号不支持源站组时**隐藏整条源站组动作**，而不是显示后报错。
 
-> `zoneId` 的来源：EdgeOne 的源站组挂在**站点（Zone）**下，因此 UI 需先选站点。这与 DNS 记录"先选域名"的层级不同，属于 §3.7 附加组件的独立选择链。
+> **`scopeId` 是核心的中性词汇**，对应 §3.7.4 的不透明作用域。`tencenteo` 的作用域是**站点（Zone）**，故该厂商的 UI 表现为"先选站点"；其他厂商若作用域为区域/项目，仅换 UI 措辞，**核心与表达式结构不变**。这与 `domains.third_id` 的处理方式完全一致。
 
 #### 3.7.9 全量覆盖的安全契约（`origin.replaceRecords` 强制）
 
@@ -460,11 +482,11 @@ interface DnsCapabilities {
 
 ```
 # 第一步：生成 diff（只读，绝不写）
-origin.planReplaceRecords({ accountId, zoneId, groupId, records: [...] })
+origin.planReplaceRecords({ accountId, scopeId, groupId, records: [...] })
   → { added: [...], removed: [...], changed: [...], warnings: [...] }
 
 # 第二步：人工确认后提交（diffDigest 必填，防止预览与提交不一致）
-origin.replaceRecords({ accountId, zoneId, groupId, records: [...], diffDigest, allowRemove: true })
+origin.replaceRecords({ accountId, scopeId, groupId, records: [...], diffDigest, allowRemove: true })
 ```
 
 `diffDigest` 的设计意图：**预览时算出的差异摘要必须与提交时的实际差异一致**，否则说明中间有人改了配置或表达式求值不稳定 → 拒绝执行，强制重新预览。这堵住了"预览时看着没问题、提交时删了一堆"的窗口。
@@ -901,6 +923,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | §路由 | 新增 `/api/workflows`、`/api/workflows/meta/:source` |
 | §安全规范 | 新增「工作流执行身份」「凭据零接触」「脚本沙箱」「管理员出站白名单」四条 |
 | §DNS提供商适配器 | `DnsCapabilities` 增加 `originGroup` 字段；EdgeOne/DNSPod 复用腾讯云 TC3 鉴权 |
+| **§DNS提供商适配器（新增硬约束）** | **核心不得建模 Provider 私有资源层级**：能力接口一律使用不透明字符串（`scopeId` 等），由 Provider 把自己的概念映射进通用槽位（参照 `domains.third_id`）。任何为某厂商某资源新增核心表/核心列的提案，必须先判定"是否为 Provider 私有结构"，若是则一律下沉到适配器 |
 | 新增章节 | 「工作流与脚本沙箱」：两条禁止项（域名变动不写记录、工作流不调用工作流）、沙箱能力面、出站代理约束、脚本仅管理员 |
 
 ---
@@ -918,7 +941,8 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | D7 | **DNSPod 不声明 `originGroup`**（纯解析，无边缘加速源站组），仅鉴权体系相同 | §3.7.4 |
 | D8 | **开放**整组覆盖动作 `origin.replaceRecords`，但必须满足 §3.7.9 的 C1–C9 强制安全契约（差异前置可见、快照可回滚、数量红线、写后校验）；`origin.updateRecord` 仍是默认推荐 | §3.7.7、§3.7.9 |
 | D9 | 源站组定位默认用 **`record` 地址**（DDNS 场景用事件 `oldValue`），`recordId` 不持久化，命中数必须恰好 1，`>1` 一律报错 | §3.7.5.2 |
-| D10 | **不能用备注定位**——EdgeOne `OriginRecord` 无备注字段。可读定位改由 HiDNS **本地别名**满足（`origin_aliases`，含 `anchor_record` 失效锚点），别名只写本地库不写 EdgeOne | §3.7.5.1、§3.7.5.8 |
+| D10 | **不能用备注定位**——EdgeOne `OriginRecord` 无备注字段。**也不得在核心库存别名**（`origin_aliases` 已否决：会把 Provider 资源层级写进核心）。可读名只作表达式节点的显示标签，不参与定位；定位只用 `record`/`recordId` | §3.7.5.1、§3.7.5.8 |
+| D11 | **核心不得建模 Provider 私有结构**：能力接口一律用不透明字符串（如 `scopeId`），Provider 自行把概念映射进通用槽位，与 `domains.third_id` 同构 | §3.7.4、§3.7.5.8 |
 
 ## 十四、仍待确认
 
