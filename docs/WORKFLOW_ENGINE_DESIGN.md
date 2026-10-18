@@ -534,19 +534,25 @@ interface DnsCapabilities {
 | F3 | **被销毁记录逐条列出** | diff 未逐条列出被移除记录的 `record` + `weight` + `type` | 只给"N→1"不够，必须看得见具体丢了哪几条 |
 | F4 | **不可重建数据额外确认** | 被移除记录含 `type='AWS_S3'` 或非空 `Private` / `PrivateParameters`，且未声明 `acknowledgeDataLoss: true` | 对象存储私有访问参数（凭据）无法从目标值反推，收敛即销毁 |
 | F5 | **目标值预检** | `record` 为内网/回环地址；或未显式给 `type` | 腾讯云返回 `InvalidParameter.InvalidOriginIp`；提前拦截给出可读错误 |
-| F6 | **权重处理明确** | — | 收敛后单条不带 `Weight`（单源站无分配语义），写后回读确认 |
+| F6 | **权重处理明确** | — | 收敛后单条不带 `Weight`（单源站无分配语义），写后回读确认；形态见 §3.7.9.6 |
 | F7 | **幂等** | 组内已恰好 1 条且等于目标 → `skipped`，不发写请求 | 避免重复触发产生无意义写入与审计噪声 |
 
-##### 3.7.9.6 一个未核实的可行性前提
+##### 3.7.9.6 收敛后的目标形态（前提已确认）
 
-**I2 依赖"源站组允许只有 1 条源站"。官方文档未明确最小条数。**
+**前提已确认：EdgeOne 源站组允许只有 1 条源站**（项目方确认；官方文档未写明最小条数，故此前列为未核实项）。
 
-| 情况 | 行为 |
+由此**删除**此前设计的"整组广播"退化路径（整组每条都改写为同一目标）。理由：那条路径会让 diff 显示 `N→N` 却仍宣称"替换成单一目标"，**语义自相矛盾**；且它只是在为一条不存在的前提兜底，属无效复杂度。
+
+收敛后的组内形态：
+
+| 项 | 结果 |
 |---|---|
-| 允许 1 条 | 直接收敛，report 显示 `N → 1` |
-| 服务端拒绝（要求 ≥2 条） | **退化路径**：整组每条都改写为同一目标，**保留原条数与权重** |
+| `Records` | **恰好 1 条**：`record` = 目标值，`type` = 显式声明的类型 |
+| `Weight` | **不带**（单源站无加权分配语义），写后回读确认 |
+| `GroupId` / `Name` / `Type` / `HostHeader` | 不变 |
+| `References` | **不变**——引用关系绑定在组上，不随条数变化 |
 
-退化路径对使用者**可观测**——report 会标注 `collapseMode: 'single' | 'broadcast'`，diff 相应显示 `N→1` 或 `N→N`（每条 after 都是同一地址）。因此**不需要两套动作**，只需能力层按错误码自适应，并把实际采用的模式写进运行记录。
+**fail-closed 分支**：若服务端仍以参数类错误拒绝单条 `Records`，报错 `CollapseUnsupported` 并中止。**不得**擅自退化为"每条都改成同一目标"——那会静默改变使用者声明的意图，且 diff 与实际结果不符。
 
 ##### 3.7.9.7 两条路线都做不到的事（能力边界）
 
@@ -591,7 +597,7 @@ origin.updateRecord({
 origin.planReplaceGroup({ accountId, scopeId, groupId,
   target: { record: expr('event.record.value'), type: 'IP_DOMAIN' } })
   // → { collapsedFrom: 3, removed: [...], target: {...},
-  //     references: [...], collapseMode: 'single', digest: 'sha256:…' }
+  //     references: [...], digest: 'sha256:…' }
 
 // 第二步：commit（digest 必填）
 origin.replaceGroup({
@@ -1055,12 +1061,13 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | D9 | 源站组定位默认用 **`record` 地址**（DDNS 场景用事件 `oldValue`），`recordId` 不持久化，命中数必须恰好 1，`>1` 一律报错 | §3.7.5.2 |
 | D10 | **不能用备注定位**——EdgeOne `OriginRecord` 无备注字段。**也不得在核心库存别名**（`origin_aliases` 已否决：会把 Provider 资源层级写进核心）。可读名只作表达式节点的显示标签，不参与定位；定位只用 `record`/`recordId` | §3.7.5.1、§3.7.5.8 |
 | D11 | **核心不得建模 Provider 私有结构**：能力接口一律用不透明字符串（如 `scopeId`），Provider 自行把概念映射进通用槽位，与 `domains.third_id` 同构 | §3.7.4、§3.7.5.8 |
+| D12 | **EdgeOne 源站组允许只有 1 条源站**（项目方确认）。I2 收敛后组内恰为单条，**不设**"整组广播"退化路径；服务端若拒绝则 `CollapseUnsupported` fail-closed | §3.7.9.6 |
 
 ## 十四、仍待确认
 
 1. **`ActionClass` 分类方式**（§十五）是否认可，以便 P0 落地组合裁决。
 
-**不需要你决策、但需在实现时实测确认的一项**：EdgeOne 源站组是否允许只有 1 条源站（官方文档未明确最小条数）。这不阻塞设计——§3.7.9.6 已给出退化路径（整组每条改写为同一目标）与可观测标注（`collapseMode`），能力层按错误码自适应即可。
+~~EdgeOne 源站组是否允许只有 1 条源站~~ —— **已确认允许**（项目方确认），见 D12 与 §3.7.9.6。
 
 
 > EdgeOne 源站组的 API action 与数据结构已按官方文档核对完毕（§3.7.3），不再待确认。核对来源：
