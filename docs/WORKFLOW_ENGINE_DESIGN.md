@@ -178,72 +178,153 @@
 
 > 这印证了需求的表述：**本质上它是附加组件**——鉴权套用 DNSPod/EdgeOne，但资源域独立于 DNS 解析。
 
-#### 3.7.3 能力接口（草案）
+#### 3.7.3 真实 API 契约（已按腾讯云官方文档核对）
 
-源站组**不挂在 `DnsAdapter` 上**。它是一个独立的附加能力接口，由支持它的适配器**额外实现**（类似 mixin），避免污染 DNS 适配器的语义：
+> 以下 action 名、参数、字段均来自官方文档，非推测。
+
+| 能力 | Action | 入参要点 | 出参 |
+|---|---|---|---|
+| 列表 | `DescribeOriginGroup` | `ZoneId`（必填）、`Offset`、`Limit`（1–1000，默认 20）、`Filters`（`origin-group-id` 精确 / `origin-group-name` 模糊） | `TotalCount`、`OriginGroups[]` |
+| 创建 | `CreateOriginGroup` | `ZoneId`、`Records.N`（必填）、`Name`、`Type`（必填）、`HostHeader`（仅 `Type=HTTP`） | `OriginGroupId` |
+| **修改** | `ModifyOriginGroup` | `ZoneId`、`GroupId`（必填）、`Name`、`Type`、**`Records.N`**、`HostHeader` | `RequestId` |
+| 删除 | `DeleteOriginGroup` | `ZoneId`、`GroupId` | `RequestId` |
+
+公共参数：`Version=2022-09-01`，域名 `teo.tencentcloudapi.com`，**默认频率限制 20 次/秒**。
+
+**`OriginGroup` 结构**
+
+| 字段 | 说明 |
+|---|---|
+| `GroupId` | 源站组 ID，形如 `origin-xxxx` |
+| `Name` | 名称（1–200 字符，`a-zA-Z0-9_-`） |
+| `Type` | `GENERAL`（通用型，可被域名服务/规则引擎/四层代理/通用型 LB 引用）或 `HTTP`（HTTP 专用型，含对象存储源站，不可被四层代理引用） |
+| `Records[]` | `OriginRecord` 列表 |
+| `HostHeader` | 回源 Host（仅 `Type=HTTP`） |
+| `References[]` | **被谁引用**（加速域名 / 四层代理 / 负载均衡） |
+| `CreateTime` / `UpdateTime` | 时间戳 |
+
+**`OriginRecord` 结构**
+
+| 字段 | 说明 |
+|---|---|
+| `RecordId` | 记录 ID（形如 `record-xxxx`） |
+| `Record` | 源站地址（IP 或域名） |
+| `Type` | `IP_DOMAIN` 或 `AWS_S3`（对象存储） |
+| `Weight` | **权重，取值 0–100**（官方错误码 `InvalidParameter.OriginRecordWeightValue` 明确） |
+| `Private` / `PrivateParameters` | 第三方对象存储私有访问参数 |
+
+> **重要**：官方描述明确「此处配置的源站组可于**添加加速域名**和**四层代理**等功能中引用」。这直接印证 §3.7 的界定——源站组服务于**边缘加速回源**，不是 DNS 解析记录。
+
+#### 3.7.4 能力接口（按真实契约）
+
+源站组**不挂在 `DnsAdapter` 上**，是独立的附加能力接口，由支持它的适配器额外实现：
 
 ```ts
 // 独立能力接口，支持者实现，其余不做
 interface OriginGroupCapability {
-  listOriginGroups(zoneId?: string): Promise<OriginGroup[]>;
-  getOriginGroup(groupId: string): Promise<OriginGroup | null>;
-  // 更新源站组成员与权重（回源权重分配）
-  updateOriginGroup(groupId: string, patch: OriginGroupPatch): Promise<boolean>;
-  listOriginServers(groupId: string): Promise<OriginServer[]>;
+  listOriginGroups(zoneId: string, opts?: { offset?: number; limit?: number }): Promise<OriginGroup[]>;
+  getOriginGroup(zoneId: string, groupId: string): Promise<OriginGroup | null>;
+  // 整组覆盖写（对应 ModifyOriginGroup 语义，见 §3.7.5）
+  replaceOriginRecords(zoneId: string, groupId: string, records: OriginRecord[]): Promise<void>;
 }
 
-interface OriginServer {
-  id: string;
-  address: string;      // 回源地址
-  type: 'IP_DOMAIN' | 'ORIGIN';  // 按 EdgeOne 实际枚举校准
-  weight: number;       // 权重，支持加权回源
-  port?: number;
+// 与官方 OriginGroup / OriginRecord 一一对应
+interface OriginGroup {
+  groupId: string;
+  name: string;
+  type: 'GENERAL' | 'HTTP';
+  hostHeader?: string;
+  records: OriginRecord[];
+  references: Array<{ type: string; id: string; name?: string }>;
+  createTime?: string;
+  updateTime?: string;
+}
+
+interface OriginRecord {
+  recordId?: string;
+  record: string;                 // 回源地址：IP 或域名
+  type: 'IP_DOMAIN' | 'AWS_S3';
+  weight?: number;                // 0–100
 }
 ```
 
-> 若后续确认 EdgeOne 支持"负载均衡/回源规则"等更细的模型，接口按实际 API 扩展，不预先猜测。
+#### 3.7.5 **关键风险：`ModifyOriginGroup` 是全量覆盖**
 
-#### 3.7.4 能力声明（registry 扩展）
+官方原文：「修改源站组配置，**新提交的源站记录将会覆盖原有源站组中的源站记录**。」
 
-`DnsCapabilities` 增加字段，**声明式**告知前端某厂商是否支持源站组：
+这意味着**没有"只改某一条源站"的接口**。而工作流的典型意图恰恰是"把**某一个**源站的地址改为域名的新解析值"。因此必须做 **read-modify-write**，并承担三个后果：
+
+| 风险 | 说明 | 缓解 |
+|---|---|---|
+| **丢失更新** | 两个工作流并发改同一源站组，后写者用旧快照覆盖前者 | 按 `groupId` 串行化（进程内锁 + 任务队列同 ID 去重）；写入前**重读**，仅当基线未变才提交，否则重试 |
+| **误删源站** | 若调用方只提交"自己关心的那一条"，其余源站会被清空 | **强制**：提交前校验 `records.length` 与读取时一致，且未在本次意图内的记录原样保留 |
+| **权重被清空** | 覆盖时不带 `Weight` 可能重置权重（官方示例 2 即未带 Weight） | 保留式回写：未修改的记录**原样回传**（含 `Weight`、`Private`、`PrivateParameters`） |
+
+**动作语义必须在能力层体现，而不是交给脚本自己拼**：
+
+```ts
+// 推荐：提供"改单条"的动作，内部完成 read-modify-write
+origin.updateRecord({
+  accountId, zoneId, groupId,
+  match: { recordId?: string; record?: string },  // 定位目标源站
+  set: { record?: string; weight?: number }        // 只改这些
+})
+```
+
+> 若脚本直接调用 `replaceOriginRecords`，属于**高危动作**，需额外权限或直接不暴露给脚本。
+
+**其他必须处理的 API 行为**
+
+| 情况 | 处理 |
+|---|---|
+| `OperationDenied.AccelerationDomainStatusNotInOnline` | 引用该组加速域名部署中 → **可重试**（退避），不可当永久失败 |
+| `OperationDenied.L4StatusNotInOnline` / `LoadBalanceStatusNotInOnline` | 绑定资源非运行中 → 重试或明确报错 |
+| `InvalidParameter.InvalidOriginIp` | 服务端拒绝内网 IP/回环地址 —— 与 §5.5 的内网拦截**方向一致**，前端应提前校验 |
+| 频率限制 20 次/秒 | 能力层统一节流，避免工作流批量触发打满 |
+
+#### 3.7.6 能力声明（registry 扩展）
+
+`DnsCapabilities` 增加字段，声明式告知前端某厂商是否支持源站组：
 
 ```ts
 interface DnsCapabilities {
   // ...既有字段
-  originGroup: boolean;   // 新增：是否支持 EdgeOne 源站组
+  originGroup: boolean;
 }
 ```
 
 | 厂商 | `originGroup` | 说明 |
 |---|---|---|
 | `tencenteo` | `true` | 本次新增 |
-| `dnspod` | **`false`**（建议） | DNSPod 是纯解析，**没有**边缘加速源站组；仅鉴权方式相同 |
+| `dnspod` | **`false`** | DNSPod 是纯解析，**没有**边缘加速源站组；仅鉴权体系相同 |
 | 其余 | `false` | — |
 
-> **纠正**：前一版设计写「dnspod 视核对结果置 true」是错的。用户已明确"鉴权套用 dnspod 和 edgeone"，指的是**凭据体系相同**，而非 DNSPod 也有源站组。源站组是 EdgeOne（TEO）侧的产品能力。若后续发现 DNSPod 确有同类能力，再单独评估。
+> 用户所述"鉴权套用 dnspod 和 edgeone"指**凭据体系相同**（均为腾讯云 `SecretId/SecretKey` + TC3），而非 DNSPod 也具备源站组能力。
 
-这条设计保证：**候选源 `originGroups` 只对 `originGroup: true` 的账号出现**。
-
-#### 3.7.5 动作、权限与触发约束
+#### 3.7.7 动作、权限与触发约束
 
 | 动作 | `ActionClass` | 所需服务权限 | 说明 |
 |---|---|---|---|
 | `origin.listGroups` | `origin.read` | `records.read` | 只读 |
-| `origin.listServers` | `origin.read` | `records.read` | 只读 |
-| `origin.updateGroup` | `origin.write` | `records.write` | 写动作 |
+| `origin.getGroup` | `origin.read` | `records.read` | 只读 |
+| `origin.updateRecord` | **`origin.write`** | `records.write` | 改单条源站（内部 read-modify-write） |
+| `origin.replaceRecords` | **`origin.write`** | `records.write` | 整组覆盖（**不暴露给脚本**，仅高级用户） |
 
-**触发约束**：`origin.write` 与 `dns.record.write` 同属「解析/回源目标变更」，因此**同样禁止由 `domain.changed` 触发**（§4.0 的理由完全适用：语义不成立、必然自激、`third_id` 同步窗口可致错写）。
+**触发约束**：`origin.write` 与 `dns.record.write` 同属「回源/解析目标变更」，因此**同样禁止由 `domain.changed` 触发**（§4.0 理由完全适用）。
 
-> `origin.read` 不受 §4.0 约束——按本轮确认，**只读动作不设触发源限制**。
+> `origin.read` 不受 §4.0 约束——按已确认的 D6，**只读动作不设触发源限制**。
 
-#### 3.7.6 候选值级联
+#### 3.7.8 候选值级联
 
 | 候选源 | 参数 | 依赖 |
 |---|---|---|
-| `originGroups` | `accountId` | 需先选账号且该账号 `originGroup: true` |
-| `originServers` | `accountId`, `originGroupId` | 级联依赖 |
+| `originGroups` | `accountId`、`zoneId` | 需先选账号（且 `originGroup: true`）与站点 |
+| `originServers` | `accountId`、`zoneId`、`originGroupId` | 级联依赖 |
 
 前端在账号不支持源站组时**隐藏整条源站组动作**，而不是显示后报错。
+
+> `zoneId` 的来源：EdgeOne 的源站组挂在**站点（Zone）**下，因此 UI 需先选站点。这与 DNS 记录"先选域名"的层级不同，属于 §3.7 附加组件的独立选择链。
+
 
 
 ### 3.4 求值与安全
@@ -635,6 +716,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | R5 | 权限提升 | Principal 取创建者现行权限，Token 触发不得提权（§5.2） |
 | R6 | 表达式伪造成交值 | 提交时复校验候选集合（§3.4） |
 | R7 | 域名变动误触发记录写入（自激 / 错写记录） | **硬性禁止 + 三层强制**（§4.0、§4.0.1） |
+| **R8** | **`ModifyOriginGroup` 全量覆盖导致丢失更新/误删源站/权重被清空** | read-modify-write + 按 `groupId` 串行化 + 写入前重读比对基线 + 未修改记录原样回传（§3.7.5） |
 | **Q1** | 「源站组」在 HiDNS 中**没有对应概念** | 需你确认是映射到 Cloudflare Tunnel、还是新增抽象；本文暂按 `tunnels` 候选处理 |
 | **Q2** | 表达式与脚本并存是否会失控 | 建议 UI 默认只开放表达式，脚本作为"高级模式"并需管理员开启 |
 | Q3 | 定时器的时区语义 | 建议统一 UTC 存储、按用户偏好渲染 |
@@ -684,7 +766,10 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 ## 十四、仍待确认
 
 1. **`ActionClass` 分类方式**（§十五）是否认可，以便 P0 落地组合裁决。
-2. EdgeOne 源站组的**实际 API action 名称与字段**（如 `DescribeAccelerationDomains` / 源站组相关 action）需按官方文档核对后补入 §3.7.3，本文只给接口形状、不臆造 action。
+2. **`origin.replaceRecords`（整组覆盖）是否需要开放给高级用户**？默认设计为"不暴露给脚本"，但管理员是否可在表达式里使用，需确认。
+
+> EdgeOne 源站组的 API action 与数据结构已按官方文档核对完毕（§3.7.3），不再待确认。核对来源：
+> [创建源站组](https://cloud.tencent.com/document/api/1552/80598)、[获取源站组列表](https://cloud.tencent.com/document/api/1552/80594)、[修改源站组](https://cloud.tencent.com/document/api/1552/80592)、[负载均衡相关接口](https://cloud.tencent.com/document/api/1552/80591)、[数据结构](https://cloud.tencent.com/document/api/1552/80721)
 
 ---
 
