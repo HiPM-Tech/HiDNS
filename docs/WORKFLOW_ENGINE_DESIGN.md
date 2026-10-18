@@ -268,24 +268,76 @@ server/src/
 <顶级前缀>.<二级前缀>.<后缀>
 ```
 
-| 段 | 归属 | 封闭性 | 约束 |
+| 段 | 定义者 | 下派方式 | 归属 |
 |---|---|---|---|
-| **顶级前缀** | **HiDNS 平台** | **封闭枚举**，新增须走规范变更 | 提供商**不得**占用 |
-| **二级前缀** | **HiDNS 各模块** | 由所属模块定义 | `ext` 模块把它固定为 `providerType` |
-| **后缀** | 归属方（模块 / 提供商） | 自由 | 全名**全局唯一** |
+| **顶级前缀** | **核心** | **白名单，统一下派** | 核心独占；模块**不得**自行新增 |
+| **二级前缀** | **各模块** | 模块认领顶级前缀后**二次下派** | 模块独占；提供商**不得**自行新增 |
+| **后缀** | 归属方 | — | 模块 / 提供商自定，全名**全局唯一** |
 
-**前两级是 HiDNS 的保留空间**——留给各模块做后续逻辑细分。提供商的名字**只能**出现在 `ext` 之下的二级前缀里。这是本规则的核心：不是把命名权交给提供商，而是由 HiDNS 先占住两级，再按模块分配。
+**授权链：核心 → 模块 → 提供商，每一级只发下一级**
+
+```
+核心
+ └─ TOP_NAMESPACES 白名单（唯一定义源，封闭）
+      └─ 统一下派：各模块认领一个顶级前缀（一对一，不得抢占）
+           └─ 模块二次下派：模块自己定义二级前缀白名单
+                └─ 归属方只能在 (顶级, 二级) 之后自由命名
+```
+
+三级都不可越权：**模块不能造顶级前缀，提供商不能造二级前缀。**
+
+**核心白名单**（唯一来源；其它任何文件不得出现第二份）
+
+```ts
+// server/src/workflow/actions/namespaces.ts
+export const TOP_NAMESPACES = ['dns', 'ext', 'http', 'notify', 'var'] as const;
+export type TopNamespace = typeof TOP_NAMESPACES[number];
+
+/** 已登记但未认领：不得出现在任何动作名里 */
+export const RESERVED_TOP_NAMESPACES = ['cache', 'queue', 'storage', 'platform'] as const;
+
+/** 核心下派的契约：模块必须按此声明 */
+export interface ModuleNamespaceDecl {
+  module: string;              // 用于冲突报错
+  top: TopNamespace;           // 只能取自白名单
+  second: readonly string[];   // 该模块二次下派的二级前缀
+}
+
+/** 由 (top, second) 推导的合法动作名形状 —— 编译期校验用 */
+export type ActionNameOf<M extends ModuleNamespaceDecl> =
+  `${M['top']}.${M['second'][number]}.${string}`;
+```
+
+**模块二次下派**（每个模块一个文件，自己定义二级前缀）
+
+```ts
+// workflow/actions/modules/dns.ts
+export const dnsNamespace = {
+  module: 'dns',
+  top: 'dns',
+  second: ['record', 'domain'],
+} as const satisfies ModuleNamespaceDecl;
+```
+
+```ts
+// workflow/actions/modules/ext.ts —— 二级前缀动态来自 registry，不硬编码
+export const extNamespace = {
+  module: 'ext',
+  top: 'ext',
+  second: PROVIDER_TYPES,   // 跟随 providers/registry.ts
+} as const satisfies ModuleNamespaceDecl;
+```
 
 **已分配的命名空间**
 
-| 顶级前缀 | 归属模块 | 二级前缀 | 示例 |
+| 顶级前缀 | 认领模块 | 二次下派的二级前缀 | 示例 |
 |---|---|---|---|
 | `dns` | 解析记录 | `record` / `domain` | `dns.record.update`、`dns.domain.list` |
-| `ext` | 提供商扩展 | **providerType**（取自 `registry.ts` 的 `type`） | `ext.tencenteo.originGroup.replace` |
+| `ext` | 提供商扩展 | **providerType**（动态取自 registry） | `ext.tencenteo.originGroup.replace` |
 | `http` | 出站 | `outbound` | `http.outbound.fetch` |
 | `notify` | 通知 | `channel` | `notify.channel.send` |
 | `var` | 变量 | `workflow` | `var.workflow.get` |
-| **预留** | 未来模块 | — | `cache.*`、`queue.*`、`storage.*`、`platform.*` |
+| *预留* | — | **未认领** | `cache` / `queue` / `storage` / `platform` 已登记，**当前禁止使用** |
 
 **提供商侧只有后缀是自定的**：
 
@@ -297,11 +349,11 @@ ext.tencenteo.originGroup.plan
 ext.tencenteo.originGroup.replace
 ```
 
-- `ext` —— 顶级前缀，HiDNS 的扩展模块（封闭）
-- `tencenteo` —— 二级前缀，等于该提供商的 `type`，必须与 `ProviderDefinition.type` **完全一致**
-- `originGroup` + 动词 —— 后缀，**由提供商自行决定**，语义自明（`originGroup`、`wafPolicy`、`edgeRule` …）
+- `ext` —— 顶级前缀，由**核心白名单**下派给扩展模块（提供商无权定义）
+- `tencenteo` —— 二级前缀，由 **`ext` 模块二次下派**（等于 `ProviderDefinition.type`，必须完全一致）
+- `originGroup` + 动词 —— 后缀，**提供商唯一能自定的部分**，语义自明（`originGroup`、`wafPolicy`、`edgeRule` …）
 
-> **为什么不给提供商一级前缀**：那样两家厂商都可能想叫 `originGroup`，甚至可能出现一家类型名为 `dns` 的厂商直接撞掉解析模块的命名空间。把提供商压到 `ext` 的二级前缀，唯一性由**结构**保证，且 HiDNS 永远保留顶级前缀的分配权——将来要加 `cache` / `queue` / `platform` 等模块，不会与任何厂商名冲突。
+> **为什么前两级都不给提供商**：给一级，两家厂商可能都想叫 `originGroup`，甚至一家类型名为 `dns` 的厂商直接撞掉解析模块的命名空间；给二级，则 `ext` 之下同样可能撞名。把提供商压到**第三段起**，唯一性由**结构**保证；而顶级前缀的分配权始终留在核心，将来新增 `cache` / `queue` / `platform` 等模块，永远不必回头看厂商命名。
 
 **能力声明结构**（提供商在 `providers/<provider>/extra.ts` 导出）
 
@@ -336,8 +388,8 @@ export interface ProviderExtraAction {
 
 | 层 | 时机 | 拦得住 | 拦不住 |
 |---|---|---|---|
-| **L1** | 编译期 `tsc` | 前缀与提供商不匹配、格式错误 | 跨提供商的**重复**（类型系统无法表达"全局唯一集合"） |
-| **L2** | 构建 / **CI** | 重复、格式、前缀绑定、`actionClass` / `service` 非法 | 绕过 CI 直接部署 `dist` |
+| **L1** | 编译期 `tsc` | 顶级前缀不在白名单、二级前缀不在模块白名单、前缀与提供商不匹配、格式错误 | 跨提供商的**重复**（类型系统无法表达"全局唯一集合"） |
+| **L2** | 构建 / **CI** | 重复、**顶级前缀被两个模块同时认领**、**使用未认领的预留前缀**、`actionClass` / `service` 非法 | 绕过 CI 直接部署 `dist` |
 | **L3** | 运行时启动 | 绕过构建的部署 | —（**不是主防线**，只是兜底） |
 
 **L1 · 编译期绑定**（模板字面量类型）
@@ -403,6 +455,43 @@ export function validateActionNames(
   for (const b of builtins) claim(b.name, 'builtin');
   return conflicts;
 }
+
+// 命名空间授权链的校验（核心 → 模块）
+export type NamespaceViolation =
+  | { kind: 'not-whitelisted'; detail: string }   // 顶级前缀不在核心白名单
+  | { kind: 'reserved'; detail: string }          // 占用了未认领的预留前缀
+  | { kind: 'double-claim'; detail: string }      // 顶级前缀被两个模块同时认领
+  | { kind: 'dup-second'; detail: string }        // 同一模块二级前缀重复
+  | { kind: 'outside'; detail: string };          // 动作名不在任何模块下派的命名空间内
+
+export function validateNamespaceClaims(
+  modules: readonly ModuleNamespaceDecl[],
+): NamespaceViolation[] {
+  const out: NamespaceViolation[] = [];
+  const owner = new Map<string, string>();
+  for (const m of modules) {
+    if (!(TOP_NAMESPACES as readonly string[]).includes(m.top))
+      out.push({ kind: 'not-whitelisted', detail: `${m.module}: ${m.top} 不在核心白名单` });
+    if ((RESERVED_TOP_NAMESPACES as readonly string[]).includes(m.top))
+      out.push({ kind: 'reserved', detail: `${m.module} 占用了预留前缀 ${m.top}` });
+    const prev = owner.get(m.top);
+    if (prev) out.push({ kind: 'double-claim', detail: `${m.top} 被 ${prev} 与 ${m.module} 同时认领` });
+    else owner.set(m.top, m.module);
+    const dup = m.second.filter((s, i) => m.second.indexOf(s) !== i);
+    if (dup.length) out.push({ kind: 'dup-second', detail: `${m.module} 二级前缀重复: ${dup.join(',')}` });
+  }
+  return out;
+}
+
+export function validateActionPlacement(
+  names: readonly string[],
+  modules: readonly ModuleNamespaceDecl[],
+): NamespaceViolation[] {
+  const allowed = new Map(modules.map((m) => [m.top, new Set(m.second)]));
+  return names
+    .filter((n) => { const [top, second] = n.split('.'); return !allowed.get(top)?.has(second); })
+    .map((n) => ({ kind: 'outside' as const, detail: `${n} 不在任何模块下派的命名空间内` }));
+}
 ```
 
 ```ts
@@ -410,6 +499,17 @@ export function validateActionNames(
 describe('动作命名空间', () => {
   it('不存在重名（含内置动作）', () => {
     expect(validateActionNames(providerDefinitions, BUILTIN_ACTIONS)).toEqual([]);
+  });
+  it('命名空间授权链合法：白名单内、一对一认领、未占预留', () => {
+    expect(validateNamespaceClaims(MODULE_NAMESPACES)).toEqual([]);
+  });
+  it('所有动作名都落在其模块下派的命名空间内', () => {
+    const names = [
+      ...BUILTIN_ACTIONS.map((a) => a.name),
+      ...providerDefinitions.flatMap((p) =>
+        (p.extraCapabilities ?? []).flatMap((c) => [c.name, ...c.actions.map((a) => a.name)])),
+    ];
+    expect(validateActionPlacement(names, MODULE_NAMESPACES)).toEqual([]);
   });
   it('扩展能力全名格式与提供商前缀一致', () => {
     for (const p of providerDefinitions) {
@@ -443,7 +543,8 @@ describe('动作命名空间', () => {
 
 | 校验项 | 归属层 |
 |---|---|
-| 顶级前缀 === `ext`、二级前缀 === `provider.type`、全名格式 | L1（编译期） |
+| 顶级前缀 ∈ `TOP_NAMESPACES`、二级前缀 ∈ 该模块 `second`、全名格式 | L1（编译期） |
+| 顶级前缀**一对一认领**（无模块抢占）、**预留前缀未被使用** | **L2（CI）** |
 | 能力全名跨提供商唯一、动作全名唯一（含内置） | **L2（CI）** |
 | `actionClass` ∈ 枚举、`service` ∈ `AVAILABLE_SERVICES` | L1 + L2 |
 
@@ -1398,7 +1499,8 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | §DNS提供商适配器 | `DnsCapabilities` 增加 `originGroup` 字段；EdgeOne/DNSPod 复用腾讯云 TC3 鉴权 |
 | **§DNS提供商适配器（新增硬约束）** | **核心不得建模 Provider 私有资源层级**：能力接口一律使用不透明字符串（`scopeId` 等），由 Provider 把自己的概念映射进通用槽位（参照 `domains.third_id`）。任何为某厂商某资源新增核心表/核心列的提案，必须先判定"是否为 Provider 私有结构"，若是则一律下沉到适配器 |
 | 新增章节 | 「工作流与脚本沙箱」：**独立模块目录 `server/src/workflow/`**、两条禁止项（域名变动不写记录、工作流不调用工作流）、沙箱能力面、出站代理约束、脚本仅管理员 |
-| **§DNS提供商适配器（新增机制）** | **提供商特有能力扩展**：`ProviderDefinition.extraCapabilities` + 两级前缀命名 + **编译期类型绑定与 CI 唯一性门禁**。核心只校验命名与唯一性，不解释语义 |
+| **§DNS提供商适配器（新增机制）** | **提供商特有能力扩展**：`ProviderDefinition.extraCapabilities` + 两级前缀命名 + **核心白名单统一下派、模块二次下派** + 编译期类型绑定与 CI 唯一性门禁。核心只校验命名与唯一性，不解释语义 |
+| **§工作流 / §DNS提供商适配器（新增约束）** | `TOP_NAMESPACES` 为**唯一定义源**，任何模块不得自行新增顶级前缀；预留前缀在认领前**禁止出现在任何动作名中** |
 | **§DNS提供商适配器（强制约束）** | 新增动作前必须让 `check:actions` 通过；**CI 中该校验不得附加 `|| echo` 之类的容错**，否则门禁形同虚设 |
 | **§服务层 / §路由** | 声明 `server/src/workflow/` 为独立一级模块；`routes/workflows.ts` 只做转发；`WorkflowOperations` 纳入 BAL |
 
@@ -1423,7 +1525,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | D13 | **不得以「域名」为单位修改解析**——`A`/`AAAA` 是多值记录，「域名的解析值」不是可观测对象，按域名写入无法定义唯一目标。写入必须落到**具体记录**（`recordId` 唯一）。域名变动类触发器禁止作为任何解析写动作的触发源 | §4.0 |
 | D14 | **`record.changed` 只监听 `A` / `AAAA`**；其余记录类型（CNAME/MX/TXT/NS/SRV/CAA…）不产生事件、不可订阅 | §4.0.5 |
 | D15 | **v1 无「只改一条」动作**，工作流对源站组的任何写入都是收敛 → 工作流应只操作**专用单源站组**，多源站组由人工维护 | §3.7.10 |
-| D17 | **动作命名统一为「两级前缀 + 自定后缀」**：`<顶级前缀>.<二级前缀>.<后缀>`。**前两级留给 HiDNS 各模块**——顶级为封闭枚举（`dns`/`ext`/`http`/`notify`/`var`，另预留 `cache`/`queue`/`storage`/`platform`），二级由所属模块定义（`ext` 固定为 `providerType`）；提供商**只能**自定后缀。全名全局唯一，注册期校验，冲突即拒绝启动 | §3.7.4 |
+| D17 | **动作命名 `<顶级前缀>.<二级前缀>.<后缀>`，采用三级授权链**：**顶级前缀由核心白名单统一下派**（`dns` / `ext` / `http` / `notify` / `var`；`cache` / `queue` / `storage` / `platform` 登记为**未认领预留，当前禁用**）→ 模块认领后**二次下派**二级前缀（`ext` 动态取自 registry 的 `providerType`）→ 提供商**只能**自定后缀。全名全局唯一 | §3.7.4 |
 | D18 | 工作流引擎是**独立一级模块** `server/src/workflow/`，不并入 `service/`；动作分类用 `ext.read` / `ext.write` 而非厂商语义的 `origin.*` | §2.2、§十五 |
 | D19 | **重名在编译期与 CI 拦死**，不以运行期为主界：L1 模板字面量类型绑定前缀与提供商；L2 CI 独立步骤跑 `check:actions`（校验逻辑为单一定义源）；L3 启动期仅兜底 | §3.7.4.1 |
 | D16 | 源站 `Record` **接受 IPv4 / IPv6 / 域名**（项目方确认）。预检按形态分流、**不做 DNS 解析**；`type` 固定 `IP_DOMAIN`，**不开放 `AWS_S3` 作为写入目标**（凭据零接触） | §3.7.9.5.1 |
