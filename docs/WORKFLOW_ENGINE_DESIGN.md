@@ -262,11 +262,19 @@ interface OriginRecord {
 
 ##### 3.7.5.1 可用的定位键
 
+> **先说结论：EdgeOne 的 `OriginRecord` 没有备注字段，无法用备注定位。**
+>
+> 已核实：`OriginRecord` 的字段集为 `RecordId` / `Record` / `Type` / `Weight` / `Private` / `PrivateParameters`。
+> 在腾讯云 Node.js SDK 的 TEO 类型定义中检索 `Remark`，仅命中 `CreateEdgeKVNamespaceRequest`、`ModifyEdgeKVNamespaceRequest`、`CreateFunctionRequest`、`CreateFunctionRuleRequest` 四个接口，**没有任何源站相关接口带备注字段**。
+>
+> **混淆来源**：HiDNS 自己的 `DnsRecord`（`server/src/lib/dns/DnsInterface.ts:17`）**有** `Remark`，且厂商能力位 `DnsCapabilities.remark` 也是解析记录的能力。但那是**解析记录**的字段，不是**源站记录**的。
+
 | 定位键 | 来源 | 稳定性 | 适用 |
 |---|---|---|---|
 | `record`（源站地址） | `OriginRecord.Record` | 中：地址本身可能被改，但**恰好是 DDNS 场景的抓手** | **首选** |
 | `recordId` | `OriginRecord.RecordId`（形如 `record-3492ee3b-…`） | **未知**：官方示例在覆盖时**未回传** `RecordId`，是否保留未在文档中说明 | 可选，见下方警告 |
 | `index`（数组下标） | 读取顺序 | **低**：任何一次覆盖都可能改变顺序 | 不推荐 |
+| ~~`remark`~~ | — | **不存在** | **不可用** |
 
 > **关于 `recordId` 的诚实说明**：`CreateOriginGroup` 的示例 `Records` 不带 `RecordId`，`ModifyOriginGroup` 的示例也不带。这意味着覆盖后**可能重新生成 ID**。因此设计上：
 > - `recordId` **不得持久化**在表达式里当作长期锚点；
@@ -350,6 +358,26 @@ origin.updateRecord({
 | `InvalidParameter.InvalidOriginIp` | 服务端拒绝内网 IP/回环地址 —— 与 §5.5 的内网拦截**方向一致**，前端应提前校验 |
 | `OperationDenied.ConfigLocked` / `InternalError.ConfigLocked` | 配置锁定 → 明确报错，提示解锁，不重试 |
 | 频率限制 20 次/秒 | 能力层统一节流，避免工作流批量触发打满 |
+
+##### 3.7.5.8 想要"可读定位"怎么办：HiDNS 侧本地别名
+
+既然 EdgeOne 不提供备注，而"用可读名字选源站"的需求是真实的，方案是**在 HiDNS 自己的库里存别名**（不写入 EdgeOne）：
+
+| 项 | 设计 |
+|---|---|
+| 存储 | 新增 `origin_aliases`（经 BAL `OriginAliasOperations`）：`account_id`、`zone_id`、`group_id`、`record_id`、`alias`、`anchor_record` |
+| 唯一性 | `(account_id, zone_id, group_id, alias)` 唯一 |
+| **失效锚点** | 别名同时记录 `anchor_record`（建立别名时的源站地址），因为 `record_id` 可能不稳定 |
+| 定位顺序 | ① 按 `record_id` 精确匹配 → ② 失败则按 `anchor_record` 匹配 → ③ 仍失败则**报错并提示别名已失效**，要求用户重挂 |
+| 写入 | 只写 HiDNS 本地库，**从不写 EdgeOne**；EdgeOne 侧无感知 |
+
+**别名只是"人读的入口"，不能替代唯一性裁决**：
+
+- 别名未命中 → 报错（不是跳过），因为用户明确指名了一个源站
+- 别名命中 1 条 → 仍走 §3.7.5.2 的裁决与 §3.7.5.3 的保留式回写
+- 别名映射本身失效（`record_id` 变了且 `anchor_record` 也对不上）→ 明确告警，**不静默改错**
+
+> 取舍：这增加了一张表与一套失效检测。若 v1 不想要这部分复杂度，可先只提供 `record` / `recordId` 两种定位，把别名放到 P2 之后。**但不要退回到"用备注定位"——那个字段不存在。**
 
 
 #### 3.7.6 能力声明（registry 扩展）
@@ -843,6 +871,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | D7 | **DNSPod 不声明 `originGroup`**（纯解析，无边缘加速源站组），仅鉴权体系相同 | §3.7.4 |
 | D8 | **不提供整组覆盖动作**（`origin.replaceRecords` 已移除）；源站组写操作只有 `origin.updateRecord`，并收窄为「只改一条、不增删源站」 | §3.7.7 |
 | D9 | 源站组定位默认用 **`record` 地址**（DDNS 场景用事件 `oldValue`），`recordId` 不持久化，命中数必须恰好 1，`>1` 一律报错 | §3.7.5.2 |
+| D10 | **不能用备注定位**——EdgeOne `OriginRecord` 无备注字段。可读定位改由 HiDNS **本地别名**满足（`origin_aliases`，含 `anchor_record` 失效锚点），别名只写本地库不写 EdgeOne | §3.7.5.1、§3.7.5.8 |
 
 ## 十四、仍待确认
 
