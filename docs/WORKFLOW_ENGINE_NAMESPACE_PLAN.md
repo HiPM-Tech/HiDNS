@@ -303,7 +303,14 @@ HiDNS 全局主核心（types/namespace.ts）
 | DSL 节点白名单 | ✅ `workflow/expression/nodes.ts` | 9 类节点封闭枚举；`ref` 仅允许 `event.*` / `vars.*`，拒绝 `__proto__` / `constructor` / `prototype` |
 | 静态校验 | ✅ `workflow/expression/validate.ts` | 节点白名单、深度/节点数、参数白名单、**`call.action` 必须字面量且已注册** |
 | 求值器 | ✅ `workflow/expression/evaluator.ts` | 逐节点解释；调用次数上限 50；超时 5s；除零/未知运算抛错 |
-| 引擎执行编排 | ⏳ | 触发匹配、事件→动作、运行记录 |
+| 动作派发 | ✅ `workflow/dispatch.ts` | **先鉴权后取 handler**；已授权但缺实现返回 500（暴露漂移而非静默成功） |
+| 执行引擎 | ✅ `workflow/engine.ts` | 触发匹配 → 条件求值 → 顺序执行；单工作流失败不影响其它；订阅在 `start()` 内建立 |
+| 引擎测试 | ✅ `__tests__/engine.test.ts` 11 用例 | 含"未 start 时不订阅"（模块作用域副作用回归项） |
+| 引擎执行编排 | ✅ | 已完成 |
+| 运行记录持久化 | ⏳ | 需 `WorkflowOperations`（BAL）与 DSM 表 |
+| 路由 | ⏳ | `/api/workflows` 等 8 个端点 |
+| 静态 facade | ⏳ | 见设计 §2.3 |
+| 前端 | ⏳ | 编辑器与预览 |
 | 路由 | ⏳ | `/api/workflows` 等 8 个端点 |
 | 静态 facade | ⏳ | 见设计 §2.3 |
 | 前端 | ⏳ | 编辑器与预览 |
