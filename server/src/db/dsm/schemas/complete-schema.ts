@@ -880,6 +880,42 @@ export const COMPLETE_SCHEMA: DatabaseSchema = {
       indexes: [
         { name: 'idx_rmh_recorded_at', columns: ['recorded_at'] }
       ]
+    },
+    {
+      name: 'workflows',
+      columns: [
+        { name: 'id', type: 'id', primaryKey: true, autoIncrement: true },
+        { name: 'name', type: 'string', length: 200, nullable: false },
+        { name: 'owner_id', type: 'integer', nullable: false },
+        { name: 'enabled', type: 'integer', defaultValue: 1 },
+        { name: 'trigger_type', type: 'string', length: 50, nullable: false },
+        { name: 'trigger_config', type: 'text', nullable: true },
+        { name: 'definition', type: 'text', nullable: false },
+        { name: 'created_at', type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' },
+        { name: 'updated_at', type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' },
+      ],
+      indexes: [
+        { name: 'idx_workflows_owner_id', columns: ['owner_id'] },
+        { name: 'idx_workflows_enabled', columns: ['enabled'] }
+      ]
+    },
+    {
+      name: 'workflow_runs',
+      columns: [
+        { name: 'id', type: 'id', primaryKey: true, autoIncrement: true },
+        { name: 'workflow_id', type: 'integer', nullable: false },
+        { name: 'trace_id', type: 'string', length: 64, nullable: false },
+        { name: 'status', type: 'string', length: 20, nullable: false },
+        { name: 'trigger_event', type: 'text', nullable: true },
+        { name: 'error', type: 'text', nullable: true },
+        { name: 'depth', type: 'integer', defaultValue: 0 },
+        { name: 'started_at', type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' },
+        { name: 'finished_at', type: 'datetime', nullable: true },
+      ],
+      indexes: [
+        { name: 'idx_workflow_runs_workflow_id', columns: ['workflow_id'] },
+        { name: 'idx_workflow_runs_trace_id', columns: ['trace_id'] }
+      ]
     }
   ]
 };

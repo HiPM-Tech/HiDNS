@@ -5309,5 +5309,144 @@ export default {
   Mcp: McpOperations,
 };
 
+
+// ============================================================================
+// 工作流业务操作
+// 设计依据：docs/WORKFLOW_ENGINE_DESIGN.md §八（数据模型，经 BAL）
+// ============================================================================
+
+export interface WorkflowRow {
+  id: number;
+  name: string;
+  owner_id: number;
+  enabled: number;
+  trigger_type: string;
+  trigger_config: string | null;
+  definition: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowRunRow {
+  id: number;
+  workflow_id: number;
+  trace_id: string;
+  status: string;
+  trigger_event: string | null;
+  error: string | null;
+  depth: number;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export const WorkflowOperations = {
+  async listByOwner(ownerId: number): Promise<WorkflowRow[]> {
+    return queryInternal<WorkflowRow>(
+      'SELECT * FROM workflows WHERE owner_id = ? ORDER BY id DESC',
+      [ownerId],
+      { operation: 'Workflow.listByOwner', table: 'workflows' }
+    );
+  },
+
+  /** 仅返回启用的工作流；引擎只消费这一批 */
+  async listEnabled(): Promise<WorkflowRow[]> {
+    return queryInternal<WorkflowRow>(
+      'SELECT * FROM workflows WHERE enabled = 1 ORDER BY id ASC',
+      [],
+      { operation: 'Workflow.listEnabled', table: 'workflows' }
+    );
+  },
+
+  async getById(id: number): Promise<WorkflowRow | undefined> {
+    return getInternal<WorkflowRow>('SELECT * FROM workflows WHERE id = ?', [id], {
+      operation: 'Workflow.getById',
+      table: 'workflows',
+    });
+  },
+
+  async create(data: {
+    name: string;
+    owner_id: number;
+    enabled: number;
+    trigger_type: string;
+    trigger_config: string | null;
+    definition: string;
+  }): Promise<number> {
+    await executeInternal(
+      'INSERT INTO workflows (name, owner_id, enabled, trigger_type, trigger_config, definition, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
+      [data.name, data.owner_id, data.enabled, data.trigger_type, data.trigger_config, data.definition],
+      { operation: 'Workflow.create', table: 'workflows' }
+    );
+    const row = await getInternal<{ id: number }>('SELECT id FROM workflows WHERE owner_id = ? ORDER BY id DESC LIMIT 1', [data.owner_id], {
+      operation: 'Workflow.create.lastId',
+      table: 'workflows',
+    });
+    return row?.id ?? 0;
+  },
+
+  async update(id: number, updates: {
+    name?: string;
+    enabled?: number;
+    trigger_type?: string;
+    trigger_config?: string | null;
+    definition?: string;
+  }): Promise<void> {
+    const fields: string[] = [];
+    const params: unknown[] = [];
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === undefined) continue;
+      fields.push(`${key} = ?`);
+      params.push(value);
+    }
+    if (!fields.length) return;
+    params.push(id);
+    await executeInternal(
+      `UPDATE workflows SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      params,
+      { operation: 'Workflow.update', table: 'workflows' }
+    );
+  },
+
+  async remove(id: number): Promise<void> {
+    await executeInternal('DELETE FROM workflows WHERE id = ?', [id], {
+      operation: 'Workflow.remove',
+      table: 'workflows',
+    });
+  },
+
+  async insertRun(data: {
+    workflow_id: number;
+    trace_id: string;
+    status: string;
+    trigger_event?: string | null;
+    error?: string | null;
+    depth?: number;
+    started_at?: string;
+    finished_at?: string | null;
+  }): Promise<void> {
+    await executeInternal(
+      'INSERT INTO workflow_runs (workflow_id, trace_id, status, trigger_event, error, depth, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        data.workflow_id,
+        data.trace_id,
+        data.status,
+        data.trigger_event ?? null,
+        data.error ?? null,
+        data.depth ?? 0,
+        data.started_at ?? new Date().toISOString(),
+        data.finished_at ?? null,
+      ],
+      { operation: 'Workflow.insertRun', table: 'workflow_runs' }
+    );
+  },
+
+  async listRuns(workflowId: number, limit = 50): Promise<WorkflowRunRow[]> {
+    return queryInternal<WorkflowRunRow>(
+      'SELECT * FROM workflow_runs WHERE workflow_id = ? ORDER BY id DESC LIMIT ?',
+      [workflowId, Math.min(limit, 200)],
+      { operation: 'Workflow.listRuns', table: 'workflow_runs' }
+    );
+  },
+};
 // Export query builders module for advanced usage
 export * from './query-builders';

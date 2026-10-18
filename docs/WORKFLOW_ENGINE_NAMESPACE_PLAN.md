@@ -307,7 +307,9 @@ HiDNS 全局主核心（types/namespace.ts）
 | 执行引擎 | ✅ `workflow/engine.ts` | 触发匹配 → 条件求值 → 顺序执行；单工作流失败不影响其它；订阅在 `start()` 内建立 |
 | 引擎测试 | ✅ `__tests__/engine.test.ts` 11 用例 | 含"未 start 时不订阅"（模块作用域副作用回归项） |
 | 引擎执行编排 | ✅ | 已完成 |
-| 运行记录持久化 | ⏳ | 需 `WorkflowOperations`（BAL）与 DSM 表 |
+| DSM 表 | ✅ `complete-schema.ts` 新增 `workflows` / `workflow_runs` | 声明式定义，由 schema-reconciler 同步，无手写 DDL |
+| BAL 操作 | ✅ `WorkflowOperations` | listByOwner / listEnabled / getById / create / update / remove / insertRun / listRuns |
+| 持久化映射 | ✅ `workflow/store.ts` + 5 用例 | 损坏 JSON 回退默认值；非 A/AAAA 触发类型过滤（fail-closed） |
 | 路由 | ⏳ | `/api/workflows` 等 8 个端点 |
 | 静态 facade | ⏳ | 见设计 §2.3 |
 | 前端 | ⏳ | 编辑器与预览 |
