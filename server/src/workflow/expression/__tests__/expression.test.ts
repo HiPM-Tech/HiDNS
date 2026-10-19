@@ -9,15 +9,32 @@ import { ALL_ACTIONS } from '../../actions/registry';
 const knownActions = new Set(ALL_ACTIONS.map((a) => a.name));
 
 function validate(node: unknown) {
-  return validateExpression(node, { knownActions });
+  return validateExpression(node, { knownActions, actionParams: PARAMS });
 }
+
+const PARAMS = {
+  'dns.record.update': [
+    { key: 'domain', required: true },
+    { key: 'recordId', required: true },
+    { key: 'value', required: true },
+  ],
+  'dns.record.list': [{ key: 'domain', required: true }],
+  'http.outbound.fetch': [
+    { key: 'url', required: true },
+    { key: 'method', type: 'select' as const, options: ['GET', 'POST'] },
+  ],
+};
 
 describe('DSL 静态校验', () => {
   it('接受合法表达式', () => {
     const result = validate({
       kind: 'call',
       action: 'dns.record.update',
-      args: { domain: { kind: 'literal', value: 'a.com' }, value: { kind: 'ref', path: 'event.record.value' } },
+      args: {
+        domain: { kind: 'literal', value: 'a.com' },
+        recordId: { kind: 'literal', value: 'r1' },
+        value: { kind: 'ref', path: 'event.record.value' },
+      },
     });
     expect(result.ok).toBe(true);
     expect(result.actions).toEqual(['dns.record.update']);
@@ -56,10 +73,51 @@ describe('DSL 静态校验', () => {
     expect(result.issues.some((i) => i.code === 'TOO_DEEP')).toBe(true);
   });
 
+  it('拒绝缺失的必填参数', () => {
+    const result = validateExpression(
+      { kind: 'call', action: 'dns.record.update', args: { domain: { kind: 'literal', value: 'a.com' } } },
+      {
+        knownActions,
+        actionParams: {
+          'dns.record.update': [
+            { key: 'domain', required: true },
+            { key: 'recordId', required: true },
+          ],
+        },
+      },
+    );
+    expect(result.issues.filter((i) => i.code === 'MISSING_ARG')).toHaveLength(1);
+  });
+
+  it('select 取值不在候选中被拒绝', () => {
+    const result = validateExpression(
+      { kind: 'call', action: 'http.outbound.fetch', args: { method: { kind: 'literal', value: 'PUT' } } },
+      {
+        knownActions,
+        actionParams: {
+          'http.outbound.fetch': [
+            { key: 'url', required: true },
+            { key: 'method', type: 'select', options: ['GET', 'POST'] },
+          ],
+        },
+      },
+    );
+    expect(result.issues.some((i) => i.code === 'INVALID_OPTION')).toBe(true);
+  });
+
   it('拒绝超出参数白名单的参数', () => {
     const result = validateExpression(
       { kind: 'call', action: 'dns.record.update', args: { shell: { kind: 'literal', value: 'rm -rf /' } } },
-      { knownActions, actionParams: { 'dns.record.update': ['domain', 'recordId', 'value'] } },
+      {
+        knownActions,
+        actionParams: {
+          'dns.record.update': [
+            { key: 'domain', required: true },
+            { key: 'recordId', required: true },
+            { key: 'value', required: true },
+          ],
+        },
+      },
     );
     expect(result.issues.some((i) => i.code === 'UNKNOWN_ARG')).toBe(true);
   });

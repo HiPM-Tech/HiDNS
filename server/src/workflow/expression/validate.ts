@@ -23,11 +23,18 @@ export interface ValidationIssue {
   path: string;
 }
 
+export interface ParamMeta {
+  key: string;
+  required?: boolean;
+  type?: 'text' | 'number' | 'boolean' | 'select';
+  options?: readonly string[];
+}
+
 export interface ValidationOptions {
   /** 已知动作全名集合 */
   knownActions: ReadonlySet<string>;
-  /** 动作参数白名单（key 为动作全名） */
-  actionParams?: Readonly<Record<string, readonly string[]>>;
+  /** 动作参数元数据（key 为动作全名）。**必填**：缺省会让未知参数静默放行 */
+  actionParams: Readonly<Record<string, readonly ParamMeta[]>>;
 }
 
 export interface ValidationResult {
@@ -159,11 +166,34 @@ export function validateExpression(root: unknown, options: ValidationOptions): V
           issues.push({ code: 'INVALID_ARGS', message: 'call.args 必须是对象', path });
         } else {
           if (allowed) {
+            const allowedKeys = allowed.map((param) => param.key);
             for (const key of Object.keys(argObj)) {
-              if (!allowed.includes(key)) {
+              if (!allowedKeys.includes(key)) {
                 issues.push({ code: 'UNKNOWN_ARG', message: `${action} 不接受参数 ${key}`, path: `${path}.args.${key}` });
               }
             }
+            // 必填参数缺失在保存期就要拦住：否则运行期才抛 400，事件白丢
+            for (const param of allowed) {
+              if (param.required && argObj[param.key] === undefined) {
+                issues.push({ code: 'MISSING_ARG', message: `${action} 缺少必填参数 ${param.key}`, path: `${path}.args.${param.key}` });
+              }
+            }
+            // select 参数若给的是字面量，必须落在候选集合内
+            for (const param of allowed) {
+              if (param.type !== 'select' || !param.options?.length) continue;
+              const valueNode = argObj[param.key];
+              if (!isObject(valueNode) || valueNode.kind !== 'literal') continue;
+              if (!param.options.includes(String(valueNode.value))) {
+                issues.push({
+                  code: 'INVALID_OPTION',
+                  message: `${action} 参数 ${param.key} 取值不在候选中: ${String(valueNode.value)}`,
+                  path: `${path}.args.${param.key}`,
+                });
+              }
+            }
+          } else {
+            // 未提供参数元数据时视为无允许参数（fail-closed），避免新增调用方静默放行
+            issues.push({ code: 'UNKNOWN_ARG', message: `${action} 未声明参数元数据，拒绝任何参数`, path });
           }
           for (const [key, value] of Object.entries(argObj)) {
             visit(value, `${path}.args.${key}`, depth + 1);

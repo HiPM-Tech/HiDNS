@@ -100,6 +100,38 @@ describe('出站请求执行', () => {
     expect(result.text.length).toBe(16);
   });
 
+  it('Content-Length 超限时直接拒绝，不读入 body', async () => {
+    const fetcher = async () =>
+      new Response('x', { status: 200, headers: { 'content-length': '4096' } });
+    await expect(
+      fetchOutbound('https://api.ipify.org', { policy: { ...policy, maxBytes: 64 }, fetcher }),
+    ).rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE' });
+  });
+
+  it('无 Content-Length 时流式累加，超限立即截断', async () => {
+    const chunk = new Uint8Array(16).fill(65); // 'A'
+    const body = new ReadableStream({
+      start(controller) {
+        for (let i = 0; i < 8; i += 1) controller.enqueue(chunk);
+        controller.close();
+      },
+    });
+    const fetcher = async () => new Response(body, { status: 200 });
+    const result = await fetchOutbound('https://api.ipify.org', {
+      policy: { ...policy, maxBytes: 32 },
+      fetcher,
+    });
+    expect(result.truncated).toBe(true);
+    expect(result.text.length).toBe(32);
+  });
+
+  it('未超限时完整返回', async () => {
+    const fetcher = async () => new Response('hello', { status: 200 });
+    const result = await fetchOutbound('https://api.ipify.org', { policy: { ...policy, maxBytes: 64 }, fetcher });
+    expect(result.truncated).toBe(false);
+    expect(result.text).toBe('hello');
+  });
+
   it('默认策略下 setHttpFetchPolicy 生效', async () => {
     setHttpFetchPolicy({ allowlist: ['api.ipify.org'] });
     await expect(fetchOutbound('https://evil.io')).rejects.toMatchObject({ code: 'NOT_ALLOWLISTED' });

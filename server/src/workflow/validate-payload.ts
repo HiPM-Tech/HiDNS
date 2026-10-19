@@ -8,8 +8,11 @@ import type { ExpressionNode } from './expression/nodes';
  */
 
 const KNOWN_ACTIONS = new Set(ALL_ACTIONS.map((a) => a.name));
-const ACTION_PARAMS: Record<string, string[]> = Object.fromEntries(
-  ALL_ACTIONS.map((a) => [a.name, a.params.map((p) => p.key)]),
+const ACTION_PARAMS: Record<string, Array<{ key: string; required?: boolean; type?: 'text' | 'number' | 'boolean' | 'select'; options?: readonly string[] }>> = Object.fromEntries(
+  ALL_ACTIONS.map((a) => [
+    a.name,
+    a.params.map((p) => ({ key: p.key, required: p.required, type: p.type, options: p.options })),
+  ]),
 );
 
 const ALLOWED_TRIGGERS = new Set(['record.changed', 'domain.changed', 'ns.changed', 'whois.expiring']);

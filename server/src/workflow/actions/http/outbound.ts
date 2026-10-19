@@ -52,6 +52,60 @@ export class OutboundRejectedError extends Error {
   }
 }
 
+/**
+ * 流式读取响应体并在超过上限时立即中止。
+ * 不整体 arrayBuffer 后再截断 —— 那等于先把 20MB 读进内存再丢掉。
+ */
+async function readBodyCapped(
+  response: Response,
+  maxBytes: number,
+  controller: AbortController,
+): Promise<{ text: string; bytes: number; truncated: boolean }> {
+  const body = response.body;
+  if (!body) {
+    const buffer = await response.arrayBuffer();
+    const truncated = buffer.byteLength > maxBytes;
+    const slice = truncated ? buffer.slice(0, maxBytes) : buffer;
+    return { text: new TextDecoder('utf-8', { fatal: false }).decode(slice), bytes: buffer.byteLength, truncated };
+  }
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  let truncated = false;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    received += value.byteLength;
+    if (received > maxBytes) {
+      const keep = Math.max(0, maxBytes - (received - value.byteLength));
+      if (keep > 0) chunks.push(value.subarray(0, keep));
+      truncated = true;
+      // 立即中止连接，不再继续下载
+      controller.abort();
+      try { await reader.cancel(); } catch { /* 忽略 */ }
+      break;
+    }
+    chunks.push(value);
+  }
+
+  const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return {
+    text: new TextDecoder('utf-8', { fatal: false }).decode(merged),
+    bytes: received,
+    truncated,
+  };
+}
+
 function headersToObject(headers: Headers): Record<string, string> {
   const out: Record<string, string> = {};
   headers.forEach((value, key) => {
@@ -84,43 +138,50 @@ export async function fetchOutbound(
     }
 
     const controller = new AbortController();
+    // 超时必须覆盖**整个请求生命周期**（含 body 读取），否则慢速响应体可绕过超时
     const timer = setTimeout(() => controller.abort(), policy.timeoutMs);
-    let response: Response;
     try {
-      response = await fetcher(url.toString(), {
-        method,
-        redirect: 'manual',
-        signal: controller.signal,
-      });
-    } catch (error) {
-      clearTimeout(timer);
-      throw new OutboundRejectedError('FETCH_FAILED', (error as Error).message);
-    }
-    clearTimeout(timer);
-
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location');
-      if (!location) {
-        throw new OutboundRejectedError('REDIRECT_WITHOUT_LOCATION', '重定向缺少 Location');
+      let response: Response;
+      try {
+        response = await fetcher(url.toString(), {
+          method,
+          redirect: 'manual',
+          signal: controller.signal,
+        });
+      } catch (error) {
+        throw new OutboundRejectedError('FETCH_FAILED', (error as Error).message);
       }
-      currentUrl = new URL(location, url).toString();
-      continue;
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (!location) {
+          throw new OutboundRejectedError('REDIRECT_WITHOUT_LOCATION', '重定向缺少 Location');
+        }
+        currentUrl = new URL(location, url).toString();
+        continue;
+      }
+
+      // 先按 Content-Length 预检，避免明知超限还整段读入
+      const declared = Number(response.headers.get('content-length') ?? '');
+      if (Number.isFinite(declared) && declared > policy.maxBytes) {
+        throw new OutboundRejectedError('RESPONSE_TOO_LARGE', `响应体超过 ${policy.maxBytes} 字节`);
+      }
+
+      const { text, bytes, truncated } = await readBodyCapped(response, policy.maxBytes, controller);
+
+      log.debug('outbound fetch ok', { host: url.hostname, status: response.status, bytes });
+
+      return {
+        status: response.status,
+        url: url.toString(),
+        headers: headersToObject(response.headers),
+        text,
+        truncated,
+      };
+    } finally {
+      clearTimeout(timer);
     }
 
-    const buffer = await response.arrayBuffer();
-    const truncated = buffer.byteLength > policy.maxBytes;
-    const slice = truncated ? buffer.slice(0, policy.maxBytes) : buffer;
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(slice);
-
-    log.debug('outbound fetch ok', { host: url.hostname, status: response.status, bytes: buffer.byteLength });
-
-    return {
-      status: response.status,
-      url: url.toString(),
-      headers: headersToObject(response.headers),
-      text,
-      truncated,
-    };
   }
 
   throw new OutboundRejectedError('TOO_MANY_REDIRECTS', `重定向超过 ${policy.maxRedirects} 次`);
