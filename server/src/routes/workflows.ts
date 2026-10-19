@@ -15,6 +15,8 @@ function toId(raw: string): number {
   return Number.isFinite(value) ? value : 0;
 }
 import type { ExpressionNode } from '../workflow/expression/nodes';
+import { DomainOperations } from '../db/bal/business-adapter';
+import { buildStaticMeta, isStaticMetaSource } from '../workflow/meta';
 import { validatePayload, type WorkflowPayload } from '../workflow/validate-payload';
 import {
   createWorkflow,
@@ -58,6 +60,35 @@ router.post('/', authMiddleware, adminOnly, requireJwtAuth('workflows'), asyncHa
   sendSuccess(res, { id });
 }));
 
+/**
+ * 候选值接口：供前端渲染 {...} 下拉 / [...] 可输入。
+ * 设计依据：§3.3 候选值来源。**只返回当前用户有权看到的内容**。
+ */
+router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {
+  const source = String(req.params.source);
+  const userId = Number(req.user!.userId);
+
+  // 无 DB 依赖的候选源由纯函数提供，便于单测
+  if (isStaticMetaSource(source)) {
+    sendSuccess(res, { items: buildStaticMeta(source) });
+    return;
+  }
+
+  if (source === 'domains') {
+    if (!Number.isFinite(userId)) {
+      sendError(res, '缺少可用身份', 401);
+      return;
+    }
+    const rows = (await DomainOperations.getUserAccessibleDomains(userId)) as unknown as Array<{
+      id: number;
+      name: string;
+    }>;
+    sendSuccess(res, { items: rows.map((row) => ({ value: row.name, label: row.name, id: row.id })) });
+    return;
+  }
+
+  sendError(res, `未知候选源: ${source}`, 404);
+}));
 router.get('/:id', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const item = await getStoredById(toId(req.params.id));
   if (!item) {

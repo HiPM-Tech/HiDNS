@@ -1583,7 +1583,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | `POST` | `/api/workflows/:id/test` | `workflow.run` | **测试运行**（不产生副作用，dry-run） |
 | `POST` | `/api/workflows/:id/run` | `workflow.run` | 手动触发 |
 | `GET` | `/api/workflows/:id/runs` | `workflow.read` | 运行历史 |
-| `GET` | `/api/workflows/meta/{source}` | `workflow.read` | **候选值**（供 `{...}` / `[...]` 下拉） |
+| `GET` | `/api/workflows/meta/{source}` | `workflow.read` | **候选值**（供 `{...}` / `[...]` 下拉）。已实现源：`actions` / `triggerTypes` / `recordTypes` / `domainFields` / `nsStatuses` / `domains` |
 
 **管理端点必须 `requireJwtAuth`**（禁止 API Token 管理工作流），与 `root.ai.md` 对管理员/敏感路由的既有做法一致。
 
