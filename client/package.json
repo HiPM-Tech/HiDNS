@@ -9,7 +9,8 @@
         "build": "tsc -b && vite build",
         "lint": "eslint .",
         "preview": "vite preview",
-        "test": "vitest run"
+        "test": "vitest run",
+        "e2e": "node e2e/workflows-browser.mjs"
     },
     "dependencies": {
         "@simplewebauthn/browser": "^13.3.0",
