@@ -179,6 +179,20 @@ describe('保存期校验', () => {
     expect(validatePayload(base({ condition: null })).join()).toContain('INVALID_NODE');
   });
 
+  it('triggerConfig 未知键被拒绝（防拼写错误导致静默放大触发面）', () => {
+    expect(validatePayload(base({ triggerConfig: { recordType: ['AAAA'] } })).join()).toContain('未知键');
+    expect(validatePayload(base({ triggerConfig: { recordTypes: ['A'] } })).join()).not.toContain('未知键');
+  });
+
+  it('triggerConfig 只允许当前触发器对应的键', () => {
+    expect(
+      validatePayload(base({ triggerType: 'ns.changed', triggerConfig: { recordTypes: ['A'] } })).join(),
+    ).toContain('未知键');
+    expect(
+      validatePayload(base({ triggerType: 'ns.changed', triggerConfig: { statuses: ['mismatch'] } })).join(),
+    ).not.toContain('未知键');
+  });
+
   it('条件节点同样受校验', () => {
     expect(validatePayload(base({ condition: { kind: 'eval', code: '1' } })).join()).toContain('UNKNOWN_NODE_KIND');
   });

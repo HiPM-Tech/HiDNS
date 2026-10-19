@@ -51,6 +51,23 @@ export function validatePayload(payload: WorkflowPayload): string[] {
   }
 
   const triggerConfig = payload.triggerConfig as { recordTypes?: unknown; fields?: unknown } | undefined;
+  // 未知键必须拒绝：拼错（recordType / status / field）会被静默忽略并回落到默认值，
+  // 例如 {"recordType":["AAAA"]} 实际变成「A 和 AAAA 都触发」，是静默放大触发面。
+  const ALLOWED_CONFIG_KEYS: Record<string, readonly string[]> = {
+    'record.changed': ['recordTypes'],
+    'domain.changed': ['fields'],
+    'ns.changed': ['statuses'],
+    'whois.expiring': ['withinDays'],
+  };
+  if (triggerConfig && typeof triggerConfig === 'object' && !Array.isArray(triggerConfig)) {
+    const allowedKeys = ALLOWED_CONFIG_KEYS[String(payload.triggerType)] ?? [];
+    const unknownKeys = Object.keys(triggerConfig).filter((key) => !allowedKeys.includes(key));
+    if (unknownKeys.length > 0) {
+      problems.push(
+        `triggerConfig 含未知键: ${unknownKeys.join(', ')}（${String(payload.triggerType)} 仅允许 ${allowedKeys.join(' / ') || '空'}）`,
+      );
+    }
+  }
   const recordTypes = triggerConfig?.recordTypes;
   if (recordTypes !== undefined) {
     if (!Array.isArray(recordTypes)) {
