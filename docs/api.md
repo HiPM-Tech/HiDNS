@@ -967,15 +967,36 @@ WebSocket 事件：`resource:snapshot`，每 10 秒推送一次当前资源快�
 ```
 
 - `triggerConfig`：`record.changed` → `recordTypes`；`domain.changed` → `fields`；`ns.changed` → `statuses`；`whois.expiring` → `withinDays`。
+- **`condition` 语义（重要）**：
+  - **省略该键** → 保留原条件（PUT）；创建时等价于「无条件」。
+  - **显式 `null`** → **清空条件**（PUT 生效；创建时同样视为无条件）。
+  - 传入非 `null` 的节点 → 作为新条件；`null` 不会被当作节点校验。
+  - 前端关闭条件开关时会显式发送 `null`（因为 `undefined` 会被 JSON 序列化丢弃）。
+- **损坏数据占位项**：`GET /api/workflows` 对无法解析的行返回 `corrupted: true` 的占位项（`name` 为原值、`actions` 为空），使该行**可见且可删除**；`GET /api/workflows/:id` 对同类行返回 **422**（不是 500）；`DELETE` 不解析定义，因此损坏行可正常删除。
 - `actions` 中的 `call.action` **必须是字面量**且已注册；引用 `dslVisible:false` 的动作会被 422 拒绝。
 - 必填参数缺失、`select` 取值越界同样在保存期 422。
+
 ---
 
-## 23. Swagger 文档
+## 25. Swagger 文档
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
 | GET | `/api/docs` | 无 | Swagger UI 交互式文档 |
+
+---
+
+## 26. 工作流出站白名单
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/settings/workflow-http-allowlist` | JWT + admin + noToken | 读取当前白名单 |
+| PUT | `/api/settings/workflow-http-allowlist` | JWT + admin + noToken | 覆盖白名单（写审计，立即热重载） |
+
+请求体：`{ "allowlist": ["api.ipify.org", "*.cloudflare.com"] }`（字符串数组；空数组合法，表示全部拒绝）。
+
+语义：`http.outbound.fetch` 仅允许命中该白名单的主机；白名单为空时**所有出站请求都会被拒绝**（fail-closed）。
+存储键：`system_settings.workflow_http_allowlist`，值为 JSON 数组字符串；也兼容逗号分隔的旧格式。
 
 ---
 
@@ -992,3 +1013,4 @@ WebSocket 事件：`resource:snapshot`，每 10 秒推送一次当前资源快�
 | `rdapLimiter` | RDAP 查询限流 |
 | `initCheckMiddleware` | 系统初始化检查（未初始化返回 503） |
 | `mcpEnabledCheck` | MCP 启用检查（未启用返回 503） |
+---
