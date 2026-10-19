@@ -1194,8 +1194,8 @@ v1 只有收敛写动作，这直接决定了一条部署约束：
 |---|---|---|---|
 | `record.changed` | 记录创建/更新/删除/启停（**仅 `A` / `AAAA`**，见 §4.0.5） | 现有 `record_*` WS 事件 | ✅ 允许 |
 | `domain.changed` | 域名新增/更新/删除/续费 | 现有 `domain_*` 事件 | ❌ **禁止**（见 §4.0） |
-| `ns.changed` | NS 监控状态变化 | `ns_monitor_*` | ✅ 允许 |
-| `whois.expiring` | WHOIS 到期临近 | WHOIS 调度器 | ✅ 允许 |
+| `ns.changed` | NS 监控状态变化（配置项 `statuses` 过滤） | `ns_monitor_*` | ✅ 允许 |
+| `whois.expiring` | WHOIS 到期临近（配置项 `withinDays` 过滤） | WHOIS 调度器 | ✅ 允许 |
 | `manual` | 手动/API 触发 | 新增端点 | ✅ 允许 |
 | ~~`schedule`~~ | ~~定时（cron 子集）~~ | **不设计** | — |
 

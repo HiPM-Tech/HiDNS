@@ -150,6 +150,8 @@ export function Workflows() {
   const [triggerType, setTriggerType] = useState('record.changed');
   const [recordTypes, setRecordTypes] = useState<string[]>(['A', 'AAAA']);
   const [domainFields, setDomainFields] = useState<string[]>([]);
+  const [nsStatuses, setNsStatuses] = useState<string[]>([]);
+  const [withinDays, setWithinDays] = useState<string>('');
   const [rows, setRows] = useState<ActionRow[]>([{ ...EMPTY_ROW }]);
   const [condition, setCondition] = useState<ConditionDraft>({ enabled: false, field: CONDITION_FIELDS[0], op: '==', value: '' });
 
@@ -191,7 +193,13 @@ export function Workflows() {
             ? { recordTypes }
             : triggerType === 'domain.changed'
               ? { fields: domainFields }
-              : {},
+              : triggerType === 'ns.changed'
+                ? { statuses: nsStatuses }
+                : triggerType === 'whois.expiring'
+                  ? withinDays === ''
+                    ? {}
+                    : { withinDays: Number(withinDays) }
+                  : {},
         condition: toConditionNode(condition),
         actions: toDslNodes(rows),
       };
@@ -235,6 +243,8 @@ export function Workflows() {
     setTriggerType('record.changed');
     setRecordTypes(['A', 'AAAA']);
     setDomainFields([]);
+    setNsStatuses([]);
+    setWithinDays('');
     setRows([{ ...EMPTY_ROW }]);
     setCondition({ enabled: false, field: CONDITION_FIELDS[0], op: '==', value: '' });
     setDialogOpen(true);
@@ -247,6 +257,10 @@ export function Workflows() {
     setTriggerType(record.triggerType);
     setRecordTypes(((record.triggerConfig?.recordTypes as string[]) ?? ['A', 'AAAA']));
     setDomainFields(((record.triggerConfig?.fields as string[]) ?? []));
+    setNsStatuses(((record.triggerConfig?.statuses as string[]) ?? []));
+    setWithinDays(
+      typeof record.triggerConfig?.withinDays === 'number' ? String(record.triggerConfig.withinDays) : '',
+    );
     setRows(fromDslNodes(record.actions));
     setCondition(fromConditionNode(record.condition));
     setDialogOpen(true);
@@ -372,6 +386,25 @@ export function Workflows() {
               )}
             </Space>
           </Form.FormItem>
+
+          {triggerType === 'ns.changed' && (
+            <Form.FormItem label={t('workflows.nsStatuses')}>
+              <Checkbox.Group value={nsStatuses} onChange={(value) => setNsStatuses(value as string[])}>
+                {['mismatch', 'missing', 'poisoned'].map((status) => (
+                  <Checkbox key={status} value={status}>{status}</Checkbox>
+                ))}
+              </Checkbox.Group>
+            </Form.FormItem>
+          )}
+          {triggerType === 'whois.expiring' && (
+            <Form.FormItem label={t('workflows.withinDays')}>
+              <Input
+                type="number"
+                value={withinDays}
+                onChange={(value) => setWithinDays(String(value))}
+              />
+            </Form.FormItem>
+          )}
 
           <Form.FormItem label={t('workflows.actions')}>
             <Space direction="vertical" style={{ width: '100%' }}>

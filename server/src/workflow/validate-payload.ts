@@ -14,6 +14,7 @@ const ACTION_PARAMS: Record<string, string[]> = Object.fromEntries(
 
 const ALLOWED_TRIGGERS = new Set(['record.changed', 'domain.changed', 'ns.changed', 'whois.expiring']);
 const DOMAIN_TRIGGERS = new Set(['domain.changed']);
+const NS_STATUSES = ['ok', 'mismatch', 'missing', 'poisoned'];
 const WRITE_CLASSES = new Set(['dns.record.write', 'ext.write']);
 
 const ACTION_CLASS_BY_NAME = new Map(ALL_ACTIONS.map((a) => [a.name, a.actionClass]));
@@ -52,6 +53,22 @@ export function validatePayload(payload: WorkflowPayload): string[] {
       problems.push('triggerConfig.fields 必须是数组');
     } else if (fields.some((f) => !['remark', 'is_hidden', 'enabled'].includes(String(f)))) {
       problems.push('triggerConfig.fields 仅允许 remark / is_hidden / enabled');
+    }
+  }
+
+  const statuses = (triggerConfig as { statuses?: unknown } | undefined)?.statuses;
+  if (statuses !== undefined) {
+    if (!Array.isArray(statuses)) {
+      problems.push('triggerConfig.statuses 必须是数组');
+    } else if (statuses.some((s) => !NS_STATUSES.includes(String(s)))) {
+      problems.push(`triggerConfig.statuses 仅允许 ${NS_STATUSES.join(' / ')}`);
+    }
+  }
+
+  const withinDays = (triggerConfig as { withinDays?: unknown } | undefined)?.withinDays;
+  if (withinDays !== undefined) {
+    if (typeof withinDays !== 'number' || !Number.isFinite(withinDays) || withinDays < 0) {
+      problems.push('triggerConfig.withinDays 必须是非负数字');
     }
   }
 

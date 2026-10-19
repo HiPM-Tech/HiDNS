@@ -19,6 +19,8 @@
             "fields": "Fields",
             "pickAction": "Pick an action",
             "addAction": "Add action",
+            "nsStatuses": "Watched statuses",
+            "withinDays": "Days ahead",
             "condition": "Condition",
             "conditionValue": "Value",
             "preview": "Preview (…)",

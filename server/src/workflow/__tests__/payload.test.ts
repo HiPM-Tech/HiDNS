@@ -124,6 +124,24 @@ describe('保存期校验', () => {
     ).toEqual([]);
   });
 
+  it('ns.changed 状态白名单校验', () => {
+    expect(
+      validatePayload(base({ triggerType: 'ns.changed', triggerConfig: { statuses: ['poisoned'] } })).join(),
+    ).not.toContain('statuses');
+    expect(
+      validatePayload(base({ triggerType: 'ns.changed', triggerConfig: { statuses: ['weird'] } })).join(),
+    ).toContain('仅允许');
+  });
+
+  it('whois.expiring 的 withinDays 必须是非负数字', () => {
+    expect(
+      validatePayload(base({ triggerType: 'whois.expiring', triggerConfig: { withinDays: 7 } })).join(),
+    ).not.toContain('withinDays');
+    expect(
+      validatePayload(base({ triggerType: 'whois.expiring', triggerConfig: { withinDays: -1 } })).join(),
+    ).toContain('非负数字');
+  });
+
   it('条件节点同样受校验', () => {
     expect(
       validatePayload(base({ condition: { kind: 'eval', code: '1' } })).join(),

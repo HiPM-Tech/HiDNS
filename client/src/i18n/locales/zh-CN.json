@@ -19,6 +19,8 @@
             "fields": "关注字段",
             "pickAction": "选择动作",
             "addAction": "添加动作",
+            "nsStatuses": "监听状态",
+            "withinDays": "提前天数",
             "condition": "执行条件",
             "conditionValue": "条件值",
             "preview": "预览 (…)",
