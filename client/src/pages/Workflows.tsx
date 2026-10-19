@@ -347,18 +347,33 @@ export function Workflows() {
                         setRows(next);
                       }}
                     />
-                    {meta?.params?.map((param) => (
-                      <Input
-                        key={param.key}
-                        placeholder={param.key}
-                        value={row.args[param.key] ?? ''}
-                        onChange={(value) => {
-                          const next = [...rows];
-                          next[index] = { ...row, args: { ...row.args, [param.key]: String(value) } };
-                          setRows(next);
-                        }}
-                      />
-                    ))}
+                    {meta?.params?.map((param) => {
+                      const update = (value: unknown) => {
+                        const next = [...rows];
+                        next[index] = { ...row, args: { ...row.args, [param.key]: String(value) } };
+                        setRows(next);
+                      };
+                      // 参数控件按声明类型渲染：select 给下拉，其余给输入框
+                      if (param.type === 'select' && param.options?.length) {
+                        return (
+                          <Select
+                            key={param.key}
+                            placeholder={param.key}
+                            value={row.args[param.key] ?? ''}
+                            options={param.options.map((option) => ({ label: option, value: option }))}
+                            onChange={update}
+                          />
+                        );
+                      }
+                      return (
+                        <Input
+                          key={param.key}
+                          placeholder={param.key}
+                          value={row.args[param.key] ?? ''}
+                          onChange={update}
+                        />
+                      );
+                    })}
                     <Button size="small" variant="text" theme="danger" onClick={() => setRows(rows.filter((_, i) => i !== index))}>
                       {t('common.delete')}
                     </Button>

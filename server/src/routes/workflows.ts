@@ -17,6 +17,8 @@ function toId(raw: string): number {
 import type { ExpressionNode } from '../workflow/expression/nodes';
 import { DomainOperations } from '../db/bal/business-adapter';
 import { buildStaticMeta, isStaticMetaSource } from '../workflow/meta';
+import { DnsProviderService } from '../service/dns-provider-service';
+import { TencenteoAdapter } from '../lib/dns/providers/tencenteo/adapter';
 import { validatePayload, type WorkflowPayload } from '../workflow/validate-payload';
 import {
   createWorkflow,
@@ -72,6 +74,42 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
   // 无 DB 依赖的候选源由纯函数提供，便于单测
   if (isStaticMetaSource(source)) {
     sendSuccess(res, { items: buildStaticMeta(source) });
+    return;
+  }
+
+  // 源站组级联：由域名反查账号与作用域（tencenteo 把 ZoneId 映射在 third_id 上）
+  if (source === 'originGroups') {
+    const domainId = toId(String(req.query.domainId ?? ''));
+    if (!domainId) {
+      sendError(res, '缺少 domainId', 422);
+      return;
+    }
+    const domain = (await DomainOperations.getById(domainId)) as unknown as
+      | { id: number; name: string; third_id?: string }
+      | undefined;
+    if (!domain) {
+      sendError(res, '域名不存在', 404);
+      return;
+    }
+    try {
+      const adapter = await DnsProviderService.getAdapter(domainId);
+      if (!(adapter instanceof TencenteoAdapter)) {
+        sendError(res, '该域名的提供商不支持源站组', 422);
+        return;
+      }
+      adapter.setZoneInfo(String(domain.third_id ?? ''), String(domain.name ?? ''));
+      const groups = await adapter.originGroups().list({ limit: 100 });
+      sendSuccess(res, {
+        items: groups.map((group) => ({
+          value: group.groupId,
+          label: group.name || group.groupId,
+          records: group.records.length,
+          references: group.references.length,
+        })),
+      });
+    } catch (error) {
+      sendError(res, error instanceof Error ? error.message : String(error), 502);
+    }
     return;
   }
 
