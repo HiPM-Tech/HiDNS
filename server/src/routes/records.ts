@@ -605,6 +605,12 @@ router.post('/batch', authMiddleware, requireTokenDomainPermission('domainId'), 
       const recordId = await dnsAdapter.addDomainRecord(r.name, r.type, r.value, r.line, r.ttl, r.mx, r.weight, r.remark);
       if (recordId) {
         addedIds.push(recordId);
+        publishRecordEvent({
+          action: 'created',
+          domain: { id: domainId, name: access.domain.name },
+          record: { id: recordId, name: r.name, type: r.type, value: r.value },
+          actor: { userId: req.user!.userId, source: 'ui' },
+        });
       } else {
         errors.push(`Failed to add ${r.type} ${r.name}`);
       }
@@ -752,12 +758,30 @@ router.delete('/:recordId', authMiddleware, requireTokenDomainPermission('domain
         return;
       }
     }
+    // 删除事件需要记录类型；无订阅者时不回查，避免热路径固定开销
+    const previousForEvent = hasWorkflowSubscribers()
+      ? await dnsAdapter.getDomainRecordInfo(recordId).catch(() => null)
+      : null;
     const success = await dnsAdapter.deleteDomainRecord(recordId);
     if (!success) {
       sendError(res, 'Failed to delete record');
       return;
     }
     await logAuditOperation(req.user!.userId, 'delete_record', access.domain.name, { recordId }, req);
+
+    if (previousForEvent) {
+      publishRecordEvent({
+        action: 'deleted',
+        domain: { id: domainId, name: access.domain.name },
+        record: {
+          id: recordId,
+          name: previousForEvent.Name,
+          type: previousForEvent.Type,
+          value: previousForEvent.Value,
+        },
+        actor: { userId: req.user!.userId, source: 'ui' },
+      });
+    }
 
     // 推送 WebSocket 消息
     try {
@@ -806,12 +830,29 @@ router.put('/:recordId/status', authMiddleware, requireTokenDomainPermission('do
   }
   try {
     const dnsAdapter = await getAdapterForDomain(access.domain);
+    const previousForEvent = hasWorkflowSubscribers()
+      ? await dnsAdapter.getDomainRecordInfo(recordId).catch(() => null)
+      : null;
     const success = await dnsAdapter.setDomainRecordStatus(recordId, status);
     if (!success) {
       sendError(res, 'Failed to update record status');
       return;
     }
     await logAuditOperation(req.user!.userId, status === 1 ? 'enable_record' : 'disable_record', access.domain.name, { recordId });
+
+    if (previousForEvent) {
+      publishRecordEvent({
+        action: 'status_changed',
+        domain: { id: domainId, name: access.domain.name },
+        record: {
+          id: recordId,
+          name: previousForEvent.Name,
+          type: previousForEvent.Type,
+          value: previousForEvent.Value,
+        },
+        actor: { userId: req.user!.userId, source: 'ui' },
+      });
+    }
 
     // 推送 WebSocket 消息
     try {

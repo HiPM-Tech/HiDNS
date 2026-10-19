@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { WorkflowEventBus, buildRecordEvent, workflowEventBus } from './event-bus';
+import { domainEventBus } from '../lib/domain-event-bus';
 import type { WorkflowEvent } from './event-bus';
 
 const domain = { id: 1, name: 'example.com' };
@@ -93,5 +94,12 @@ describe('事件总线过滤', () => {
 
   it('单例在模块加载时不持有订阅（无模块作用域副作用）', () => {
     expect(workflowEventBus.subscriberCount()).toBe(0);
+  });
+
+  it('工作流侧转发与主核心单例是同一实例（订阅互通）', () => {
+    expect(workflowEventBus).toBe(domainEventBus);
+    const off = domainEventBus.subscribe(() => undefined);
+    expect(workflowEventBus.subscriberCount()).toBe(1);
+    off();
   });
 });

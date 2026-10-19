@@ -1209,14 +1209,24 @@ interface WorkflowEvent {
 - `actor.source` 用于**防循环**（见 §7.2）。
 - 记录事件必须携带 `domain.third_id` 的**快照值**，供幂等校验使用（避免 §4.0 理由 3 的错写）。
 
-### 4.3 现状缺口（必须先补）
+### 4.3 事件主线（已实现）
 
-当前记录变更**只在路由内联广播 WS**（`routes/records.ts` 的 `record_created` / `record_updated` / `record_deleted`），没有统一事件出口。设计上需要：
+事件总线**归主核心**，不属于工作流：实现位于 `server/src/lib/domain-event-bus.ts`，工作流只是订阅者之一（`workflow/event-bus.ts` 为其兼容转发）。
 
-1. 抽出 **`WorkflowEventBus`**（进程内发布/订阅）；
-2. 路由在写入成功后 `publish(event)`，WS 广播改为总线的订阅者之一，**避免双写**；
-3. DSL 动作产生的写入**同样发布事件**（但标记 `actor.source='workflow'`）；
-4. 域名变动事件必须携带 `changedFields`（如 `['remark']`），以便引擎在保存/执行期判断是否涉及解析语义。
+**发布点覆盖全部记录写入路径**，而非只有路由：
+
+| 路径 | 覆盖 | 说明 |
+|---|---|---|
+| `routes/records.ts` | 创建 / 更新 / 删除 / 状态变更 / 批量创建 | 删除与状态变更需先回查记录类型（A/AAAA 判定所需） |
+| `service/dns-provider-service.ts` | 创建 / 更新 / 删除 / 状态变更 | 服务层统一出口，覆盖故障转移与 MCP 等非路由调用方 |
+| `workflow/actions/dns/record.ts` | 创建 / 更新 | 标记 `actor.source='workflow'`，由总线抑制以防自激 |
+
+**两条硬约束**：
+
+1. **无订阅者时零成本**——发布入口先查 `hasDomainEventSubscribers()`，跳过构造与额外回查；否则等于给所有写入加一次无谓查询。
+2. **发布失败不影响业务**——事件是旁路，异常一律吞掉并限流记录。
+
+**仍未合并的一处**：WS 广播目前仍在路由内联（`record_created` / `record_updated` / …），尚未改成总线订阅者。原因是 WS 载荷形状（创建带 `record` 对象、更新只带 `recordId`）与总线事件不同构，直接改会破坏前端契约；合并需要同步调整客户端，留待独立任务。**在合并之前，两处并存不会产生重复事件**——总线目前没有 WS 订阅者。
 
 
 ---

@@ -6,6 +6,11 @@
 
 import { DnsAdapter, DnsRecord, PageResult } from '../lib/dns/DnsInterface';
 import { createAdapter } from '../lib/dns/DnsHelper';
+import {
+  hasDomainEventSubscribers,
+  publishRecordEvent,
+  type ActorSource,
+} from '../lib/domain-event-bus';
 import { DomainOperations, DnsAccountOperations } from '../db/bal/business-adapter';
 import { createLogger } from '../lib/logger';
 import type { Domain, DnsAccount } from '../types';
@@ -146,8 +151,7 @@ export class DnsProviderService {
     }
   ): Promise<string | null> {
     const adapter = await this.getAdapter(domainId);
-
-    return adapter.addDomainRecord(
+    const recordId = await adapter.addDomainRecord(
       name,
       type,
       value,
@@ -157,6 +161,17 @@ export class DnsProviderService {
       options?.weight,
       options?.remark
     );
+    if (recordId) {
+      await this.publishMutation({
+        action: 'created',
+        domainId,
+        recordId,
+        name,
+        type,
+        value,
+      });
+    }
+    return recordId;
   }
 
   /**
@@ -177,8 +192,11 @@ export class DnsProviderService {
     }
   ): Promise<boolean> {
     const adapter = await this.getAdapter(domainId);
-
-    return adapter.updateDomainRecord(
+    // 仅在存在订阅者时才回查旧值，避免给热路径增加固定开销
+    const previous = hasDomainEventSubscribers()
+      ? await adapter.getDomainRecordInfo(recordId).catch(() => null)
+      : null;
+    const ok = await adapter.updateDomainRecord(
       recordId,
       name,
       type,
@@ -189,6 +207,18 @@ export class DnsProviderService {
       options?.weight,
       options?.remark
     );
+    if (ok) {
+      await this.publishMutation({
+        action: 'updated',
+        domainId,
+        recordId,
+        name,
+        type,
+        value,
+        oldValue: previous?.Value,
+      });
+    }
+    return ok;
   }
 
   /**
@@ -196,7 +226,22 @@ export class DnsProviderService {
    */
   static async deleteRecord(recordId: string, domainId: number): Promise<boolean> {
     const adapter = await this.getAdapter(domainId);
-    return adapter.deleteDomainRecord(recordId);
+    // 删除事件需要记录类型；无订阅者时不回查
+    const previous = hasDomainEventSubscribers()
+      ? await adapter.getDomainRecordInfo(recordId).catch(() => null)
+      : null;
+    const ok = await adapter.deleteDomainRecord(recordId);
+    if (ok && previous) {
+      await this.publishMutation({
+        action: 'deleted',
+        domainId,
+        recordId,
+        name: previous.Name,
+        type: previous.Type,
+        value: previous.Value,
+      });
+    }
+    return ok;
   }
 
   /**
@@ -218,10 +263,62 @@ export class DnsProviderService {
   }
 
   /**
+   * 主核心事件主线：服务层写入的统一发布口。
+   * 无订阅者时零成本；任何异常都不影响业务结果。
+   */
+  private static async publishMutation(input: {
+    action: 'created' | 'updated' | 'deleted' | 'status_changed';
+    domainId: number;
+    recordId: string;
+    name?: string;
+    type?: string;
+    value?: string;
+    oldValue?: string;
+    source?: ActorSource;
+  }): Promise<void> {
+    if (!hasDomainEventSubscribers()) return;
+    if (!input.type) return;
+    try {
+      const domain = (await DomainOperations.getById(input.domainId)) as unknown as
+        | { id: number; name: string; account_id?: number }
+        | undefined;
+      if (!domain) return;
+      publishRecordEvent({
+        action: input.action,
+        domain: { id: domain.id, name: domain.name, accountId: domain.account_id },
+        record: {
+          id: input.recordId,
+          name: input.name ?? '',
+          type: input.type,
+          value: input.value,
+          oldValue: input.oldValue,
+        },
+        actor: { source: input.source ?? 'system' },
+      });
+    } catch {
+      // 事件发布为旁路
+    }
+  }
+
+  /**
    * 设置记录状态（启用/禁用）
    */
   static async setRecordStatus(recordId: string, domainId: number, enabled: boolean): Promise<boolean> {
     const adapter = await this.getAdapter(domainId);
-    return adapter.setDomainRecordStatus(recordId, enabled ? 1 : 0);
+    const previous = hasDomainEventSubscribers()
+      ? await adapter.getDomainRecordInfo(recordId).catch(() => null)
+      : null;
+    const ok = await adapter.setDomainRecordStatus(recordId, enabled ? 1 : 0);
+    if (ok && previous) {
+      await this.publishMutation({
+        action: 'status_changed',
+        domainId,
+        recordId,
+        name: previous.Name,
+        type: previous.Type,
+        value: previous.Value,
+      });
+    }
+    return ok;
   }
 }
