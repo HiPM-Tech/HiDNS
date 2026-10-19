@@ -7,6 +7,7 @@ import { WorkflowEngine, type WorkflowDefinition } from './engine';
 import { createDispatcher } from './dispatch';
 import { lookupActionMeta } from './actions/registry';
 import { getStoredById, listEnabledDefinitions, recordRun, storedToDefinition } from './store';
+import { getAccessibleDomainIds, getAccessibleDomains } from './access';
 import type { AuthorizeDeps, Principal } from './auth';
 import { buildRecordEvent, type DomainEvent as WorkflowEvent } from '../lib/domain-event-bus';
 
@@ -89,7 +90,9 @@ export async function resolvePrincipal(workflow: WorkflowDefinition): Promise<Pr
     id: String(user.id),
     role: (user.role_level ?? 1) >= 3 ? 'super_admin' : (user.role_level ?? 1) >= 2 ? 'admin' : 'user',
     services: servicesForRole(user.role_level ?? 1),
-    allowedDomains: '*',
+    // 域名级权限按 owner 真实可访问集合计算；**不得**再用 '*' 通配
+    allowedDomainIds: await getAccessibleDomainIds(user.id),
+    allowedDomains: [],
   };
 }
 
@@ -109,6 +112,13 @@ export function startWorkflowModule(): void {
     getWorkflowById: async (id) => {
       const stored = await getStoredById(Number(id));
       return stored ? storedToDefinition(stored) : null;
+    },
+    canAccessDomain: async (workflow, domain) => {
+      if (!workflow.ownerId) return false;
+      const access = await getAccessibleDomains(workflow.ownerId);
+      // 事件里的 domain.id 可能为 0（如 ns.changed 表无 domain_id），此时按名称判定
+      if (domain.id > 0 && access.ids.includes(domain.id)) return true;
+      return Boolean(domain.name) && access.names.includes(domain.name);
     },
     resolvePrincipal: (workflow) => resolvePrincipal(workflow),
     dispatch: dispatcher,

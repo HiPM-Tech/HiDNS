@@ -33,8 +33,23 @@ import {
 const log = createLogger('HTTP').sub('Route').sub('Workflows');
 const router = Router();
 
-function isAdmin(req: Request): boolean {
-  return req.user?.role === 3;
+/**
+ * 载入并校验工作流归属：不存在 404；非本人且非超管 403。
+ * 设计依据：审核团 P0-C（此前 PUT/DELETE/run/runs/sample-event 缺 owner 校验）。
+ */
+async function loadOwnedWorkflow(req: Request, res: Response, id: number) {
+  const item = await getStoredById(id);
+  if (!item) {
+    sendError(res, '工作流不存在', 404);
+    return null;
+  }
+  const requesterId = Number(req.user!.userId);
+  const superAdmin = req.user?.role === 3;
+  if (!superAdmin && item.ownerId !== requesterId) {
+    sendError(res, '无权访问该工作流', 403);
+    return null;
+  }
+  return item;
 }
 
 router.get('/', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {
@@ -84,6 +99,13 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
       sendError(res, '缺少 domainId', 422);
       return;
     }
+    // 归属校验：不得用他人域名的账号凭据去上游拉数据
+    const accessible = await DomainOperations.getUserAccessibleDomains(userId) as unknown as Array<{ id: number }>;
+    if (!accessible.some((row) => Number(row.id) === domainId)) {
+      sendError(res, '域名不存在', 404);
+      return;
+    }
+
     const domain = (await DomainOperations.getById(domainId)) as unknown as
       | { id: number; name: string; third_id?: string }
       | undefined;
@@ -134,35 +156,22 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
  */
 router.get('/:id/sample-event', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const id = toId(req.params.id);
-  const item = await getStoredById(id);
-  if (!item) {
-    sendError(res, '工作流不存在', 404);
-    return;
-  }
+  const item = await loadOwnedWorkflow(req, res, id);
+  if (!item) return;
   const event = await latestSampleEvent(id);
   sendSuccess(res, { event });
 }));
 
 router.get('/:id', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {
-  const item = await getStoredById(toId(req.params.id));
-  if (!item) {
-    sendError(res, '工作流不存在', 404);
-    return;
-  }
-  if (!isAdmin(req) && item.ownerId !== Number(req.user!.userId)) {
-    sendError(res, '无权访问', 403);
-    return;
-  }
+  const item = await loadOwnedWorkflow(req, res, toId(req.params.id));
+  if (!item) return;
   sendSuccess(res, item);
 }));
 
 router.put('/:id', authMiddleware, adminOnly, requireJwtAuth('workflows'), asyncHandler(async (req: Request, res: Response) => {
   const id = toId(req.params.id);
-  const existing = await getStoredById(id);
-  if (!existing) {
-    sendError(res, '工作流不存在', 404);
-    return;
-  }
+  const existing = await loadOwnedWorkflow(req, res, id);
+  if (!existing) return;
   const payload = req.body as WorkflowPayload;
   const merged: WorkflowPayload = {
     name: payload.name ?? existing.name,
@@ -191,17 +200,16 @@ router.put('/:id', authMiddleware, adminOnly, requireJwtAuth('workflows'), async
 
 router.delete('/:id', authMiddleware, adminOnly, requireJwtAuth('workflows'), asyncHandler(async (req: Request, res: Response) => {
   const id = toId(req.params.id);
-  const existing = await getStoredById(id);
-  if (!existing) {
-    sendError(res, '工作流不存在', 404);
-    return;
-  }
+  const existing = await loadOwnedWorkflow(req, res, id);
+  if (!existing) return;
   await removeWorkflow(id);
   sendSuccess(res);
 }));
 
 router.get('/:id/runs', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const id = toId(req.params.id);
+  const item = await loadOwnedWorkflow(req, res, id);
+  if (!item) return;
   const runs = await listRuns(id, toId(req.query.limit as string) || 50);
   sendSuccess(res, { total: runs.length, runs });
 }));
@@ -210,11 +218,8 @@ const runLimiter = createLimiter(60_000, 10, '手动运行过于频繁，请稍�
 
 router.post('/:id/run', authMiddleware, adminOnly, requireJwtAuth('workflows'), runLimiter, asyncHandler(async (req: Request, res: Response) => {
   const id = toId(req.params.id);
-  const item = await getStoredById(id);
-  if (!item) {
-    sendError(res, '工作流不存在', 404);
-    return;
-  }
+  const item = await loadOwnedWorkflow(req, res, id);
+  if (!item) return;
 
   const body = req.body as {
     domainId?: unknown;
@@ -272,11 +277,8 @@ router.post('/:id/run', authMiddleware, adminOnly, requireJwtAuth('workflows'), 
 }));
 
 router.post('/:id/test', authMiddleware, adminOnly, requireJwtAuth('workflows'), asyncHandler(async (req: Request, res: Response) => {
-  const item = await getStoredById(toId(req.params.id));
-  if (!item) {
-    sendError(res, '工作流不存在', 404);
-    return;
-  }
+  const item = await loadOwnedWorkflow(req, res, toId(req.params.id));
+  if (!item) return;
   const problems = validatePayload({
     name: item.name,
     triggerType: item.triggerType,

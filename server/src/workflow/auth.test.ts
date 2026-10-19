@@ -120,6 +120,24 @@ describe('authorize 八步裁决', () => {
     expect(deps.audit).toHaveBeenCalledTimes(1);
   });
 
+  it('11. 域名 ID 白名单：不在集合内 → 403，在集合内 → 放行', async () => {
+    const scoped: Principal = { ...principal(), allowedDomains: [], allowedDomainIds: [7] };
+    await expectStatus(
+      () => authorize('dns.record.update', scoped, { domainId: 8 }, makeDeps()),
+      403,
+    );
+    const ctx = await authorize('dns.record.update', scoped, { domainId: 7 }, makeDeps());
+    expect(ctx.action).toBe('dns.record.update');
+  });
+
+  it('12. 有 allowedDomainIds 时，通配 allowedDomains 不再放行', async () => {
+    const scoped: Principal = { ...principal(), allowedDomains: '*', allowedDomainIds: [7] };
+    await expectStatus(
+      () => authorize('dns.record.update', scoped, { domainId: 9 }, makeDeps()),
+      403,
+    );
+  });
+
   it('10. 系统身份权限为枚举白名单，不含管理员通配', () => {
     const sys = createSystemPrincipal(['records.read']);
     expect(sys.role).toBe('user');

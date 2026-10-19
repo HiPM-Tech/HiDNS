@@ -313,6 +313,38 @@ describe('执行引擎', () => {
     expect(again[0].status).toBe('success');
   });
 
+  it('租户边界：owner 无权访问事件域名 → skipped / no-domain-access', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const e = new WorkflowEngine(
+      {
+        listWorkflows: async () => [wf({ id: '7' })],
+        resolvePrincipal: async () => principal,
+        dispatch: dispatch as never,
+        canAccessDomain: async () => false,
+      },
+      bus,
+    );
+    const runs = await e.handleEvent(event());
+    expect(runs[0].status).toBe('skipped');
+    expect(runs[0].error).toBe('no-domain-access');
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('租户边界：有权访问时正常执行', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const e = new WorkflowEngine(
+      {
+        listWorkflows: async () => [wf({ id: '7' })],
+        resolvePrincipal: async () => principal,
+        dispatch: dispatch as never,
+        canAccessDomain: async () => true,
+      },
+      bus,
+    );
+    const runs = await e.handleEvent(event());
+    expect(runs[0].status).toBe('success');
+  });
+
   it('未 start 时不订阅（无模块作用域副作用）', () => {
     engine([wf()]);
     expect(bus.subscriberCount()).toBe(0);

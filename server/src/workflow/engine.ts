@@ -68,6 +68,8 @@ export interface EngineDeps {
   dispatch: Dispatcher;
   /** 按 id 取工作流（含禁用）；缺省时退回 listWorkflows —— 后者在生产只含启用项 */
   getWorkflowById?(id: string): Promise<WorkflowDefinition | null>;
+  /** 租户边界：工作流 owner 是否有权访问该事件域名 */
+  canAccessDomain?(workflow: WorkflowDefinition, domain: { id: number; name: string }): Promise<boolean>;
   onRun?(record: RunRecord): Promise<void> | void;
   now?(): number;
 }
@@ -219,6 +221,21 @@ export class WorkflowEngine {
 
     for (const workflow of workflows) {
       if (!this.matches(workflow, event)) continue;
+
+      // 租户边界：owner 无权访问事件域名时不得执行（否则工作流会越权写他人域名）
+      if (this.deps.canAccessDomain && !(await this.deps.canAccessDomain(workflow, event.domain))) {
+        const nowIso = new Date((this.deps.now ?? Date.now)()).toISOString();
+        records.push({
+          workflowId: workflow.id,
+          traceId: event.traceId,
+          status: 'skipped',
+          startedAt: nowIso,
+          finishedAt: nowIso,
+          error: 'no-domain-access',
+          event,
+        });
+        continue;
+      }
 
       // 并发保护：同一工作流上一次还没跑完时跳过，避免重复写记录
       if (this.inFlight.has(workflow.id)) {

@@ -52,12 +52,16 @@ export const MAX_BATCH_SIZE = 50;
  * 资源级二次校验：即使 authorize 已校验过，handler 仍按解析出的真实域名再验一次。
  * 设计依据：§5.6（DSL 不可越权）与 §5.0（禁止隐式身份）
  */
-export function assertDomainAllowed(ctx: ActionContext, domainName: string): void {
+export function assertDomainAllowed(ctx: ActionContext, domain: ResolvedDomain): void {
+  const ids = ctx.principal.allowedDomainIds;
+  if (ids) {
+    if (ids.includes(domain.id)) return;
+    throw new AuthorizationError(403, `域名权限不足: #${domain.id}`);
+  }
   const allowed = ctx.principal.allowedDomains;
   if (allowed === '*') return;
-  if (!allowed.includes(domainName)) {
-    throw new AuthorizationError(403, `域名权限不足: ${domainName}`);
-  }
+  if (allowed.includes(domain.name)) return;
+  throw new AuthorizationError(403, `域名权限不足: ${domain.name}`);
 }
 
 export async function resolveTargetDomain(ctx: ActionContext, args: Record<string, unknown>): Promise<ResolvedDomain> {
@@ -72,7 +76,7 @@ export async function resolveTargetDomain(ctx: ActionContext, args: Record<strin
   }
   const domain = await deps.resolveDomain(ref);
   if (!domain) throw new AuthorizationError(404, '目标域名不存在或不可见');
-  assertDomainAllowed(ctx, domain.name);
+  assertDomainAllowed(ctx, domain);
   return domain;
 }
 

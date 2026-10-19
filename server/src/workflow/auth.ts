@@ -20,7 +20,9 @@ export interface Principal {
   readonly id: string;
   readonly role: Role;
   readonly services: readonly AvailableService[];
-  /** '*' 表示不限域名 */
+  /** 允许的域名 ID 集合（首选判定依据） */
+  readonly allowedDomainIds?: readonly number[];
+  /** 允许的域名名称集合；'*' 仅用于显式构造的测试/系统身份，生产执行身份一律给具体集合 */
   readonly allowedDomains: readonly string[] | '*';
   /** 毫秒时间戳；缺省表示不限期 */
   readonly expiresAt?: number;
@@ -117,11 +119,18 @@ export class AuthorizationError extends Error {
 }
 
 function assertDomainPermission(principal: Principal, resource?: ResourceRef): void {
-  if (!resource?.domainName) return;
-  if (principal.allowedDomains === '*') return;
-  if (!principal.allowedDomains.includes(resource.domainName)) {
-    throw new AuthorizationError(403, `域名权限不足: ${resource.domainName}`);
+  if (!resource) return;
+  if (principal.allowedDomains === '*' && !principal.allowedDomainIds) return;
+
+  // 优先按 ID 判定：事件里的 domain.id 是权威主键，名称可能大小写/IDN 不一致
+  if (resource.domainId !== undefined && principal.allowedDomainIds) {
+    if (principal.allowedDomainIds.includes(resource.domainId)) return;
+    throw new AuthorizationError(403, `域名权限不足: #${resource.domainId}`);
   }
+
+  if (!resource.domainName) return;
+  if (Array.isArray(principal.allowedDomains) && principal.allowedDomains.includes(resource.domainName)) return;
+  throw new AuthorizationError(403, `域名权限不足: ${resource.domainName}`);
 }
 
 /**
