@@ -83,3 +83,25 @@ describe('损坏数据的隔离与错误映射', () => {
     expect(() => rowToStored(bad as never)).toThrowError(/definition\.condition 必须是对象/);
   });
 });
+describe('读路径的归一化与容错', () => {
+  it('condition:null 归一化为 undefined，不判损坏', () => {
+    const stored = rowToStored(row({ definition: JSON.stringify({ condition: null, actions: [] }) }));
+    expect(stored.condition).toBeUndefined();
+    expect(stored.actions).toEqual([]);
+  });
+
+  it('condition 为非对象（数组/字符串）仍 fail-closed', () => {
+    expect(() => rowToStored(row({ definition: JSON.stringify({ condition: [] }) }))).toThrowError(/condition 必须是对象/);
+    expect(() => rowToStored(row({ definition: JSON.stringify({ condition: 'true' }) }))).toThrowError(/condition 必须是对象/);
+  });
+
+  it('trigger_config 非法 JSON 抛错（fail-closed）', () => {
+    expect(() => rowToStored(row({ trigger_config: '{broken' }))).toThrowError(/trigger_config 不是合法 JSON/);
+    expect(() => rowToStored(row({ trigger_config: '[]' }))).toThrowError(/trigger_config 必须是对象/);
+  });
+
+  it('trigger_config 为空回退默认（视为缺失）', () => {
+    const stored = rowToStored(row({ trigger_config: '' }));
+    expect(stored.triggerConfig).toEqual({});
+  });
+});
