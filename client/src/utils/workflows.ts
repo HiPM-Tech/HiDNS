@@ -31,6 +31,8 @@ export interface ConditionDraft {
   field: string;
   op: string;
   value: string;
+  /** 非 compare 根节点（logic/cond/...）：编辑器无法表达，原样保留以免保存时被删除 */
+  raw?: WorkflowDslNode;
 }
 
 export const EMPTY_CONDITION: ConditionDraft = {
@@ -64,7 +66,10 @@ export function toLiteral(field: ConditionField, op: string, raw: string): Workf
 }
 
 export function toConditionNode(draft: ConditionDraft): WorkflowDslNode | undefined {
-  if (!draft.enabled || !draft.field) return undefined;
+  if (!draft.enabled) return undefined;
+  // 无法用表单表达的条件原样回传，不能因为「编辑了一下」就把它删掉
+  if (draft.raw) return draft.raw;
+  if (!draft.field) return undefined;
   return {
     kind: 'compare',
     op: draft.op,
@@ -74,7 +79,11 @@ export function toConditionNode(draft: ConditionDraft): WorkflowDslNode | undefi
 }
 
 export function fromConditionNode(node: WorkflowDslNode | null | undefined): ConditionDraft {
-  if (!node || node.kind !== 'compare') return { ...EMPTY_CONDITION };
+  if (!node) return { ...EMPTY_CONDITION };
+  if (node.kind !== 'compare') {
+    // 复杂条件（logic/cond/...）保留原节点，避免「打开编辑→保存」静默清空
+    return { ...EMPTY_CONDITION, enabled: true, raw: node };
+  }
   const left = (node.left ?? {}) as { path?: string };
   const right = (node.right ?? {}) as { value?: unknown };
   const raw = right.value;

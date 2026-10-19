@@ -21,6 +21,7 @@
             "addAction": "アクションを追加",
             "preview": "プレビュー (…)",
             "waitingForEvent": "実イベントがまだありません。初回トリガー後に表示されます",
+            "advancedCondition": "高度な条件（読み取り専用・API で編集）",
             "condition": "実行条件",
             "conditionValue": "値",
             "nsStatuses": "監視ステータス",

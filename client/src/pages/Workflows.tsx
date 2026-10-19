@@ -313,7 +313,12 @@ export function Workflows() {
                 value={form.condition.enabled}
                 onChange={(value) => updateField('condition', { ...form.condition, enabled: Boolean(value) })}
               />
-              {form.condition.enabled && (
+              {form.condition.enabled && form.condition.raw && (
+                <div className="workflow-condition-advanced">
+                  {t('workflows.advancedCondition')}: {form.condition.raw.kind}
+                </div>
+              )}
+              {form.condition.enabled && !form.condition.raw && (
                 <div className="workflow-condition-row">
                   <Select
                     value={form.condition.field}

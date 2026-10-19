@@ -56,7 +56,9 @@ export const handlers: Record<string, BrandedActionHandler> = Object.assign(
       Object.fromEntries(
         Object.entries(capability.handlers ?? {}).map(([name, handler]) => {
           const declaration = capability.actions.find((action) => action.name === name);
-          return [name, wrap(handler, declaration?.actionClass ?? 'ext.read')];
+          // 缺声明时按读集合兜底等于 fail-open —— 直接拒绝注册
+          if (!declaration) throw new Error(`扩展动作缺少声明: ${name}`);
+          return [name, wrap(handler, declaration.actionClass)];
         }),
       ),
     ),

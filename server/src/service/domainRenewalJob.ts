@@ -127,26 +127,22 @@ export async function executeDomainRenewal(): Promise<void> {
 
               // 主核心事件主线：续期成功。事件需要 domains 表的主键，
               // renewable_domains 的 id 与 domains.id 不是同一实体，不能混用。
-              const renewedName = String(result.domain_name ?? domain.full_domain ?? domain.name ?? '');
-              if (renewedName) {
-                // 重置必须无条件执行：被订阅者守卫包住的话，无订阅者期间续期不会重置，
-                // 一年后同一 daysLeft 会被永久抑制
-                const anyRecord = (await DomainOperations.getByName(renewedName)) as unknown as
-                  | { id: number }
-                  | undefined;
-                if (anyRecord) whoisEventDedupe.reset(anyRecord.id);
-              }
-              // 先判订阅者：没有工作流时不必为发布而查库
-              if (renewedName && hasDomainEventSubscribers()) {
-                const localRecord = (await DomainOperations.getByName(renewedName)) as unknown as
-                  | { id: number; account_id?: number }
-                  | undefined;
-                if (localRecord) {
-                  // 续期后重置 WHOIS 去重，否则新的到期日不会再触发 whois.expiring
-                  whoisEventDedupe.reset(localRecord.id);
+              // 回查域名时必须用**库里存的名字**（full_domain），
+              // 提供商返回的 domain_name 可能大小写/apex 形态不一致，getByName 是精确匹配。
+              const lookupName = String(domain.full_domain ?? domain.name ?? result.domain_name ?? '');
+              const localRecord = lookupName
+                ? ((await DomainOperations.getByName(lookupName)) as unknown as
+                    | { id: number; account_id?: number }
+                    | undefined)
+                : undefined;
+
+              if (localRecord) {
+                // 重置必须无条件执行：否则新到期日的同一 daysLeft 会被永久抑制
+                whoisEventDedupe.reset(localRecord.id);
+                if (hasDomainEventSubscribers()) {
                   publishDomainEvent({
                     action: 'renewed',
-                    domain: { id: localRecord.id, name: renewedName, accountId: localRecord.account_id },
+                    domain: { id: localRecord.id, name: lookupName, accountId: localRecord.account_id },
                     actor: { source: 'system' },
                   });
                 }

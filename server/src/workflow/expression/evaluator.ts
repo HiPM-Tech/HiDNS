@@ -57,7 +57,11 @@ function resolveRef(path: string, ctx: EvalContext): unknown {
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
-function checkBudget(state: EvalState, now: () => number): void {
+function checkBudget(state: EvalState, now: () => number, signal?: AbortSignal): void {
+  // 运行级取消必须能停下求值：否则超时后剩余根节点仍会继续 dispatch
+  if (signal?.aborted) {
+    throw new ExpressionError('ABORTED', '运行已取消');
+  }
   if (now() > state.deadline) {
     throw new ExpressionError('TIMEOUT', '求值超时');
   }
@@ -96,7 +100,7 @@ export async function evaluate(
 ): Promise<unknown> {
   const now = ctx.now ?? Date.now;
   const st: EvalState = state ?? { calls: 0, deadline: now() + LIMITS.timeoutMs };
-  checkBudget(st, now);
+  checkBudget(st, now, ctx.signal);
 
   switch (node.kind) {
     case 'literal':
@@ -189,7 +193,11 @@ export async function evaluate(
       for (const [key, value] of Object.entries(node.args)) {
         args[key] = await evaluate(value, ctx, st);
       }
-      return ctx.call(node.action, args);
+      const result = await ctx.call(node.action, args);
+      // 求值时钟只应包含**表达式计算**：动作 I/O 耗时不能算进 5s 求值超时，
+      // 否则慢动作之后的节点检查会误报 TIMEOUT（副作用已发生却记失败）。
+      st.deadline = (ctx.now ?? Date.now)() + LIMITS.timeoutMs;
+      return result;
     }
 
     default:

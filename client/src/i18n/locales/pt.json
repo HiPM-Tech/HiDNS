@@ -21,6 +21,7 @@
             "addAction": "Adicionar ação",
             "preview": "Pré-visualizar (…)",
             "waitingForEvent": "Ainda sem eventos reais; a pré-visualização surge após o primeiro gatilho",
+            "advancedCondition": "Condição avançada (somente leitura; editar via API)",
             "condition": "Condição",
             "conditionValue": "Valor",
             "nsStatuses": "Estados monitorados",

@@ -21,6 +21,7 @@
             "addAction": "إضافة إجراء",
             "preview": "معاينة (…)",
             "waitingForEvent": "لا توجد أحداث حقيقية بعد؛ تظهر المعاينة بعد أول تشغيل",
+            "advancedCondition": "شرط متقدم (للقراءة فقط؛ يُحرَّر عبر API)",
             "condition": "الشرط",
             "conditionValue": "القيمة",
             "nsStatuses": "الحالات المراقبة",

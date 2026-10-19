@@ -247,7 +247,7 @@ export class WorkflowEngine {
       // 限额必须是**运行级**：condition 与全部 action 共享同一份 calls/deadline，
       // 否则每个根节点各拿一份预算，单次运行上限被放大为「根数 × 50」。
       const evalState = createEvalState(now);
-      const evalCtx = { event: event as unknown as Record<string, unknown>, vars, call, now };
+      const evalCtx = { event: event as unknown as Record<string, unknown>, vars, call, now, signal };
       // nodes 与 deadline 都是「单表达式」口径（与保存期一致）；
       // 动作耗时绝不能计入求值超时，否则慢动作会让后续根节点误报 TIMEOUT。
       // calls 与 runNodes 才是运行级上界。
@@ -350,7 +350,8 @@ export class WorkflowEngine {
 
       // 并发保护：只对**同一工作流 + 同一目标域名（+ 同一记录）**的重入跳过。
       // 键里必须带域名：否则 ns.changed 一批多个域名时只有第一个能执行，其余被静默丢弃。
-      const target = event.type === 'record.changed' ? event.record.id : String(event.domain.id || event.domain.name);
+      const domainKey = String(event.domain.id || event.domain.name);
+      const target = event.type === 'record.changed' ? `${domainKey}:${event.record.id}` : domainKey;
       const flightKey = `${workflow.id}:${target}`;
 
       // 执行身份在**取锁之前**解析：解析卡死时不得把锁永久占住
@@ -412,7 +413,9 @@ export class WorkflowEngine {
       : (await this.deps.listWorkflows()).find((item) => item.id === workflowId) ?? null;
     if (!workflow) return null;
 
-    const manualTarget = event.type === 'record.changed' ? event.record.id : String(event.domain.id || event.domain.name);
+    const manualDomainKey = String(event.domain.id || event.domain.name);
+    const manualTarget =
+      event.type === 'record.changed' ? `${manualDomainKey}:${event.record.id}` : manualDomainKey;
     const flightKey = `${workflow.id}:${manualTarget}`;
     if (this.inFlight.has(flightKey)) {
       // 并发冲突不是「不存在」：返回可区分的记录，由路由映射成 409

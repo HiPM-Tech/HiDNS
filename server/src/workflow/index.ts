@@ -117,10 +117,22 @@ async function loadOutboundPolicy(): Promise<void> {
       | null
       | undefined;
     const value = typeof raw === 'string' ? raw : raw?.value;
-    const allowlist = String(value ?? '')
-      .split(/[,\n]/)
-      .map((item) => item.trim())
-      .filter(Boolean);
+    // 规范（§5.5.1）约定存 JSON 数组；同时兼容历史/手写的逗号分隔
+    const rawValue = String(value ?? '').trim();
+    let allowlist: string[] = [];
+    if (rawValue.startsWith('[')) {
+      try {
+        const parsed: unknown = JSON.parse(rawValue);
+        if (Array.isArray(parsed)) {
+          allowlist = parsed.map((item) => String(item).trim()).filter(Boolean);
+        }
+      } catch {
+        log.warn('workflow http allowlist is not valid JSON, falling back to CSV');
+      }
+    }
+    if (allowlist.length === 0) {
+      allowlist = rawValue.split(/[,\n]/).map((item) => item.trim()).filter(Boolean);
+    }
     setHttpFetchPolicy({ allowlist });
     if (allowlist.length === 0) {
       log.warn('workflow http allowlist is empty; http.outbound.fetch will reject everything');

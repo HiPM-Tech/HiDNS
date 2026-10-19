@@ -29,6 +29,11 @@
   font-size: 13px;
 }
 
+.workflow-condition-advanced {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+
 .workflow-condition-row {
   display: grid;
   grid-template-columns: 1fr 120px 1fr;

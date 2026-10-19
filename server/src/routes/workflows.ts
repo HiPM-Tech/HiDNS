@@ -61,7 +61,10 @@ router.get('/', authMiddleware, adminOnly, asyncHandler(async (req: Request, res
 
 router.post('/', authMiddleware, adminOnly, requireJwtAuth('workflows'), asyncHandler(async (req: Request, res: Response) => {
   const payload = req.body as WorkflowPayload;
-  const problems = validatePayload(payload);
+  // 前端用 `condition: null` 表示「无条件」，但 null 不是合法节点；
+  // 创建语义里 null 与省略等价，必须先归一化，否则新建必然 422 INVALID_NODE。
+  const normalized: WorkflowPayload = { ...payload, condition: payload.condition ?? undefined };
+  const problems = validatePayload(normalized);
   if (problems.length) {
     sendError(res, problems.join('; '), 422);
     return;
@@ -72,7 +75,7 @@ router.post('/', authMiddleware, adminOnly, requireJwtAuth('workflows'), asyncHa
     enabled: payload.enabled !== false,
     triggerType: String(payload.triggerType),
     triggerConfig: (payload.triggerConfig as Record<string, unknown>) ?? {},
-    condition: payload.condition as ExpressionNode | undefined,
+    condition: normalized.condition as ExpressionNode | undefined,
     actions: payload.actions as ExpressionNode[],
   });
   log.info('workflow created', { id });

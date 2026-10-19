@@ -171,6 +171,14 @@ describe('保存期校验', () => {
     );
   });
 
+  it('condition 为 null 视为「无条件」（创建语义）', () => {
+    expect(validatePayload(base({ condition: undefined }))).toEqual([]);
+  });
+
+  it('condition 为 null 原样传入会被拒绝（路由层必须先归一化）', () => {
+    expect(validatePayload(base({ condition: null })).join()).toContain('INVALID_NODE');
+  });
+
   it('条件节点同样受校验', () => {
     expect(validatePayload(base({ condition: { kind: 'eval', code: '1' } })).join()).toContain('UNKNOWN_NODE_KIND');
   });

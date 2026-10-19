@@ -21,6 +21,7 @@
             "addAction": "Añadir acción",
             "preview": "Vista previa (…)",
             "waitingForEvent": "Aún no hay eventos reales; la vista previa aparece tras el primer disparo",
+            "advancedCondition": "Condición avanzada (solo lectura; editar vía API)",
             "condition": "Condición",
             "conditionValue": "Valor",
             "nsStatuses": "Estados vigilados",

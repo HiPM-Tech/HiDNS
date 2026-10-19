@@ -21,6 +21,7 @@
             "addAction": "동작 추가",
             "preview": "미리보기 (…)",
             "waitingForEvent": "실제 이벤트가 없습니다. 첫 트리거 후 표시됩니다",
+            "advancedCondition": "고급 조건 (읽기 전용, API에서 편집)",
             "condition": "실행 조건",
             "conditionValue": "값",
             "nsStatuses": "감시 상태",

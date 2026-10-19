@@ -31,6 +31,7 @@
             "colError": "Error",
             "nsStatuses": "Watched statuses",
             "withinDays": "Days ahead",
+            "advancedCondition": "Advanced condition (read-only; edit via API)",
             "condition": "Condition",
             "conditionValue": "Value",
             "preview": "Preview (…)",

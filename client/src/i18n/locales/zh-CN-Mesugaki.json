@@ -21,6 +21,7 @@
             "addAction": "新增動作",
             "preview": "預覽 (…)",
             "waitingForEvent": "尚無真實事件，觸發後即可預覽",
+            "advancedCondition": "複雜條件（唯讀，請用 API 編輯）",
             "condition": "執行條件",
             "conditionValue": "條件值",
             "nsStatuses": "監聽狀態",

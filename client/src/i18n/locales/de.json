@@ -21,6 +21,7 @@
             "addAction": "Aktion hinzufügen",
             "preview": "Vorschau (…)",
             "waitingForEvent": "Noch kein echtes Ereignis; Vorschau erscheint nach dem ersten Auslösen",
+            "advancedCondition": "Erweiterte Bedingung (schreibgeschützt, über API bearbeiten)",
             "condition": "Bedingung",
             "conditionValue": "Wert",
             "nsStatuses": "Überwachte Status",

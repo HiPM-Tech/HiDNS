@@ -139,12 +139,27 @@ export const workflowCacheStats = () => enabledCache.stats();
 
 export async function listByOwner(ownerId: number): Promise<StoredWorkflow[]> {
   const rows = await WorkflowOperations.listByOwner(ownerId);
-  return rows.map(rowToStored);
+  const items: StoredWorkflow[] = [];
+  for (const row of rows) {
+    try {
+      items.push(rowToStored(row));
+    } catch (error) {
+      // 行级隔离：一条坏数据不能把整个列表打成 500，否则用户既看不到也删不掉它
+      log.error('skip malformed workflow row', { id: (row as { id?: number }).id, error: (error as Error).message });
+    }
+  }
+  return items;
 }
 
 export async function getStoredById(id: number): Promise<StoredWorkflow | null> {
   const row = await WorkflowOperations.getById(id);
-  return row ? rowToStored(row) : null;
+  if (!row) return null;
+  try {
+    return rowToStored(row);
+  } catch (error) {
+    // 详情路径无法跳过：抛带 id 的明确错误，由路由映射成 422 而不是 500
+    throw new Error(`工作流数据损坏（id=${id}）: ${(error as Error).message}`);
+  }
 }
 
 export async function createWorkflow(input: {
