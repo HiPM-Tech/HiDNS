@@ -3,6 +3,11 @@
     "label": "简体中文",
     "messages": {
         "workflows": {
+            "runDomain": "域名",
+            "runRecordName": "主机记录",
+            "runRecordType": "记录类型",
+            "runRecordValue": "新记录值",
+            "runRecordOldValue": "原记录值（用于精确匹配源站）",
             "title": "自动化工作流",
             "name": "名称",
             "trigger": "触发器",
@@ -220,6 +225,7 @@
             "sourceMcp": "MCP 日志"
         },
         "common": {
+            "operationFailed": "操作失败",
             "retry": "重试",
             "about": "关于",
             "account": "账户",
@@ -1628,6 +1634,11 @@
             "consentTypeMCP": "MCP 服务"
         },
         "provider": {
+            "tencenteo_origin_group": "EdgeOne 源站组",
+            "tencenteo_origin_group_list": "列出源站组",
+            "tencenteo_origin_group_get": "获取源站组",
+            "tencenteo_origin_group_plan": "预览收敛计划",
+            "tencenteo_origin_group_replace": "收敛源站组",
             "aliyun": "阿里云",
             "dnspod": "腾讯云-DNSPod",
             "huawei": "华为云",
@@ -1718,6 +1729,44 @@
             "latencyTitle": "响应延迟 (P50 / P95 / P99)"
         },
         "workflow": {
+            "action": {
+                "dns_record_list": "列出解析记录",
+                "dns_record_get": "获取解析记录",
+                "dns_record_create": "新增解析记录",
+                "dns_record_update": "更新解析记录",
+                "dns_record_delete": "删除解析记录",
+                "dns_record_set_status": "启用或停用解析记录",
+                "dns_record_batch": "批量解析记录操作",
+                "dns_domain_list": "列出域名",
+                "http_outbound_fetch": "发起 HTTP 请求",
+                "notify_channel_send": "发送通知",
+                "var_workflow_get": "读取工作流变量",
+                "tencenteo_origin_group_list": "列出 EdgeOne 源站组",
+                "tencenteo_origin_group_get": "获取 EdgeOne 源站组",
+                "tencenteo_origin_group_plan": "预览源站组收敛",
+                "tencenteo_origin_group_replace": "收敛源站组",
+                "virtual_origin_group_list": "列出虚拟源站组",
+                "virtual_origin_group_get": "获取虚拟源站组",
+                "virtual_origin_group_plan_sync": "预览源站地址同步",
+                "virtual_origin_group_sync": "同步源站组地址"
+            },
+            "trigger": {
+                "record_changed": "解析记录变更",
+                "domain_changed": "域名信息变更",
+                "ns_changed": "NS 状态变更",
+                "whois_expiring": "域名即将到期"
+            },
+            "field": {
+                "remark": "备注",
+                "is_hidden": "隐藏",
+                "enabled": "启用"
+            },
+            "ns": {
+                "ok": "正常",
+                "mismatch": "不匹配",
+                "missing": "缺失",
+                "poisoned": "被污染"
+            },
             "param": {
                 "domain_id": "域名ID",
                 "group_id": "源站组ID",
@@ -1730,7 +1779,21 @@
                 "on_partial": "某地址族无法处理时的策略",
                 "diff_digest": "差异摘要",
                 "ipv4_from": "旧 IPv4（精确匹配）",
-                "ipv6_from": "旧 IPv6（精确匹配）"
+                "ipv6_from": "旧 IPv6（精确匹配）",
+                "domain": "域名",
+                "name": "主机记录",
+                "type": "记录类型",
+                "value": "记录值",
+                "ttl": "生存时间（TTL）",
+                "record_id": "记录 ID",
+                "records": "记录数组",
+                "status": "状态",
+                "url": "请求地址",
+                "method": "请求方法",
+                "title": "标题",
+                "message": "消息内容",
+                "key": "变量名",
+                "target": "目标源站"
             }
         }
     }

@@ -48,11 +48,25 @@ beforeEach(() => {
       },
     },
   });
+  // 统一包装成 axios → ApiResponse → { items } 的形状
+  const metaResponse = (items: unknown[]) => ({ data: { data: { items } } });
   metaMock.mockImplementation(async (source: string) => {
-    if (source === 'actions') return { data: { data: { items: [{ value: 'dns.record.list', label: 'x', actionClass: 'dns.record.read', risk: 'low', dslVisible: true, params: [] }] } } };
-    if (source === 'triggerTypes') return { data: { data: { items: [{ value: 'record.changed', label: 'k' }] } } };
-    if (source === 'outboundAllowlist') return { data: { data: { items: ['api.ipify.org'] } } };
-    return { data: { data: { items: [] } } };
+    // label 用真实的 i18n key，才能验证页面渲染的是可读名称而不是机器标识符
+    if (source === 'actions')
+      return metaResponse([
+        {
+          value: 'dns.record.list',
+          label: 'workflow.action.dns_record_list',
+          actionClass: 'dns.record.read',
+          risk: 'low',
+          dslVisible: true,
+          params: [{ key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true }],
+        },
+      ]);
+    if (source === 'triggerTypes')
+      return metaResponse([{ value: 'record.changed', label: 'workflow.trigger.record_changed' }]);
+    if (source === 'outboundAllowlist') return metaResponse(['api.ipify.org']);
+    return metaResponse([]);
   });
   createMock.mockResolvedValue({ data: { code: 0, data: { id: 3 } } });
   removeMock.mockResolvedValue({ data: { code: 0 } });
@@ -66,6 +80,13 @@ describe('工作流页面（DOM 交互）', () => {
     await waitFor(() => expect(screen.getByText('ok-flow')).toBeTruthy());
     expect(screen.getByText('bad-flow')).toBeTruthy();
     expect(screen.getByText('损坏')).toBeTruthy();
+  });
+
+  it('列表的触发器列显示可读名称，而不是 record.changed', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('ok-flow')).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText('解析记录变更').length).toBeGreaterThan(0));
+    expect(screen.queryByText('record.changed')).toBeNull();
   });
 
   it('损坏行不提供编辑入口，正常行提供', async () => {
@@ -127,13 +148,46 @@ describe('工作流页面（编辑 / 删除 / 运行）', () => {
     expect(screen.getAllByText('编辑').length).toBe(1);
   });
 });
+describe('工作流页面（人类可读性）', () => {
+  it('动作、触发器、参数都显示可读名称，而不是机器标识符', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('ok-flow')).toBeTruthy());
+    fireEvent.click(screen.getAllByText('编辑')[0]);
+    await waitFor(() => expect(screen.getAllByText('执行条件').length).toBeGreaterThan(0));
+
+    // 参数：有可见的中文标签，不是 domainId
+    await waitFor(() => expect(screen.getByText('域名ID')).toBeTruthy());
+    expect(screen.queryByText('domainId')).toBeNull();
+
+    // 动作下拉：显示翻译后的名称，不是 dns.record.list
+    await waitFor(() => expect(screen.getByDisplayValue('列出解析记录')).toBeTruthy());
+    expect(screen.queryByDisplayValue('dns.record.list')).toBeNull();
+
+    // 对话框里不应出现任何机器标识符
+    const dialog = document.querySelector('.t-dialog') as HTMLElement;
+    expect(dialog.textContent ?? '').not.toContain('dns.record.list');
+    expect(dialog.textContent ?? '').not.toContain('record.changed');
+  });
+
+  it('运行对话框的字段标签是可读名称', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('ok-flow')).toBeTruthy());
+    fireEvent.click(screen.getAllByText('手动运行')[0]);
+    await waitFor(() => expect(screen.getAllByText('主机记录').length).toBeGreaterThan(0));
+    expect(screen.getByText('记录类型')).toBeTruthy();
+    expect(screen.getByText('新记录值')).toBeTruthy();
+    expect(screen.getByText('原记录值（用于精确匹配源站）')).toBeTruthy();
+    expect(screen.queryByText('record.oldValue')).toBeNull();
+  });
+});
+
 describe('工作流页面（手动运行）', () => {
   it('打开运行对话框后可提交，调用 run 并携带域名', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('ok-flow')).toBeTruthy());
     fireEvent.click(screen.getAllByText('手动运行')[0]);
-    // 运行对话框的表单项标签是字面量 domain / record.name
-    await waitFor(() => expect(screen.getAllByText('domain').length).toBeGreaterThan(0));
+    // 运行对话框的表单项标签必须是可读名称，不能是 domain / record.name 这类字段名
+    await waitFor(() => expect(screen.getAllByText('域名').length).toBeGreaterThan(0));
     fireEvent.click(screen.getAllByText('手动运行')[screen.getAllByText('手动运行').length - 1]);
     await waitFor(() => expect(runMock).toHaveBeenCalled());
   });

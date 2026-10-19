@@ -3,6 +3,11 @@
     "label": "Русский",
     "messages": {
         "workflows": {
+            "runDomain": "Domain",
+            "runRecordName": "Record name",
+            "runRecordType": "Record type",
+            "runRecordValue": "New record value",
+            "runRecordOldValue": "Previous value (used for precise origin matching)",
             "title": "Автоматические сценарии",
             "name": "Название",
             "trigger": "Триггер",
@@ -42,6 +47,7 @@
             "colError": "Ошибка"
         },
         "common": {
+            "operationFailed": "Operation failed",
             "retry": "Повторить",
             "dashboard": "Панель управления",
             "dnsAccounts": "DNS-аккаунты",
@@ -1628,6 +1634,11 @@
             "consentTypeMCP": "Сервис MCP"
         },
         "provider": {
+            "tencenteo_origin_group": "EdgeOne origin group",
+            "tencenteo_origin_group_list": "List origin groups",
+            "tencenteo_origin_group_get": "Get origin group",
+            "tencenteo_origin_group_plan": "Preview collapse plan",
+            "tencenteo_origin_group_replace": "Collapse origin group",
             "aliyun": "Aliyun",
             "dnspod": "Tencent Cloud-DNSPod",
             "huawei": "Huawei Cloud",
@@ -1718,6 +1729,44 @@
             "latencyTitle": "Response Latency (p50 / p95 / p99)"
         },
         "workflow": {
+            "action": {
+                "dns_record_list": "List records",
+                "dns_record_get": "Get record",
+                "dns_record_create": "Create record",
+                "dns_record_update": "Update record",
+                "dns_record_delete": "Delete record",
+                "dns_record_set_status": "Enable / disable record",
+                "dns_record_batch": "Batch record operations",
+                "dns_domain_list": "List domains",
+                "http_outbound_fetch": "HTTP request",
+                "notify_channel_send": "Send notification",
+                "var_workflow_get": "Read workflow variable",
+                "tencenteo_origin_group_list": "List EdgeOne origin groups",
+                "tencenteo_origin_group_get": "Get EdgeOne origin group",
+                "tencenteo_origin_group_plan": "Preview origin group collapse",
+                "tencenteo_origin_group_replace": "Collapse origin group",
+                "virtual_origin_group_list": "List virtual origin groups",
+                "virtual_origin_group_get": "Get virtual origin group",
+                "virtual_origin_group_plan_sync": "Preview origin address sync",
+                "virtual_origin_group_sync": "Sync origin group addresses"
+            },
+            "trigger": {
+                "record_changed": "Record changed",
+                "domain_changed": "Domain info changed",
+                "ns_changed": "NS status changed",
+                "whois_expiring": "Domain expiring soon"
+            },
+            "field": {
+                "remark": "Remark",
+                "is_hidden": "Hidden",
+                "enabled": "Enabled"
+            },
+            "ns": {
+                "ok": "Normal",
+                "mismatch": "Mismatch",
+                "missing": "Missing",
+                "poisoned": "Poisoned"
+            },
             "param": {
                 "domain_id": "Domain ID",
                 "group_id": "Origin group ID",
@@ -1730,7 +1779,21 @@
                 "on_partial": "Policy when a family cannot be handled",
                 "diff_digest": "Diff digest",
                 "ipv4_from": "Previous IPv4 (precise match)",
-                "ipv6_from": "Previous IPv6 (precise match)"
+                "ipv6_from": "Previous IPv6 (precise match)",
+                "domain": "Domain",
+                "name": "Record name",
+                "type": "Record type",
+                "value": "Record value",
+                "ttl": "TTL",
+                "record_id": "Record ID",
+                "records": "Records",
+                "status": "Status",
+                "url": "Request URL",
+                "method": "HTTP method",
+                "title": "Title",
+                "message": "Message",
+                "key": "Variable name",
+                "target": "Target origin"
             }
         }
     }

@@ -51,7 +51,32 @@
   display: grid;
   grid-template-columns: 280px 1fr 80px;
   gap: 8px;
-  align-items: center;
+  align-items: start;
+}
+
+/* 每个参数：可读名称在上、控件在下。只靠 placeholder 的话，填了值就再也看不到这个参数是什么 */
+.workflow-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.workflow-param {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 150px;
+  min-width: 150px;
+}
+
+.workflow-param__label {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--td-text-color-secondary, #666);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 窄屏：固定栅格改为单列，避免 760px 对话框在移动端溢出 */

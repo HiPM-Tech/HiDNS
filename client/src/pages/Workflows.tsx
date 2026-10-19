@@ -130,8 +130,13 @@ export function Workflows() {
   const triggers = (triggerQuery.data?.data?.data as { items?: Array<{ value: string; label: string }> } | undefined)?.items ?? [];
   // meta 返回的是 { value, label } 对象数组，不是字符串数组
   // axios → AxiosResponse.data → ApiResponse.data → { items }
-  const metaItems = (source: { data?: { data?: { data?: { items?: Array<{ value?: string; label?: string }> } } } } | undefined): string[] =>
-    (source?.data?.data?.data?.items ?? []).map((item) => String(item.value ?? '')).filter(Boolean);
+  // label 是 i18n key，渲染时再翻译；丢了 label 就只能把 value（机器标识符）显示给人看
+  const metaItems = (
+    source: { data?: { data?: { data?: { items?: Array<{ value?: string; label?: string }> } } } } | undefined,
+  ): Array<{ value: string; label: string }> =>
+    (source?.data?.data?.data?.items ?? [])
+      .map((item) => ({ value: String(item.value ?? ''), label: String(item.label ?? item.value ?? '') }))
+      .filter((item) => item.value);
   const recordTypes = metaItems(recordTypesQuery);
   const domainFields = metaItems(domainFieldsQuery);
   const nsStatuses = metaItems(nsStatusesQuery);
@@ -140,6 +145,8 @@ export function Workflows() {
   const allowlist = (allowlistQuery.data?.data?.data as { items?: string[] } | undefined)?.items ?? [];
 
   const actionMap = useMemo(() => new Map(actions.map((item) => [item.value, item])), [actions]);
+  // 列表里的触发器列原来直接打印 row.triggerType（record.changed），这里换成可读名称
+  const triggerLabels = useMemo(() => new Map(triggers.map((item) => [item.value, item.label])), [triggers]);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['workflows'] });
 
   const saveMutation = useMutation({
@@ -230,7 +237,7 @@ export function Workflows() {
           row.name
         ),
     },
-    { key: 'triggerType', label: t('workflows.trigger'), width: 180 },
+    { key: 'triggerType', label: t('workflows.trigger'), width: 180, render: (row: WorkflowRecord) => t(triggerLabels.get(row.triggerType) ?? row.triggerType) },
     { key: 'actions', label: t('workflows.actions'), width: 100, render: (row: WorkflowRecord) => String(row.actions?.length ?? 0) },
     { key: 'enabled', label: t('workflows.enabled'), width: 100, render: (row: WorkflowRecord) => (row.enabled ? t('common.enabled') : t('common.disabled')) },
     {
@@ -314,27 +321,33 @@ export function Workflows() {
             <Select
               value={form.triggerType}
               onChange={(value) => updateField('triggerType', String(value))}
-              options={triggers.map((item) => ({ label: item.value, value: item.value }))}
+              options={triggers.map((item) => ({ label: t(item.label || item.value), value: item.value }))}
             />
           </Form.FormItem>
           {form.triggerType === 'record.changed' && (
             <Form.FormItem label={t('workflows.recordTypes')}>
               <Checkbox.Group value={form.recordTypes} onChange={(value) => updateField('recordTypes', value as string[])}>
-                {(recordTypes.length ? recordTypes : ['A', 'AAAA']).map((type) => <Checkbox key={type} value={type}>{type}</Checkbox>)}
+                {(recordTypes.length ? recordTypes : [{ value: 'A', label: 'A' }, { value: 'AAAA', label: 'AAAA' }]).map((item) => (
+                  <Checkbox key={item.value} value={item.value}>{t(item.label)}</Checkbox>
+                ))}
               </Checkbox.Group>
             </Form.FormItem>
           )}
           {form.triggerType === 'domain.changed' && (
             <Form.FormItem label={t('workflows.fields')}>
               <Checkbox.Group value={form.domainFields} onChange={(value) => updateField('domainFields', value as string[])}>
-                {domainFields.map((field) => <Checkbox key={field} value={field}>{field}</Checkbox>)}
+                {domainFields.map((item) => (
+                  <Checkbox key={item.value} value={item.value}>{t(item.label)}</Checkbox>
+                ))}
               </Checkbox.Group>
             </Form.FormItem>
           )}
           {form.triggerType === 'ns.changed' && (
             <Form.FormItem label={t('workflows.nsStatuses')}>
               <Checkbox.Group value={form.nsStatuses} onChange={(value) => updateField('nsStatuses', value as string[])}>
-                {nsStatuses.map((status) => <Checkbox key={status} value={status}>{status}</Checkbox>)}
+                {nsStatuses.map((item) => (
+                  <Checkbox key={item.value} value={item.value}>{t(item.label)}</Checkbox>
+                ))}
               </Checkbox.Group>
             </Form.FormItem>
           )}
@@ -391,30 +404,46 @@ export function Workflows() {
                     <Select
                       value={row.action}
                       placeholder={t('workflows.pickAction')}
-                      options={actions.filter((item) => item.dslVisible).map((item) => ({ label: item.value, value: item.value }))}
+                      options={actions
+                        .filter((item) => item.dslVisible)
+                        .map((item) => ({ label: t(item.label || item.value), value: item.value }))}
                       onChange={(value) => patch({ action: String(value), args: {} })}
                     />
-                    {meta?.params?.map((param) => {
-                      const setArg = (value: unknown) =>
-                        patch({ ...row, args: { ...row.args, [param.key]: String(value) } });
-                      if (param.source) {
-                        return <CascadingSelect key={param.key} param={param} args={row.args} value={row.args[param.key] ?? ''} onChange={setArg} />;
-                      }
-                      if (param.type === 'select' && param.options?.length) {
-                        return (
+                    <div className="workflow-params">
+                      {meta?.params?.map((param) => {
+                        // 参数键是机器标识符（domainId / diffDigest），不能直接给人看
+                        const label = t(param.label || param.key);
+                        const paramLabels = Object.fromEntries(
+                          (meta?.params ?? []).map((item) => [item.key, t(item.label || item.key)]),
+                        );
+                        const setArg = (value: unknown) =>
+                          patch({ ...row, args: { ...row.args, [param.key]: String(value) } });
+                        const control = param.source ? (
+                          <CascadingSelect
+                            param={param}
+                            labels={paramLabels}
+                            args={row.args}
+                            value={row.args[param.key] ?? ''}
+                            onChange={setArg}
+                          />
+                        ) : param.type === 'select' && param.options?.length ? (
                           <Select
-                            key={param.key}
-                            placeholder={param.key}
+                            placeholder={label}
                             value={row.args[param.key] ?? ''}
                             options={param.options.map((option) => ({ label: option, value: option }))}
                             onChange={setArg}
                           />
+                        ) : (
+                          <Input placeholder={label} value={row.args[param.key] ?? ''} onChange={setArg} />
                         );
-                      }
-                      return (
-                        <Input key={param.key} placeholder={param.key} value={row.args[param.key] ?? ''} onChange={setArg} />
-                      );
-                    })}
+                        return (
+                          <label className="workflow-param" key={param.key}>
+                            <span className="workflow-param__label">{label}</span>
+                            {control}
+                          </label>
+                        );
+                      })}
+                    </div>
                     <Button size="small" variant="text" theme="danger" onClick={() => updateField('rows', form.rows.filter((_, i) => i !== index))}>
                       {t('common.delete')}
                     </Button>
@@ -499,7 +528,7 @@ export function Workflows() {
         )}
       >
         <Form labelWidth="120px">
-          <Form.FormItem label="domain">
+          <Form.FormItem label={t('workflows.runDomain')}>
             <Select
               value={runDomain}
               placeholder={t('workflows.pickDomain')}
@@ -512,20 +541,22 @@ export function Workflows() {
               }}
             />
           </Form.FormItem>
-          <Form.FormItem label="record.name">
+          <Form.FormItem label={t('workflows.runRecordName')}>
             <Input value={runName} onChange={(value) => setRunName(String(value))} />
           </Form.FormItem>
-          <Form.FormItem label="record.type">
+          <Form.FormItem label={t('workflows.runRecordType')}>
             <Select
               value={runType}
-              options={(recordTypes.length ? recordTypes : ['A', 'AAAA']).map((type) => ({ label: type, value: type }))}
+              options={(recordTypes.length ? recordTypes : [{ value: 'A', label: 'A' }, { value: 'AAAA', label: 'AAAA' }]).map(
+                (item) => ({ label: t(item.label), value: item.value }),
+              )}
               onChange={(value) => setRunType(String(value))}
             />
           </Form.FormItem>
-          <Form.FormItem label="record.value">
+          <Form.FormItem label={t('workflows.runRecordValue')}>
             <Input value={runValue} onChange={(value) => setRunValue(String(value))} />
           </Form.FormItem>
-          <Form.FormItem label="record.oldValue">
+          <Form.FormItem label={t('workflows.runRecordOldValue')}>
             <Input value={runOldValue} onChange={(value) => setRunOldValue(String(value))} />
           </Form.FormItem>
         </Form>

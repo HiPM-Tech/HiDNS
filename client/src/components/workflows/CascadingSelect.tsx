@@ -6,13 +6,15 @@ import { useI18n } from '../../contexts/I18nContext';
 
 interface CascadingSelectProps {
   param: { key: string; source?: string; sourceParams?: string[] };
+  /** 参数键 → 已翻译的可读名称；缺失时回落到原始键 */
+  labels?: Record<string, string>;
   args: Record<string, string>;
   value: string;
   onChange: (value: string) => void;
 }
 
 /** 按参数声明的 source 拉取候选（如 originGroups 依赖 domainId） */
-export function CascadingSelect({ param, args, value, onChange }: CascadingSelectProps) {
+export function CascadingSelect({ param, labels, args, value, onChange }: CascadingSelectProps) {
   const { t } = useI18n();
 
   const params = useMemo(() => {
@@ -32,11 +34,12 @@ export function CascadingSelect({ param, args, value, onChange }: CascadingSelec
   });
 
   const options = (query.data?.data?.data as { items?: Array<{ value: string; label: string }> } | undefined)?.items ?? [];
-  const missing = (param.sourceParams ?? []).filter((key) => !args[key]).join(', ');
+  const nameOf = (key: string) => labels?.[key] ?? key;
+  const missing = (param.sourceParams ?? []).filter((key) => !args[key]).map(nameOf).join(', ');
 
   return (
     <Select
-      placeholder={ready ? param.key : t('workflows.needParams', { params: missing })}
+      placeholder={ready ? nameOf(param.key) : t('workflows.needParams', { params: missing })}
       disabled={!ready}
       loading={query.isLoading}
       value={value}
