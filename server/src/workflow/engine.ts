@@ -12,6 +12,9 @@ const log = createLogger('Workflow').sub('Engine');
 /** 单次运行的硬上界（设计 §7.4：整体运行 30s） */
 const RUN_TIMEOUT_MS = 30_000;
 
+/** 互斥锁硬上界 = 运行超时 × 该倍数（防底层卡死时永久占用） */
+const LOCK_TTL_FACTOR = 4;
+
 export interface RecordChangedTrigger {
   readonly type: 'record.changed';
   readonly recordTypes: ReadonlyArray<'A' | 'AAAA'>;
@@ -166,9 +169,19 @@ export class WorkflowEngine {
     // 互斥锁只在**底层工作真正结束**后释放：超时只是提前返回结果，
     // 底层 dispatch 可能仍在跑（动作层未消费 signal），此时放锁会导致重复写入。
     if (flightKey) {
+      // 兜底：底层若永不返回（连接层卡死），锁不能永久占用 —— 超过硬上界后强制释放并告警
+      const forceRelease = setTimeout(() => {
+        if (this.inFlight.delete(flightKey)) {
+          log.error('in-flight lock force released', { flightKey });
+        }
+      }, (this.deps.runTimeoutMs ?? RUN_TIMEOUT_MS) * LOCK_TTL_FACTOR);
+      forceRelease.unref?.();
       void worker
         .catch(() => undefined)
-        .then(() => { this.inFlight.delete(flightKey); });
+        .then(() => {
+          clearTimeout(forceRelease);
+          this.inFlight.delete(flightKey);
+        });
     }
 
     const timeout = new Promise<RunRecord>((resolve) => {
