@@ -202,3 +202,61 @@ export interface ProviderCapabilities {
 | L2 | `ActionClass` 由执行方代为决定（D23），未经负责人确认 | 待复核 |
 | L3 | 无代码执行带来的表达力损失（无循环/递归） | 已如实记录于 §6.4 |
 | L4 | 域名源站可能解析到内网 | 已知残余风险 R9，不承诺消除 |
+---
+
+## 九、实施交付记录（2026-10-19 追加）
+
+审计通过后进入实施，共 **29 个提交**（`77218bc` → `30c8e19`）。以下按交付面汇总。
+
+### 9.1 主核心事件主线
+
+| 组件 | 位置 | 说明 |
+|---|---|---|
+| 领域事件总线 | `server/src/lib/domain-event-bus.ts` | 归主核心，工作流只是订阅者；`workflow/event-bus.ts` 为兼容转发 |
+| 事件类型 | 同上 | `record.changed` / `domain.changed` / `ns.changed` / `whois.expiring` |
+| 发布点 | 路由 + 服务层 | 记录创建/更新/删除/状态/批量；域名创建/更新/删除/续期；NS 状态；WHOIS 到期 |
+| 去重 | 总线 + `whois-event-dedupe.ts` | A/AAAA 过滤、深度上限、自身写入抑制、NS 状态变化、WHOIS 天数变化 |
+
+**实施中发现的既有缺陷**（均已修）：
+
+1. `internal.ts` ↔ `DnsHelper` 循环依赖，任何先加载 `providers/registry` 的代码都会崩。
+2. `.github/workflows/test-suite.yml` 的 `|| echo` 吞掉退出码，测试失败不会让 CI 变红。
+3. 动作发布的事件 `depth` 恒为 0、`traceId` 每次新生成，**深度限制形同虚设**。
+4. `whois.expiring` 无去重，每次 WHOIS 同步都重复触发工作流。
+5. 故障转移与 MCP 的记录写入**完全不产生事件**。
+
+### 9.2 工作流引擎
+
+| 组件 | 位置 | 说明 |
+|---|---|---|
+| 鉴权闸门 | `workflow/auth.ts` | `ActionContext` 私有 brand，八步裁决，内部调用同样需授权 |
+| 派发 | `workflow/dispatch.ts` | 先鉴权后取 handler；已授权但缺实现返回 500 |
+| 引擎 | `workflow/engine.ts` | 触发匹配、条件求值、顺序执行、并发保护、失败隔离 |
+| DSL | `workflow/expression/*` | 9 类节点封闭枚举、静态校验、逐节点求值，**无 eval/Function/vm** |
+| 注册表 | `workflow/actions/registry.ts` | 声明与实现双向注册，命名空间授权链 |
+| 持久化 | DSM 两表 + `WorkflowOperations` | 运行记录含触发事件快照，保留最近 500 条/工作流 |
+| 路由 | `routes/workflows.ts` | 九个端点，全部管理鉴权；`meta/:source` 提供六类候选 |
+| 前端 | `client/src/pages/Workflows.tsx` | 列表、新建/编辑、四类触发器配置、单条件、动作与级联参数、预览、运行记录、手动运行 |
+
+### 9.3 验证证据
+
+| 项 | 结果 |
+|---|---|
+| `tsc --noEmit`（server / client） | 均 0 错误 |
+| `vite build`（client） | 成功 |
+| CI 门禁 `check:actions` | **150 用例全过**；注入重名可使其变红（实测） |
+| 全量测试 | **176 passed / 26 skipped**；12 个失败文件与既有基线完全一致 |
+| 冒烟启动 | 未初始化时 `/api/workflows` 返回 **503**（门禁生效） |
+
+### 9.4 未完成项（不静默丢弃）
+
+| 项 | 原因 |
+|---|---|
+| `originServers`（组内单条源站）候选 | v1 为点对面收敛，不需要选具体源站；v2 点对点启用时再补 |
+| 复合条件（and/or 嵌套） | 图形化需要表达式树编辑器，当前只支持单条件 |
+| 其余 9 种语言文案 | 已补 `zh-CN` 与 `en`，其余回退显示 key |
+| 真实腾讯云 API 与多实例并发 | 无凭据与部署环境，仅覆盖计划/校验/映射与注册链路 |
+
+### 9.5 结论
+
+设计文档所定义的服务端能力与其约束均已落地，并通过 CI 门禁与攻击面测试。剩余三项为可选增强，已在 9.4 明确记录。
