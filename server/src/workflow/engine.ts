@@ -81,67 +81,68 @@ export class WorkflowEngine {
     return workflow.trigger.recordTypes.includes(event.record.type);
   }
 
-  async handleEvent(event: WorkflowEvent): Promise<RunRecord[]> {
+  /** 单次执行：handleEvent 与手动运行共用同一条路径 */
+  private async executeOne(
+    workflow: WorkflowDefinition,
+    event: WorkflowEvent,
+    trigger: 'event' | 'manual',
+  ): Promise<RunRecord> {
     const now = this.deps.now ?? Date.now;
-    const workflows = await this.deps.listWorkflows();
-    const records: RunRecord[] = [];
+    const traceId = event.traceId;
+    const startedAt = new Date(now()).toISOString();
+    const vars: Record<string, unknown> = {};
 
-    for (const workflow of workflows) {
-      if (!this.matches(workflow, event)) continue;
-
-      const traceId = event.traceId;
-      const startedAt = new Date(now()).toISOString();
-      const vars: Record<string, unknown> = {};
-
-      try {
-        const principal = await this.deps.resolvePrincipal(workflow, event);
-        const call = (action: string, args: Record<string, unknown>) =>
-          this.deps.dispatch(action, principal, args, {
-            trigger: 'event',
-            triggerType: event.type,
-            vars,
-            resource: { domainId: event.domain.id, domainName: event.domain.name },
-          });
-
-        if (workflow.condition) {
-          const passed = await evaluate(workflow.condition, { event: event as unknown as Record<string, unknown>, vars, call });
-          if (!passed) {
-            records.push({
-              workflowId: workflow.id,
-              traceId,
-              status: 'skipped',
-              startedAt,
-              finishedAt: new Date(now()).toISOString(),
-            });
-            continue;
-          }
-        }
-
-        for (const action of workflow.actions) {
-          await evaluate(action, { event: event as unknown as Record<string, unknown>, vars, call });
-        }
-
-        records.push({
-          workflowId: workflow.id,
-          traceId,
-          status: 'success',
-          startedAt,
-          finishedAt: new Date(now()).toISOString(),
+    try {
+      const principal = await this.deps.resolvePrincipal(workflow, event);
+      const call = (action: string, args: Record<string, unknown>) =>
+        this.deps.dispatch(action, principal, args, {
+          trigger,
+          triggerType: trigger === 'manual' ? 'manual' : event.type,
+          vars,
+          resource: { domainId: event.domain.id, domainName: event.domain.name },
         });
-      } catch (error) {
-        const message = (error as Error).message;
-        log.warn('workflow run failed', { workflowId: workflow.id, error: message });
-        records.push({
-          workflowId: workflow.id,
-          traceId,
-          status: 'failed',
-          startedAt,
-          finishedAt: new Date(now()).toISOString(),
-          error: message,
-        });
+
+      const evalCtx = { event: event as unknown as Record<string, unknown>, vars, call };
+
+      if (workflow.condition) {
+        const passed = await evaluate(workflow.condition, evalCtx);
+        if (!passed) {
+          return {
+            workflowId: workflow.id,
+            traceId,
+            status: 'skipped',
+            startedAt,
+            finishedAt: new Date(now()).toISOString(),
+          };
+        }
       }
-    }
 
+      for (const action of workflow.actions) {
+        await evaluate(action, evalCtx);
+      }
+
+      return {
+        workflowId: workflow.id,
+        traceId,
+        status: 'success',
+        startedAt,
+        finishedAt: new Date(now()).toISOString(),
+      };
+    } catch (error) {
+      const message = (error as Error).message;
+      log.warn('workflow run failed', { workflowId: workflow.id, error: message });
+      return {
+        workflowId: workflow.id,
+        traceId,
+        status: 'failed',
+        startedAt,
+        finishedAt: new Date(now()).toISOString(),
+        error: message,
+      };
+    }
+  }
+
+  private async report(records: RunRecord[]): Promise<void> {
     for (const record of records) {
       try {
         await this.deps.onRun?.(record);
@@ -149,8 +150,34 @@ export class WorkflowEngine {
         log.error('onRun hook failed', { error: (error as Error).message });
       }
     }
+  }
 
+  async handleEvent(event: WorkflowEvent): Promise<RunRecord[]> {
+    const workflows = await this.deps.listWorkflows();
+    const records: RunRecord[] = [];
+
+    for (const workflow of workflows) {
+      if (!this.matches(workflow, event)) continue;
+      records.push(await this.executeOne(workflow, event, 'event'));
+    }
+
+    await this.report(records);
     return records;
+  }
+
+  /**
+   * 手动运行：用户显式触发，**不受 enabled 与触发类型限制**，
+   * 但仍走同一条 executeOne（鉴权、限额、审计完全一致）。
+   * 设计依据：§4.1 `manual` 触发器。
+   */
+  async runSingle(workflowId: string, event: WorkflowEvent): Promise<RunRecord | null> {
+    const workflows = await this.deps.listWorkflows();
+    const workflow = workflows.find((item) => item.id === workflowId);
+    if (!workflow) return null;
+
+    const record = await this.executeOne(workflow, event, 'manual');
+    await this.report([record]);
+    return record;
   }
 }
 

@@ -8,7 +8,7 @@ import { createDispatcher } from './dispatch';
 import { lookupActionMeta } from './actions/registry';
 import { listEnabledDefinitions, recordRun } from './store';
 import type { AuthorizeDeps, Principal } from './auth';
-import type { WorkflowEvent } from './event-bus';
+import { buildRecordEvent, type DomainEvent as WorkflowEvent } from '../lib/domain-event-bus';
 
 const log = createLogger('Workflow');
 
@@ -125,6 +125,55 @@ export function stopWorkflowModule(): void {
 
 export function isWorkflowModuleRunning(): boolean {
   return engine !== null;
+}
+
+export class WorkflowNotRunningError extends Error {
+  constructor() {
+    super('工作流模块未启动（系统未初始化或仍在降级模式）');
+    this.name = 'WorkflowNotRunningError';
+  }
+}
+
+export class InvalidSyntheticEventError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidSyntheticEventError';
+  }
+}
+
+/**
+ * 手动运行：用调用方提供的合成事件执行一次。
+ * 合成事件只允许 A / AAAA —— 与事件主线同一套过滤（§4.0.5），
+ * 否则手动运行会成为绕过类型约束的后门。
+ */
+export async function runWorkflowManually(
+  workflowId: number,
+  input: {
+    domain: { id: number; name: string };
+    record: { id?: string; name: string; type: string; value?: string; oldValue?: string };
+  },
+): Promise<{ status: string; traceId: string; error?: string } | null> {
+  if (!engine) throw new WorkflowNotRunningError();
+
+  const event = buildRecordEvent({
+    action: 'updated',
+    domain: input.domain,
+    record: {
+      id: input.record.id ?? 'manual',
+      name: input.record.name,
+      type: input.record.type,
+      value: input.record.value,
+      oldValue: input.record.oldValue,
+    },
+    actor: { source: 'api' },
+  });
+
+  if (!event) {
+    throw new InvalidSyntheticEventError(`合成事件仅支持 A / AAAA，收到 ${input.record.type}`);
+  }
+
+  const record = await engine.runSingle(String(workflowId), event);
+  return record ? { status: record.status, traceId: record.traceId, error: record.error } : null;
 }
 
 export type { WorkflowEvent };

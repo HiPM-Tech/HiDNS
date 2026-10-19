@@ -1,6 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware, adminOnly, requireJwtAuth } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
+import { createLimiter } from '../middleware/rateLimit';
+import {
+  InvalidSyntheticEventError,
+  WorkflowNotRunningError,
+  runWorkflowManually,
+} from '../workflow';
 import { createLogger } from '../lib/logger';
 import { sendError, sendSuccess } from '../utils/http';
 
@@ -111,6 +117,62 @@ router.get('/:id/runs', authMiddleware, adminOnly, asyncHandler(async (req: Requ
   const id = toId(req.params.id);
   const runs = await listRuns(id, toId(req.query.limit as string) || 50);
   sendSuccess(res, { total: runs.length, runs });
+}));
+
+const runLimiter = createLimiter(60_000, 10, '手动运行过于频繁，请稍后再试');
+
+router.post('/:id/run', authMiddleware, adminOnly, requireJwtAuth('workflows'), runLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const id = toId(req.params.id);
+  const item = await getStoredById(id);
+  if (!item) {
+    sendError(res, '工作流不存在', 404);
+    return;
+  }
+
+  const body = req.body as {
+    domainId?: unknown;
+    domainName?: unknown;
+    record?: { name?: unknown; type?: unknown; value?: unknown; oldValue?: unknown };
+  };
+  const domainId = Number(body.domainId);
+  const domainName = typeof body.domainName === 'string' ? body.domainName : '';
+  const record = body.record ?? {};
+
+  if (!Number.isFinite(domainId) || !domainName) {
+    sendError(res, '需要 domainId 与 domainName 构造合成事件', 422);
+    return;
+  }
+  if (typeof record.name !== 'string' || typeof record.type !== 'string') {
+    sendError(res, 'record.name 与 record.type 必填', 422);
+    return;
+  }
+
+  try {
+    const result = await runWorkflowManually(id, {
+      domain: { id: domainId, name: domainName },
+      record: {
+        name: record.name,
+        type: record.type,
+        value: typeof record.value === 'string' ? record.value : undefined,
+        oldValue: typeof record.oldValue === 'string' ? record.oldValue : undefined,
+      },
+    });
+    if (!result) {
+      sendError(res, '工作流不存在', 404);
+      return;
+    }
+    sendSuccess(res, result);
+  } catch (error) {
+    if (error instanceof WorkflowNotRunningError) {
+      sendError(res, error.message, 503);
+      return;
+    }
+    if (error instanceof InvalidSyntheticEventError) {
+      sendError(res, error.message, 422);
+      return;
+    }
+    throw error;
+  }
 }));
 
 router.post('/:id/test', authMiddleware, adminOnly, requireJwtAuth('workflows'), asyncHandler(async (req: Request, res: Response) => {

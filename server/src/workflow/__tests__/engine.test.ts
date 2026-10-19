@@ -164,6 +164,38 @@ describe('执行引擎', () => {
     expect(bus.subscriberCount()).toBe(0);
   });
 
+  it('runSingle：禁用工作流也可手动运行（显式动作）', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const e = engine([wf({ id: '7', enabled: false })], dispatch);
+    const record = await e.runSingle('7', event());
+    expect(record?.status).toBe('success');
+    expect(dispatch).toHaveBeenCalled();
+  });
+
+  it('runSingle：未知 ID 返回 null', async () => {
+    const e = engine([wf({ id: '7' })], vi.fn(async () => 'ok'));
+    await expect(e.runSingle('999', event())).resolves.toBeNull();
+  });
+
+  it('runSingle：以 manual 通道派发，不走 event 通道', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const e = engine([wf({ id: '7' })], dispatch);
+    await e.runSingle('7', event());
+    expect(dispatch).toHaveBeenLastCalledWith(
+      'dns.record.update',
+      principal,
+      expect.anything(),
+      expect.objectContaining({ trigger: 'manual', triggerType: 'manual' }),
+    );
+  });
+
+  it('runSingle：结果写入 onRun', async () => {
+    const onRun = vi.fn();
+    const e = engine([wf({ id: '7' })], vi.fn(async () => 'ok'), onRun);
+    await e.runSingle('7', event());
+    expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ workflowId: '7', status: 'success' }));
+  });
+
   it('未 start 时不订阅（无模块作用域副作用）', () => {
     engine([wf()]);
     expect(bus.subscriberCount()).toBe(0);
