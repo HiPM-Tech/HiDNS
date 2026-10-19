@@ -19,6 +19,14 @@ const buckets = new Map<string, { count: number; resetAt: number }>();
 /** 进程内令牌桶；单实例部署足够，多实例需换 Redis */
 export function rateLimit(key: string): boolean {
   const now = Date.now();
+
+  // 惰性清理：键是 principal × action，长期运行会无界增长
+  if (buckets.size > 5000) {
+    for (const [bucketKey, bucket] of buckets) {
+      if (bucket.resetAt <= now) buckets.delete(bucketKey);
+    }
+  }
+
   const bucket = buckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
     buckets.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });

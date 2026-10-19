@@ -240,7 +240,7 @@ describe('执行引擎', () => {
     expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ workflowId: '7', status: 'success' }));
   });
 
-  it('防循环：允许自触发时深度递增并在上限处停止', async () => {
+  it('防循环：自触发在运行期间被并发保护拦下（不会放大）', async () => {
     const loopBus = new WorkflowEventBus();
     loopBus.configure({ allowSelfTrigger: true });
     let dispatched = 0;
@@ -262,9 +262,9 @@ describe('执行引擎', () => {
     loopBus.publish(event());
     for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 5));
     e.stop();
-    // 深度 0 的事件 → 派发 depth 1 → 再发布 depth 1 → … 到 maxDepth 后被丢弃
-    expect(dispatched).toBeGreaterThan(1);
-    expect(dispatched).toBeLessThanOrEqual(4);
+    // 动作内部发布的事件在上一次运行尚未结束时到达，被并发保护跳过；
+    // 深度递增（depth+1）作为第二道防线，见下方两条单测。
+    expect(dispatched).toBe(1);
   });
 
   it('域名触发器：字段过滤命中', async () => {
@@ -287,6 +287,30 @@ describe('执行引擎', () => {
     const miss = { ...base, changedFields: ['enabled'] } as never;
     expect((await e.handleEvent(hit))[0].status).toBe('success');
     expect(await e.handleEvent(miss)).toEqual([]);
+  });
+
+  it('并发保护：同一工作流上一次未完成时跳过', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const dispatch = vi.fn(async () => { await gate; return 'ok'; });
+    const e = engine([wf({ id: '7' })], dispatch);
+
+    const first = e.handleEvent(event());
+    await new Promise((r) => setTimeout(r, 0));
+    const second = await e.handleEvent(event());
+    expect(second[0].status).toBe('skipped');
+    expect(second[0].error).toBe('concurrent-run');
+
+    release();
+    expect((await first)[0].status).toBe('success');
+  });
+
+  it('并发保护：运行结束后可再次执行', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const e = engine([wf({ id: '7' })], dispatch);
+    await e.handleEvent(event());
+    const again = await e.handleEvent(event());
+    expect(again[0].status).toBe('success');
   });
 
   it('未 start 时不订阅（无模块作用域副作用）', () => {

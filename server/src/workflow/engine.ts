@@ -81,6 +81,8 @@ export interface EngineDeps {
  */
 export class WorkflowEngine {
   private unsubscribe: (() => void) | null = null;
+  /** 同一工作流不允许并发执行：快速连续事件会重复写记录 */
+  private readonly inFlight = new Set<string>();
 
   constructor(
     private readonly deps: EngineDeps,
@@ -215,7 +217,28 @@ export class WorkflowEngine {
 
     for (const workflow of workflows) {
       if (!this.matches(workflow, event)) continue;
-      records.push(await this.executeOne(workflow, event, 'event'));
+
+      // 并发保护：同一工作流上一次还没跑完时跳过，避免重复写记录
+      if (this.inFlight.has(workflow.id)) {
+        const nowIso = new Date((this.deps.now ?? Date.now)()).toISOString();
+        records.push({
+          workflowId: workflow.id,
+          traceId: event.traceId,
+          status: 'skipped',
+          startedAt: nowIso,
+          finishedAt: nowIso,
+          error: 'concurrent-run',
+          event,
+        });
+        continue;
+      }
+
+      this.inFlight.add(workflow.id);
+      try {
+        records.push(await this.executeOne(workflow, event, 'event'));
+      } finally {
+        this.inFlight.delete(workflow.id);
+      }
     }
 
     await this.report(records);
@@ -232,7 +255,14 @@ export class WorkflowEngine {
     const workflow = workflows.find((item) => item.id === workflowId);
     if (!workflow) return null;
 
-    const record = await this.executeOne(workflow, event, 'manual');
+    if (this.inFlight.has(workflow.id)) return null;
+    this.inFlight.add(workflow.id);
+    let record: RunRecord;
+    try {
+      record = await this.executeOne(workflow, event, 'manual');
+    } finally {
+      this.inFlight.delete(workflow.id);
+    }
     await this.report([record]);
     return record;
   }
