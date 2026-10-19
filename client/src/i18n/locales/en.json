@@ -19,6 +19,8 @@
             "fields": "Fields",
             "pickAction": "Pick an action",
             "addAction": "Add action",
+            "condition": "Condition",
+            "conditionValue": "Value",
             "preview": "Preview (…)",
             "waitingForEvent": "No real event yet; preview appears after the first trigger"
         },

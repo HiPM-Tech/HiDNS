@@ -19,6 +19,8 @@
             "fields": "关注字段",
             "pickAction": "选择动作",
             "addAction": "添加动作",
+            "condition": "执行条件",
+            "conditionValue": "条件值",
             "preview": "预览 (…)",
             "waitingForEvent": "尚无真实事件，等待触发后即可预览"
         },

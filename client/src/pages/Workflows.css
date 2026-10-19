@@ -15,6 +15,13 @@
   font-size: 13px;
 }
 
+.workflow-condition-row {
+  display: grid;
+  grid-template-columns: 1fr 120px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
 .workflow-action-row {
   display: grid;
   grid-template-columns: 280px 1fr 80px;

@@ -23,6 +23,49 @@ interface ActionRow {
   args: Record<string, string>;
 }
 
+interface ConditionDraft {
+  enabled: boolean;
+  field: string;
+  op: string;
+  value: string;
+}
+
+const CONDITION_FIELDS = [
+  'event.record.value',
+  'event.record.oldValue',
+  'event.record.name',
+  'event.record.type',
+  'event.domain.name',
+  'event.status',
+  'event.daysLeft',
+];
+
+const CONDITION_OPS = ['==', '!=', '>', '>=', '<', '<=', 'in'];
+
+function toConditionNode(draft: ConditionDraft): WorkflowDslNode | undefined {
+  if (!draft.enabled || !draft.field) return undefined;
+  const right: WorkflowDslNode = { kind: 'literal', value: draft.value };
+  return {
+    kind: 'compare',
+    op: draft.op,
+    left: { kind: 'ref', path: draft.field },
+    right,
+  };
+}
+
+function fromConditionNode(node: WorkflowDslNode | undefined): ConditionDraft {
+  const empty: ConditionDraft = { enabled: false, field: CONDITION_FIELDS[0], op: '==', value: '' };
+  if (!node || node.kind !== 'compare') return empty;
+  const left = (node.left ?? {}) as { path?: string };
+  const right = (node.right ?? {}) as { value?: unknown };
+  return {
+    enabled: true,
+    field: left.path ?? CONDITION_FIELDS[0],
+    op: String(node.op ?? '=='),
+    value: String(right.value ?? ''),
+  };
+}
+
 const EMPTY_ROW: ActionRow = { action: '', args: {} };
 
 function toDslNodes(rows: ActionRow[]): WorkflowDslNode[] {
@@ -66,6 +109,7 @@ export function Workflows() {
   const [recordTypes, setRecordTypes] = useState<string[]>(['A', 'AAAA']);
   const [domainFields, setDomainFields] = useState<string[]>([]);
   const [rows, setRows] = useState<ActionRow[]>([{ ...EMPTY_ROW }]);
+  const [condition, setCondition] = useState<ConditionDraft>({ enabled: false, field: CONDITION_FIELDS[0], op: '==', value: '' });
 
   const [runDomain, setRunDomain] = useState('');
   const [runName, setRunName] = useState('www');
@@ -106,6 +150,7 @@ export function Workflows() {
             : triggerType === 'domain.changed'
               ? { fields: domainFields }
               : {},
+        condition: toConditionNode(condition),
         actions: toDslNodes(rows),
       };
       return editing ? workflowsApi.update(editing.id, payload) : workflowsApi.create(payload);
@@ -149,6 +194,7 @@ export function Workflows() {
     setRecordTypes(['A', 'AAAA']);
     setDomainFields([]);
     setRows([{ ...EMPTY_ROW }]);
+    setCondition({ enabled: false, field: CONDITION_FIELDS[0], op: '==', value: '' });
     setDialogOpen(true);
   }
 
@@ -160,6 +206,7 @@ export function Workflows() {
     setRecordTypes(((record.triggerConfig?.recordTypes as string[]) ?? ['A', 'AAAA']));
     setDomainFields(((record.triggerConfig?.fields as string[]) ?? []));
     setRows(fromDslNodes(record.actions));
+    setCondition(fromConditionNode(record.condition));
     setDialogOpen(true);
   }
 
@@ -255,6 +302,34 @@ export function Workflows() {
               </Checkbox.Group>
             </Form.FormItem>
           )}
+
+          <Form.FormItem label={t('workflows.condition')}>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Switch
+                value={condition.enabled}
+                onChange={(value) => setCondition({ ...condition, enabled: Boolean(value) })}
+              />
+              {condition.enabled && (
+                <div className="workflow-condition-row">
+                  <Select
+                    value={condition.field}
+                    options={CONDITION_FIELDS.map((field) => ({ label: field, value: field }))}
+                    onChange={(value) => setCondition({ ...condition, field: String(value) })}
+                  />
+                  <Select
+                    value={condition.op}
+                    options={CONDITION_OPS.map((op) => ({ label: op, value: op }))}
+                    onChange={(value) => setCondition({ ...condition, op: String(value) })}
+                  />
+                  <Input
+                    value={condition.value}
+                    placeholder={t('workflows.conditionValue')}
+                    onChange={(value) => setCondition({ ...condition, value: String(value) })}
+                  />
+                </div>
+              )}
+            </Space>
+          </Form.FormItem>
 
           <Form.FormItem label={t('workflows.actions')}>
             <Space direction="vertical" style={{ width: '100%' }}>
