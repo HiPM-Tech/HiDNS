@@ -1,6 +1,3 @@
-import { DnsProviderService } from '../../../../service/dns-provider-service';
-import { DomainOperations } from '../../../../db/bal/business-adapter';
-import { TencenteoAdapter } from './adapter';
 import type { ProviderExtraCapability, ProviderActionHandler } from '../extra-types';
 import {
   buildCollapsedRecords,
@@ -11,48 +8,32 @@ import {
   type CollapseTarget,
   type OriginGroup,
 } from './origin-group';
+import { teoOpsForDomain, type TeoOps } from './teo-ops';
 
 /**
- * 由 `domainId` 反查账号与作用域：
- * - 账号：`domains.account_id`
- * - 作用域（Zone）：`tencenteo` 早已把它映射在 `domains.third_id` 上
- * 这样用户只需给一个域名，不必同时知道 accountId 与 scopeId。
+ * EdgeOne 源站组能力。
+ *
+ * 鉴权解析（含"复用 DNSPod 账号的腾讯云凭据"）在 `./teo-ops` 里，
+ * 与编辑器的候选源共用同一份实现，避免两处各写一遍。
  */
-async function opsFor(args: Record<string, unknown>) {
-  const domainId = Number(args.domainId);
-  if (!Number.isFinite(domainId) || domainId <= 0) {
-    throw new OriginGroupError('INVALID_ARGS', '缺少 domainId');
-  }
-  const domain = (await DomainOperations.getById(domainId)) as unknown as
-    | { id: number; name: string; account_id: number; third_id?: string }
-    | undefined;
-  if (!domain) throw new OriginGroupError('DOMAIN_NOT_FOUND', '域名不存在');
 
-  const adapter = await DnsProviderService.getAdapterByAccount(Number(domain.account_id));
-  if (!(adapter instanceof TencenteoAdapter)) {
-      throw new OriginGroupError('PROVIDER_MISMATCH', '该域名的提供商不是 EdgeOne');
-  }
-  adapter.setZoneInfo(String(domain.third_id ?? ''), String(domain.name ?? ''));
-  return adapter.originGroups();
-}
-
-async function loadGroup(args: Record<string, unknown>): Promise<OriginGroup> {
-  const ops = await opsFor(args);
-  const group = await ops.get(String(args.groupId ?? ''));
+async function loadGroup(args: Record<string, unknown>): Promise<TeoOps & { group: OriginGroup }> {
+  const ctx = await teoOpsForDomain(Number(args.domainId));
+  const group = await ctx.ops.get(String(args.groupId ?? ''));
   if (!group) throw new OriginGroupError('GROUP_NOT_FOUND', '源站组不存在');
-  return group;
+  return { ...ctx, group };
 }
 
 const handlers: Record<string, ProviderActionHandler> = {
   'ext.tencenteo.originGroup.list': async (args) => {
-    const ops = await opsFor(args);
+    const { ops } = await teoOpsForDomain(Number(args.domainId));
     return ops.list({});
   },
 
-  'ext.tencenteo.originGroup.get': async (args) => loadGroup(args),
+  'ext.tencenteo.originGroup.get': async (args) => (await loadGroup(args)).group,
 
   'ext.tencenteo.originGroup.plan': async (args) => {
-    const group = await loadGroup(args);
+    const { group, credentialSource, zoneId } = await loadGroup(args);
     const target: CollapseTarget = {
       record: String(args.target ?? ''),
       type: 'IP_DOMAIN',
@@ -63,6 +44,9 @@ const handlers: Record<string, ProviderActionHandler> = {
       irrecoverable: hasIrrecoverableData(plan.removed),
       referenced: group.references.length > 0,
       referencing: describeReferences(group.references),
+      // 让操作者在确认前就看到这次会用哪类账号的凭据
+      credentialSource,
+      zoneId,
     };
   },
 
@@ -70,14 +54,14 @@ const handlers: Record<string, ProviderActionHandler> = {
     if (args.collapse !== true) {
       throw new OriginGroupError('COLLAPSE_NOT_ACKNOWLEDGED', '必须显式声明 collapse: true');
     }
-    const group = await loadGroup(args);
+    const { group, ops, credentialSource, zoneId } = await loadGroup(args);
     const target: CollapseTarget = {
       record: String(args.target ?? ''),
       type: 'IP_DOMAIN',
     };
     const plan = planCollapse(group, target);
 
-    if (plan.noop) return { skipped: true, reason: 'already-collapsed', plan };
+    if (plan.noop) return { skipped: true, reason: 'already-collapsed', plan, credentialSource, zoneId };
 
     // 被引用中的源站组不得整组覆盖：坍缩会立刻改变这些域名的回源行为。
     // 这是"写入前的最后一道闸门"，不依赖调用方自律。
@@ -102,7 +86,7 @@ const handlers: Record<string, ProviderActionHandler> = {
       throw new OriginGroupError('DIGEST_MISMATCH', 'diff 与预览不一致，请重新 plan');
     }
 
-    const ops = await opsFor(args);
+    // 复用上面已经解析好的 ops：再调一次 opsFor 会为复用凭据的场景多发一次 DescribeZones
     const { requestId } = await ops.replace(group.groupId, buildCollapsedRecords(target));
 
     const after = await ops.get(group.groupId);
@@ -117,6 +101,8 @@ const handlers: Record<string, ProviderActionHandler> = {
       target,
       references: plan.preservedReferences,
       requestId: requestId ?? null,
+      credentialSource,
+      zoneId,
     };
   },
 };

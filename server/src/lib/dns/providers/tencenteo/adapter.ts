@@ -39,6 +39,29 @@ export class TencenteoAdapter extends TencentCloudAdapter {
     return new OriginGroupClient((action, payload) => this.call(action, payload), this.zoneId);
   }
 
+  /**
+   * 按域名反查 EdgeOne ZoneId。
+   *
+   * 用途：DNSPod 账号下的 `domains.third_id` 是 DNSPod 的域名 ID，不是 EO 的 ZoneId。
+   * 复用同一对腾讯云密钥调用 TEO 时，只能拿域名去 TEO 侧反查。
+   * 匹配用**精确等值**（忽略大小写），不做后缀/模糊匹配 —— 否则
+   * `a.example.com` 可能被 `example.com` 命中，写到别人的站点上。
+   */
+  async resolveZoneIdByName(zoneName: string): Promise<string | null> {
+    const target = safeString(zoneName).trim().toLowerCase();
+    if (!target) return null;
+    const limit = 100;
+    for (let offset = 0; offset < 1000; offset += limit) {
+      const res = await this.call<Dict>('DescribeZones', { Limit: limit, Offset: offset });
+      const zones = asArray<Dict>(res?.Zones);
+      const hit = zones.find((zone) => safeString(zone.ZoneName).trim().toLowerCase() === target);
+      if (hit) return safeString(hit.ZoneId) || null;
+      const total = toNumber(res?.TotalCount, 0);
+      if (zones.length < limit || offset + zones.length >= total) break;
+    }
+    return null;
+  }
+
   private fqdn(name: string): string {
     const rr = normalizeRrName(name);
     return rr === '@' ? this.domain : `${rr}.${this.domain}`;

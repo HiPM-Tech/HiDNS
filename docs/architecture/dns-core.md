@@ -411,3 +411,39 @@ providers/
 2. 在 `registry.ts` 注册服务商定义
 3. 在 `index.ts` 导出适配器（添加一行 `export { MyProviderAdapter } from './myprovider';`）
 4. （可选）实现 WHOIS/续期调度器
+
+## 跨服务商复用腾讯云鉴权（EdgeOne 源站组）
+
+腾讯云各产品的鉴权是**账号级**的：DNSPod 与 EdgeOne（TEO）用的是同一对
+`SecretId` / `SecretKey`，只是调用不同域名。因此已经配置了 DNSPod 账号的用户，
+不必再登记一个 EdgeOne 账号才能管理源站组。
+
+实现位置：`providers/tencenteo/teo-ops.ts` 的 `teoOpsForDomain(domainId)`，
+能力层（`ext.tencenteo.originGroup.*`）与编辑器候选源（`originGroups`）共用这一份解析。
+
+### 两条解析路径
+
+| 账号类型 | ZoneId 来源 | 凭据来源标记 |
+| --- | --- | --- |
+| `tencenteo` | `domains.third_id` 直接就是 ZoneId | `tencenteo` |
+| `dnspod` | 用域名调 `DescribeZones` **精确等值**反查 | `dnspod` |
+
+### 为什么必须反查
+
+DNSPod 账号下 `domains.third_id` 存的是 DNSPod 的域名 ID（如 `41234567`），
+不是 EO 的 ZoneId（形如 `zone-3mr62gje0l1m`）。直接拿去调 TEO 会得到 `InvalidParameter`。
+
+反查只做精确等值匹配，不做后缀或模糊匹配——否则 `example.com` 可能命中
+`a.example.com` 的站点，把源站组写到别人的域名上。
+
+### 失败语义
+
+| 情况 | 错误码 |
+| --- | --- |
+| 账号既不是 `tencenteo` 也不是 `dnspod` | `PROVIDER_MISMATCH` |
+| DNSPod 账号缺少 SecretId / SecretKey | `CREDENTIAL_MISSING` |
+| 密钥没有 EdgeOne 权限（TEO 返回 AuthFailure） | `EDGEONE_ACCESS_DENIED` |
+| 域名未接入 EdgeOne | `ZONE_NOT_FOUND` |
+
+写操作（`ext.tencenteo.originGroup.replace`）的返回值里带 `credentialSource` 与 `zoneId`，
+用于追溯这次写入到底是哪一类账号的凭据发起的。
