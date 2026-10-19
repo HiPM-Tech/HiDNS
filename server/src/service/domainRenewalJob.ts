@@ -6,6 +6,7 @@
 
 import { DnsAccountOperations, DomainOperations, RenewableDomainOperations } from '../db/bal/business-adapter';
 import { publishDomainEvent } from '../lib/domain-event-bus';
+import { whoisEventDedupe } from '../lib/whois-event-dedupe';
 import { renewalRegistry } from './renewalScheduler';
 import { taskManager } from './taskManager';
 import { createLogger } from '../lib/logger';
@@ -132,6 +133,8 @@ export async function executeDomainRenewal(): Promise<void> {
                   | { id: number; account_id?: number }
                   | undefined;
                 if (localRecord) {
+                  // 续期后重置 WHOIS 去重，否则新的到期日不会再触发 whois.expiring
+                  whoisEventDedupe.reset(localRecord.id);
                   publishDomainEvent({
                     action: 'renewed',
                     domain: { id: localRecord.id, name: renewedName, accountId: localRecord.account_id },

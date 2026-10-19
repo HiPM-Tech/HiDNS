@@ -63,6 +63,8 @@ export interface RunRecord {
   readonly error?: string;
   /** 触发本次运行的事件快照；供 `(...)` 预览与事后追溯使用 */
   readonly event?: AnyDomainEvent;
+  /** 本次运行的深度（此前 engine 持有但从未落库） */
+  readonly depth?: number;
 }
 
 export interface EngineDeps {
@@ -131,7 +133,8 @@ export class WorkflowEngine {
     if (event.type === 'ns.changed') {
       if (workflow.trigger.type !== 'ns.changed') return false;
       const statuses = workflow.trigger.statuses;
-      if (!statuses || statuses.length === 0) return true;
+      // 缺省表示「任意非 ok 的状态变化」——恢复（ok）不应触发修复动作
+      if (!statuses || statuses.length === 0) return event.status !== 'ok';
       return statuses.includes(event.status);
     }
 
@@ -161,10 +164,14 @@ export class WorkflowEngine {
     });
 
     try {
-      return await Promise.race([
+      const record = await Promise.race([
         this.runWorkflow(workflow, event, trigger, controller.signal),
         timeout,
       ]);
+      return {
+        ...record,
+        depth: event.type === 'record.changed' ? event.depth + 1 : 0,
+      };
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -316,7 +323,19 @@ export class WorkflowEngine {
     if (!workflow) return null;
 
     const flightKey = `${workflow.id}:${event.type === 'record.changed' ? event.record.id : '*'}`;
-    if (this.inFlight.has(flightKey)) return null;
+    if (this.inFlight.has(flightKey)) {
+      // 并发冲突不是「不存在」：返回可区分的记录，由路由映射成 409
+      const nowIso = new Date((this.deps.now ?? Date.now)()).toISOString();
+      return {
+        workflowId: workflow.id,
+        traceId: event.traceId,
+        status: 'skipped',
+        startedAt: nowIso,
+        finishedAt: nowIso,
+        error: 'concurrent-run',
+        event,
+      };
+    }
     this.inFlight.add(flightKey);
     let record: RunRecord;
     try {

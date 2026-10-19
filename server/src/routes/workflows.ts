@@ -136,6 +136,8 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
   }
 
   if (source === 'domains') {
+    const limit = Math.min(500, Math.max(1, toId(String(req.query.limit ?? '')) || 200));
+    const keyword = String(req.query.q ?? '').trim().toLowerCase();
     if (!Number.isFinite(userId)) {
       sendError(res, '缺少可用身份', 401);
       return;
@@ -144,7 +146,12 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
       id: number;
       name: string;
     }>;
-    sendSuccess(res, { items: rows.map((row) => ({ value: row.name, label: row.name, id: row.id })) });
+    // 大账号一次性拉全量会拖垮下拉：限制条数并支持前缀过滤
+    const filtered = keyword
+      ? rows.filter((row) => String(row.name).toLowerCase().includes(keyword))
+      : rows;
+    const items = filtered.slice(0, limit).map((row) => ({ value: row.name, label: row.name, id: row.id }));
+    sendSuccess(res, { total: filtered.length, items });
     return;
   }
 
@@ -232,11 +239,16 @@ router.post('/:id/run', authMiddleware, adminOnly, requireJwtAuth('workflows'), 
 
   // 允许只给域名：合成事件里的 domain.id 必须是真实主键，
   // 否则引擎会把 0 当作 domainId 传给鉴权与动作。
+  let resolvedName = domainName;
   if ((!Number.isFinite(domainId) || domainId <= 0) && domainName) {
     const found = (await DomainOperations.getByName(domainName)) as unknown as
-      | { id: number }
+      | { id: number; name?: string }
       | undefined;
-    if (found) domainId = found.id;
+    if (found) {
+      domainId = found.id;
+      // 事件里的 id 与 name 必须指向同一个域名，否则快照与审计会失真
+      resolvedName = found.name ?? domainName;
+    }
   }
 
   if (!Number.isFinite(domainId) || domainId <= 0 || !domainName) {
@@ -250,7 +262,7 @@ router.post('/:id/run', authMiddleware, adminOnly, requireJwtAuth('workflows'), 
 
   try {
     const result = await runWorkflowManually(id, {
-      domain: { id: domainId, name: domainName },
+      domain: { id: domainId, name: resolvedName },
       record: {
         name: record.name,
         type: record.type,
@@ -260,6 +272,11 @@ router.post('/:id/run', authMiddleware, adminOnly, requireJwtAuth('workflows'), 
     });
     if (!result) {
       sendError(res, '工作流不存在', 404);
+      return;
+    }
+    // 并发冲突不是「不存在」：此前一律映射成 404，语义错误
+    if (result.status === 'skipped' && result.error === 'concurrent-run') {
+      sendError(res, '该工作流正在执行，请稍后再试', 409);
       return;
     }
     sendSuccess(res, result);

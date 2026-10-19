@@ -133,6 +133,7 @@ export function startWorkflowModule(): void {
         startedAt: run.startedAt,
         finishedAt: run.finishedAt,
         triggerEvent: run.event,
+        depth: run.depth,
       });
     },
   });

@@ -1,5 +1,6 @@
 import { ALL_ACTIONS } from './actions/registry';
 import { validateExpression } from './expression/validate';
+import { ALLOWED_TRIGGERS as SHARED_TRIGGERS, DOMAIN_TRIGGERS, DOMAIN_FIELDS, NS_STATUSES } from './triggers';
 import type { ExpressionNode } from './expression/nodes';
 
 /**
@@ -15,9 +16,6 @@ const ACTION_PARAMS: Record<string, Array<{ key: string; required?: boolean; typ
   ]),
 );
 
-const ALLOWED_TRIGGERS = new Set(['record.changed', 'domain.changed', 'ns.changed', 'whois.expiring']);
-const DOMAIN_TRIGGERS = new Set(['domain.changed']);
-const NS_STATUSES = ['ok', 'mismatch', 'missing', 'poisoned'];
 const WRITE_CLASSES = new Set(['dns.record.write', 'ext.write']);
 
 const ACTION_CLASS_BY_NAME = new Map(ALL_ACTIONS.map((a) => [a.name, a.actionClass]));
@@ -38,7 +36,17 @@ export function validatePayload(payload: WorkflowPayload): string[] {
   if (typeof payload.name !== 'string' || payload.name.trim().length === 0) {
     problems.push('name 必填');
   }
-  if (typeof payload.triggerType !== 'string' || !ALLOWED_TRIGGERS.has(payload.triggerType)) {
+  // 顶层类型校验：字符串 "false" 曾被当成 true 落库
+  if (payload.enabled !== undefined && typeof payload.enabled !== 'boolean') {
+    problems.push('enabled 必须是布尔值');
+  }
+  if (payload.triggerConfig !== undefined) {
+    const cfg = payload.triggerConfig;
+    if (typeof cfg !== 'object' || cfg === null || Array.isArray(cfg)) {
+      problems.push('triggerConfig 必须是对象');
+    }
+  }
+  if (typeof payload.triggerType !== 'string' || !SHARED_TRIGGERS.includes(payload.triggerType as never)) {
     problems.push('triggerType 仅支持 record.changed / domain.changed / ns.changed / whois.expiring');
   }
 
@@ -55,7 +63,7 @@ export function validatePayload(payload: WorkflowPayload): string[] {
   if (fields !== undefined) {
     if (!Array.isArray(fields)) {
       problems.push('triggerConfig.fields 必须是数组');
-    } else if (fields.some((f) => !['remark', 'is_hidden', 'enabled'].includes(String(f)))) {
+    } else if (fields.some((f) => !(DOMAIN_FIELDS as readonly string[]).includes(String(f)))) {
       problems.push('triggerConfig.fields 仅允许 remark / is_hidden / enabled');
     }
   }
@@ -64,7 +72,7 @@ export function validatePayload(payload: WorkflowPayload): string[] {
   if (statuses !== undefined) {
     if (!Array.isArray(statuses)) {
       problems.push('triggerConfig.statuses 必须是数组');
-    } else if (statuses.some((s) => !NS_STATUSES.includes(String(s)))) {
+    } else if (statuses.some((s) => !(NS_STATUSES as readonly string[]).includes(String(s)))) {
       problems.push(`triggerConfig.statuses 仅允许 ${NS_STATUSES.join(' / ')}`);
     }
   }

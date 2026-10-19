@@ -47,6 +47,9 @@ export interface ValidationResult {
 
 const KIND_SET = new Set<string>(NODE_KINDS);
 
+/** assign.key 禁止使用的原型链段 */
+const FORBIDDEN_KEY_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -118,8 +121,13 @@ export function validateExpression(root: unknown, options: ValidationOptions): V
           issues.push({ code: 'INVALID_OPERATOR', message: `逻辑运算非法: ${String(node.op)}`, path });
         }
         const args = node.args;
+        const expected = node.op === 'not' ? 1 : 2;
         if (!Array.isArray(args) || args.length === 0) {
           issues.push({ code: 'INVALID_ARGS', message: 'logic.args 必须是非空数组', path });
+        } else if (node.op === 'not' && args.length !== 1) {
+          issues.push({ code: 'INVALID_ARGS', message: 'not 只接受 1 个操作数', path });
+        } else if ((node.op === 'and' || node.op === 'or') && args.length < expected) {
+          issues.push({ code: 'INVALID_ARGS', message: `${node.op} 至少需要 2 个操作数`, path });
         } else {
           args.forEach((arg, index) => visit(arg, `${path}.args[${index}]`, depth + 1));
         }
@@ -143,6 +151,10 @@ export function validateExpression(root: unknown, options: ValidationOptions): V
       case 'assign': {
         if (typeof node.key !== 'string' || !node.key) {
           issues.push({ code: 'INVALID_ARGS', message: 'assign.key 必须是非空字符串', path });
+        } else if (node.key.includes('.')) {
+          issues.push({ code: 'INVALID_ARGS', message: 'assign.key 不得包含点号', path });
+        } else if (FORBIDDEN_KEY_SEGMENTS.has(node.key)) {
+          issues.push({ code: 'INVALID_ARGS', message: `assign.key 不得使用 ${node.key}`, path });
         }
         visit(node.value, `${path}.value`, depth + 1);
         return;

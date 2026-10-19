@@ -30,7 +30,7 @@ export async function checkAndSendNotification(domain: Domain, expiresAt: Date):
     // 主核心事件主线：到期临近（独立于通知开关，工作流可自行决定如何处置）。
     // 去重：剩余天数变化才发布，避免每次 WHOIS 同步都重复触发工作流。
     const domainId = Number((domain as unknown as { id: number }).id);
-    if (daysLeft <= threshold && whoisEventDedupe.shouldEmit(domainId, daysLeft)) {
+    if (daysLeft <= threshold && whoisEventDedupe.shouldEmit(domainId, expiresAt.toISOString())) {
       publishWhoisEvent({
         domain: { id: domainId, name: String(domain.name) },
         expiresAt: expiresAt.toISOString(),

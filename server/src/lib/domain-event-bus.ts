@@ -91,6 +91,14 @@ export const DEFAULT_BUS_OPTIONS: BusOptions = { allowSelfTrigger: false, maxDep
 
 const ALLOWED_RECORD_TYPES = new Set<string>(['A', 'AAAA']);
 
+/** 浅冻结事件及其 domain/record 子对象（顶层字段均为原始值或这两者） */
+function freezeEvent<T extends AnyDomainEvent>(event: T): T {
+  if (event.domain) Object.freeze(event.domain);
+  const record = (event as { record?: object }).record;
+  if (record) Object.freeze(record);
+  return Object.freeze(event);
+}
+
 export class DomainEventBus {
   private listeners = new Set<EventListener>();
   private options: BusOptions = { ...DEFAULT_BUS_OPTIONS };
@@ -138,9 +146,11 @@ export class DomainEventBus {
       return false;
     }
 
+    // 冻结后再分发：readonly 只是编译期，任一订阅者改动会污染后续订阅者与已排队的快照
+    const frozen = freezeEvent(event);
     for (const listener of [...this.listeners]) {
       try {
-        const result = listener(event);
+        const result = listener(frozen);
         if (result && typeof (result as Promise<void>).catch === 'function') {
           (result as Promise<void>).catch((error) => {
             log.error('event listener rejected', { error: (error as Error).message });

@@ -25,6 +25,8 @@ export function createCachedLoader<T>(
   let inflight: Promise<T> | null = null;
   let hits = 0;
   let misses = 0;
+  // 失效代数：加载期间若发生过 invalidate，则丢弃这次结果
+  let generation = 0;
 
   const expired = () => loadedAt === null || now() - loadedAt >= options.ttlMs;
 
@@ -38,11 +40,14 @@ export function createCachedLoader<T>(
       if (inflight) return inflight;
 
       misses += 1;
+      const startedAt = generation;
       inflight = (async () => {
         try {
           const loaded = await loader();
-          value = loaded;
-          loadedAt = now();
+          if (startedAt === generation) {
+            value = loaded;
+            loadedAt = now();
+          }
           return loaded;
         } finally {
           inflight = null;
@@ -54,6 +59,7 @@ export function createCachedLoader<T>(
     invalidate(): void {
       value = undefined;
       loadedAt = null;
+      generation += 1;
     },
 
     stats() {

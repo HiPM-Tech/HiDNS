@@ -76,8 +76,12 @@ export function storedToDefinition(stored: StoredWorkflow): WorkflowDefinition {
     case 'whois.expiring':
       trigger = { type: 'whois.expiring', withinDays };
       break;
-    default:
+    case 'record.changed':
       trigger = { type: 'record.changed', recordTypes };
+      break;
+    default:
+      // fail-closed：写坏的 trigger_type 不得降级成「任何 A/AAAA 变动都触发」
+      throw new Error('未知的 trigger_type: ' + String(stored.triggerType));
   }
 
   return {
@@ -178,6 +182,7 @@ export async function recordRun(record: {
   finishedAt: string;
   /** 触发事件快照，供 `(...)` 预览与追溯 */
   triggerEvent?: unknown;
+  depth?: number;
 }): Promise<void> {
   let triggerEvent: string | null = null;
   if (record.triggerEvent !== undefined) {
@@ -193,6 +198,7 @@ export async function recordRun(record: {
     status: record.status,
     error: record.error ?? null,
     trigger_event: triggerEvent,
+    depth: record.depth ?? 0,
     started_at: record.startedAt,
     finished_at: record.finishedAt,
   });
