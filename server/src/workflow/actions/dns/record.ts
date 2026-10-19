@@ -61,6 +61,9 @@ function requireString(args: Record<string, unknown>, key: string): string {
 function publish(ctx: ActionContext, domain: ResolvedDomain, action: 'created' | 'updated', record: { id: string; name: string; type: string; value?: string; oldValue?: string }): void {
   emitRecordEvent({
     action,
+    // 同一链路可追溯，且深度 +1 供总线做循环丢弃
+    traceId: ctx.traceId,
+    depth: ctx.depth,
     domain: { id: domain.id, name: domain.name, accountId: domain.account_id },
     record,
     actor: { userId: Number(ctx.principal.id) || undefined, source: 'workflow' },

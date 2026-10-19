@@ -41,6 +41,8 @@ export interface ActionContext {
   readonly actionClass: ActionClass;
   readonly resource?: ResourceRef;
   readonly traceId: string;
+  /** 事件传播深度：动作产生的写入事件应取 depth + 1（§7.2 防循环第二层） */
+  readonly depth: number;
   readonly trigger: TriggerKind;
   readonly signal: AbortSignal;
   /** 工作流运行期局部变量（只读快照），由引擎注入 */
@@ -84,6 +86,10 @@ export interface AuthorizeOptions {
   readonly triggerType?: string;
   readonly signal?: AbortSignal;
   readonly vars?: Readonly<Record<string, unknown>>;
+  /** 复用调用方 traceId（事件链路可追溯）；缺省自动生成 */
+  readonly traceId?: string;
+  /** 当前事件深度；动作写入事件应取 depth + 1 */
+  readonly depth?: number;
 }
 
 /** 组合裁决：域名变动类触发器不得触发写动作（§4.0） */
@@ -130,7 +136,8 @@ export async function authorize(
 ): Promise<ActionContext> {
   const trigger = options.trigger ?? 'internal';
   const triggerType = options.triggerType ?? trigger;
-  const traceId = deps.newTraceId();
+  const traceId = options.traceId ?? deps.newTraceId();
+  const depth = options.depth ?? 0;
 
   const deny = async (status: number, reason: string): Promise<never> => {
     await deps.audit({
@@ -203,6 +210,7 @@ export async function authorize(
     resource,
     traceId,
     trigger,
+    depth,
     signal: options.signal ?? new AbortController().signal,
     vars: options.vars,
   } as ActionContext;

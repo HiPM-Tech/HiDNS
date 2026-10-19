@@ -189,11 +189,63 @@ describe('执行引擎', () => {
     );
   });
 
+  it('防循环：派发携带事件 traceId，深度为事件深度 + 1', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const e = engine([wf({ id: '7' })], dispatch);
+    await e.handleEvent(event());
+    expect(dispatch).toHaveBeenLastCalledWith(
+      'dns.record.update',
+      principal,
+      expect.anything(),
+      expect.objectContaining({ traceId: expect.any(String), depth: 1 }),
+    );
+  });
+
+  it('防循环：深层事件继续递增', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const e = engine([wf({ id: '7' })], dispatch);
+    const deep = { ...event(), depth: 3 } as WorkflowEvent;
+    await e.handleEvent(deep);
+    expect(dispatch).toHaveBeenLastCalledWith(
+      'dns.record.update',
+      principal,
+      expect.anything(),
+      expect.objectContaining({ depth: 4 }),
+    );
+  });
+
   it('runSingle：结果写入 onRun', async () => {
     const onRun = vi.fn();
     const e = engine([wf({ id: '7' })], vi.fn(async () => 'ok'), onRun);
     await e.runSingle('7', event());
     expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ workflowId: '7', status: 'success' }));
+  });
+
+  it('防循环：允许自触发时深度递增并在上限处停止', async () => {
+    const loopBus = new WorkflowEventBus();
+    loopBus.configure({ allowSelfTrigger: true });
+    let dispatched = 0;
+    const dispatch = vi.fn(async (_a: string, _p: unknown, _args: unknown, opts: { depth?: number }) => {
+      dispatched += 1;
+      // 模拟动作写入后再次发布事件，深度取自上下文
+      loopBus.publish({ ...event(), depth: opts.depth ?? 0, actor: { source: 'workflow' } } as never);
+      return 'ok';
+    });
+    const e = new WorkflowEngine(
+      {
+        listWorkflows: async () => [wf({ id: '7' })],
+        resolvePrincipal: async () => principal,
+        dispatch: dispatch as never,
+      },
+      loopBus,
+    );
+    e.start();
+    loopBus.publish(event());
+    for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 5));
+    e.stop();
+    // 深度 0 的事件 → 派发 depth 1 → 再发布 depth 1 → … 到 maxDepth 后被丢弃
+    expect(dispatched).toBeGreaterThan(1);
+    expect(dispatched).toBeLessThanOrEqual(4);
   });
 
   it('未 start 时不订阅（无模块作用域副作用）', () => {

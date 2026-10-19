@@ -142,11 +142,15 @@ export class WorkflowEngine {
 
     try {
       const principal = await this.deps.resolvePrincipal(workflow, event);
+      // 防循环第二层：动作产生的写入事件深度 +1，并由总线按 maxDepth 丢弃
+      const eventDepth = event.type === 'record.changed' ? event.depth : 0;
       const call = (action: string, args: Record<string, unknown>) =>
         this.deps.dispatch(action, principal, args, {
           trigger,
           triggerType: trigger === 'manual' ? 'manual' : event.type,
           vars,
+          traceId: event.traceId,
+          depth: eventDepth + 1,
           resource: { domainId: event.domain.id, domainName: event.domain.name },
         });
 

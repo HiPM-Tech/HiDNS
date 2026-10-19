@@ -74,7 +74,12 @@ describe('dns.record.* 动作', () => {
     const ctx = await ctxFor('dns.record.create');
     await dnsRecordHandlers['dns.record.create'](ctx, { domain: 'ok.com', name: 'www', type: 'A', value: '2.2.2.2' });
     expect(publish).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'created', record: expect.objectContaining({ id: 'new-1', type: 'A' }) }),
+      expect.objectContaining({
+        action: 'created',
+        traceId: 'trace-dns',
+        depth: 0,
+        record: expect.objectContaining({ id: 'new-1', type: 'A' }),
+      }),
     );
   });
 
