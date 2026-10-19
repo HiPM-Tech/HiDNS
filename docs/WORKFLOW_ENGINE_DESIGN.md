@@ -1231,7 +1231,7 @@ interface WorkflowEvent {
 | `routes/domains.ts` | 域名生命周期 | PUT → `updated`（仅 `remark` / `is_hidden` / `enabled` 产生事件）；POST（手工新增与提供商同步）→ `created`；DELETE → `deleted`。**均不含解析值**（§4.0.1） |
 | `service/domainRenewalJob.ts` | `renewed` | 续期成功后按域名反查 `domains` 主键再发布（`renewable_domains.id` 与 `domains.id` 不是同一实体） |
 | `service/nsMonitorJob.ts` | `ns.changed` | 去重：`status !== previousStatus` 才放行，重复告警不重复触发 |
-| `service/whois/notifier.ts` | `whois.expiring` | 剩余天数 ≤ 阈值即发布，**独立于通知开关**——工作流自行决定处置 |
+| `service/whois/notifier.ts` | `whois.expiring` | 剩余天数 ≤ 阈值且**天数发生变化**才发布（去重），**独立于通知开关**——工作流自行决定处置 |
 
 **读取路径**：引擎每个事件都要拿「启用中的工作流」，直连数据库等于**每个事件一次查询**。因此 `listEnabledDefinitions()` 走 5 秒 TTL 缓存，并在工作流创建/更新/删除时**显式失效**；同时到达的多个事件合并为一次加载。直接改库（绕过 API）最多滞后 5 秒。
 
