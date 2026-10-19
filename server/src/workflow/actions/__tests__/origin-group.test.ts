@@ -96,9 +96,40 @@ describe('源站组 API 客户端', () => {
     expect(groups[0].references[0].id).toBe('d1');
   });
 
+  it('get 按源站组 ID 走 Filters 由 API 拉取', async () => {
+    const call = vi.fn(async () => ({
+      OriginGroups: [{ GroupId: 'origin-1', Name: 'g', Type: 'GENERAL', Records: [] }],
+    }));
+    const client = new OriginGroupClient(call as never, 'zone-1');
+    const group = await client.get('origin-1');
+    expect(call).toHaveBeenCalledWith(
+      'DescribeOriginGroup',
+      expect.objectContaining({
+        ZoneId: 'zone-1',
+        Filters: [{ Name: 'origin-group-id', Values: ['origin-1'] }],
+      }),
+    );
+    expect(group?.groupId).toBe('origin-1');
+  });
+
   it('get 未命中返回 null', async () => {
     const client = new OriginGroupClient((async () => ({ OriginGroups: [] })) as never, 'zone-1');
     await expect(client.get('nope')).resolves.toBeNull();
+  });
+
+  it('get 对服务端忽略 filter 的情况仍精确比对，不误取', async () => {
+    const client = new OriginGroupClient(
+      (async () => ({ OriginGroups: [{ GroupId: 'origin-2', Name: 'other', Type: 'GENERAL', Records: [] }] })) as never,
+      'zone-1',
+    );
+    await expect(client.get('origin-1')).resolves.toBeNull();
+  });
+
+  it('get 空 ID 直接返回 null，不发请求', async () => {
+    const call = vi.fn(async () => ({}));
+    const client = new OriginGroupClient(call as never, 'zone-1');
+    await expect(client.get('')).resolves.toBeNull();
+    expect(call).not.toHaveBeenCalled();
   });
 
   it('replace 走 ModifyOriginGroup 且省略 weight 时不写入该字段', async () => {

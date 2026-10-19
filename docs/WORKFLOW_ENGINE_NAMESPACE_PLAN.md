@@ -292,7 +292,9 @@ HiDNS 全局主核心（types/namespace.ts）
 
 **契约落实**：`replace` 要求 `collapse: true`（F1）、`diffDigest` 与重算值一致（U2）、被移除记录含私有参数需 `acknowledgeDataLoss`（F4）、目标内网/回环拒绝（F5）、已收敛则 `skipped`（F7）、写后重读校验单条且等于目标（U4）。
 
-**如实记录的局限**：handler 的真实 API 调用**未经线上验证**（无腾讯云凭据）；已覆盖的是计划/校验/映射逻辑与注册链路。`get` 目前靠 `list` 全量拉取后匹配，官方 `DescribeOriginGroup` 未提供按 `GroupId` 直接查询的入参——数据量大时需按 `Filters` 优化。
+**定位方式**：源站组统一用**源站组 ID**（`groupId`）定位，由 API 拉取——`DescribeOriginGroup` + `Filters: [{ Name: 'origin-group-id', Values: [groupId] }]`。**不使用**"全量列出再本地查找"：源站组数量无上限，全量拉取既慢又可能截断；同时对返回结果再做一次 `GroupId` 精确比对，防服务端忽略 filter 时误取。
+
+**如实记录的局限**：handler 的真实 API 调用**未经线上验证**（无腾讯云凭据）；已覆盖的是计划/校验/映射逻辑与注册链路。
 
 **测试**：新增 `origin-group.test.ts` 13 用例。工作流测试合计 **62 用例**；全量 `82 passed | 26 skipped`，12 个失败文件与基线一致。
 

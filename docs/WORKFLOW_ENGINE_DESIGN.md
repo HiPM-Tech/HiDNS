@@ -314,6 +314,8 @@ facade 必须是**静态文件**（类型可见、可审计、可 IDE 补全）�
 
 公共参数：`Version=2022-09-01`，域名 `teo.tencentcloudapi.com`，**默认频率限制 20 次/秒**。
 
+> **定位方式**：源站组统一用**源站组 ID**（`GroupId`）定位，由 API 拉取——`DescribeOriginGroup` 配 `Filters: [{ Name: 'origin-group-id', Values: [groupId] }]`。**禁止**用"全量列出再本地查找"：源站组数量无上限，全量拉取既慢又可能被分页截断。拿到结果后仍按 `GroupId` 精确比对一次，防服务端忽略 filter 时误取。
+
 **`OriginGroup` 结构**
 
 | 字段 | 说明 |

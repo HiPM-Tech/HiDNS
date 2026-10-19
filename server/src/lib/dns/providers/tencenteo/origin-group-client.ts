@@ -58,8 +58,20 @@ export class OriginGroupClient {
     return asArray<Record<string, unknown>>(data.OriginGroups).map(mapGroup);
   }
 
+  /**
+   * 按**源站组 ID** 定位，由 API 拉取（§3.7.3 的 `Filters: origin-group-id`）。
+   * 不使用"全量列出再本地查找"：源站组数量无上限，全量拉取既慢又可能截断。
+   * 服务端若不认该 filter，仍以返回结果中的 GroupId 精确比对，避免误取。
+   */
   async get(groupId: string): Promise<OriginGroup | null> {
-    const groups = await this.list({ offset: 0, limit: 1000 });
+    if (!groupId) return null;
+    const data = await this.call('DescribeOriginGroup', {
+      ZoneId: this.scopeId,
+      Offset: 0,
+      Limit: 20,
+      Filters: [{ Name: 'origin-group-id', Values: [groupId] }],
+    });
+    const groups = asArray<Record<string, unknown>>(data.OriginGroups).map(mapGroup);
     return groups.find((group) => group.groupId === groupId) ?? null;
   }
 
