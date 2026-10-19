@@ -22,7 +22,7 @@ export interface OriginGroup {
   type: 'GENERAL' | 'HTTP';
   hostHeader?: string;
   records: OriginRecord[];
-  references: Array<{ type: string; id: string; name?: string }>;
+  references: Array<{ type: string; id: string; name?: string; zoneId?: string; zoneName?: string }>;
 }
 
 export class OriginGroupError extends Error {
@@ -52,8 +52,16 @@ export interface CollapsePlan {
   noop: boolean;
 }
 
-const PRIVATE_V4 = /^(10\.|127\.|192\.168\.|169\.254\.|0\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/;
-const PRIVATE_V6 = /^(::1$|::$|fe80:|fc|fd)/i;
+/**
+ * 内网/保留地址判定。
+ * - IPv4：10/8、127/8、192.168/16、169.254/16、0/8、100.64/10（CGNAT）、
+ *   172.16/12（原实现遗漏，172.16–172.31 全部为内网）
+ * - IPv6：::1、::、fe80::/10（链路本地）、fec0::/10（站点本地）、fc00::/7（唯一本地）
+ *   原实现写作 `fc|fd` 前缀匹配，会把 `fd.example.com` 这类正常域名误判为内网
+ */
+const PRIVATE_V4 =
+  /^(10\.|127\.|192\.168\.|169\.254\.|0\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|172\.(1[6-9]|2\d|3[01])\.)/;
+const PRIVATE_V6 = /^(::1$|::$|fe80:|fec0:|f[cd][0-9a-f]{2}:)/i;
 
 /** 目标值预检：内网 / 回环一律拒绝（§3.7.9.5.1） */
 export function assertPublicTarget(target: CollapseTarget): void {
@@ -125,7 +133,26 @@ export function buildCollapsedRecords(target: CollapseTarget): OriginRecord[] {
   return [{ record: target.record, type: target.type }];
 }
 
-/** 被销毁记录中是否含不可重建数据（F4） */
+/**
+ * 被销毁记录中是否含不可重建数据（F4）。
+ * 注意：`privateParameters` 必须是"非空对象"，空数组/空对象都不算——
+ * 真实 API 对无私有参数的记录返回 `PrivateParameters: []`，
+ * 若以 `Boolean()` 判定会让本函数对任意普通记录恒为 true，闸门形同虚设。
+ */
 export function hasIrrecoverableData(records: OriginRecord[]): boolean {
-  return records.some((r) => r.type === 'AWS_S3' || r.private === true || Boolean(r.privateParameters));
+  return records.some((r) => {
+    if (r.type === 'AWS_S3') return true;
+    if (r.private === true) return true;
+    const params = r.privateParameters;
+    return params !== undefined && params !== null && Object.keys(params).length > 0;
+  });
+}
+
+/** 引用方的人类可读清单：整组覆盖前必须让操作者看清"谁在用这个组" */
+export function describeReferences(references: OriginGroup['references']): string[] {
+  return references.map((ref) => {
+    // 空串是"没有"而不是"名字是空串"：映射层可能给出空字段，这里要兜住
+    const label = ref.name || ref.id || '(未知)';
+    return ref.type ? `${label}[${ref.type}]` : label;
+  });
 }

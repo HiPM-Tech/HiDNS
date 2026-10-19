@@ -4,6 +4,7 @@ import { TencenteoAdapter } from './adapter';
 import type { ProviderExtraCapability, ProviderActionHandler } from '../extra-types';
 import {
   buildCollapsedRecords,
+  describeReferences,
   hasIrrecoverableData,
   planCollapse,
   OriginGroupError,
@@ -57,7 +58,12 @@ const handlers: Record<string, ProviderActionHandler> = {
       type: 'IP_DOMAIN',
     };
     const plan = planCollapse(group, target);
-    return { ...plan, irrecoverable: hasIrrecoverableData(plan.removed) };
+    return {
+      ...plan,
+      irrecoverable: hasIrrecoverableData(plan.removed),
+      referenced: group.references.length > 0,
+      referencing: describeReferences(group.references),
+    };
   },
 
   'ext.tencenteo.originGroup.replace': async (args) => {
@@ -73,6 +79,18 @@ const handlers: Record<string, ProviderActionHandler> = {
 
     if (plan.noop) return { skipped: true, reason: 'already-collapsed', plan };
 
+    // 被引用中的源站组不得整组覆盖：坍缩会立刻改变这些域名的回源行为。
+    // 这是"写入前的最后一道闸门"，不依赖调用方自律。
+    if (group.references.length > 0 && args.acknowledgeReferenced !== true) {
+      const names = describeReferences(group.references);
+      const head = names.slice(0, 5).join('、');
+      const tail = names.length > 5 ? ` 等 ${names.length} 项` : '';
+      throw new OriginGroupError(
+        'GROUP_REFERENCED',
+        `源站组仍被 ${names.length} 个资源引用（${head}${tail}），整组覆盖会直接影响这些域名；如确需继续请显式传 acknowledgeReferenced: true`,
+      );
+    }
+
     if (hasIrrecoverableData(plan.removed) && args.acknowledgeDataLoss !== true) {
       throw new OriginGroupError(
         'IRRECOVERABLE_DATA_LOSS',
@@ -85,7 +103,7 @@ const handlers: Record<string, ProviderActionHandler> = {
     }
 
     const ops = await opsFor(args);
-    await ops.replace(group.groupId, buildCollapsedRecords(target));
+    const { requestId } = await ops.replace(group.groupId, buildCollapsedRecords(target));
 
     const after = await ops.get(group.groupId);
     const ok =
@@ -94,7 +112,12 @@ const handlers: Record<string, ProviderActionHandler> = {
       after.records[0].record === target.record;
     if (!ok) throw new OriginGroupError('VERIFY_FAILED', '写入后校验失败');
 
-    return { collapsedFrom: plan.collapsedFrom, target, references: plan.preservedReferences };
+    return {
+      collapsedFrom: plan.collapsedFrom,
+      target,
+      references: plan.preservedReferences,
+      requestId: requestId ?? null,
+    };
   },
 };
 
