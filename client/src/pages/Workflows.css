@@ -11,6 +11,12 @@
   flex-wrap: wrap;
 }
 
+.workflows-hint {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+
 .workflows-error {
   display: flex;
   align-items: center;

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button, Dialog, Form, Input, Select, Switch, Space, Checkbox, MessagePlugin } from 'tdesign-react';
+import { Button, Dialog, Form, Input, Select, Switch, Space, Checkbox, Tag, MessagePlugin } from 'tdesign-react';
 import { workflowsApi } from '../api';
 import type { WorkflowRecord, WorkflowActionMeta, WorkflowRunRecord } from '../api';
 import { Table } from '../components/Table';
@@ -214,7 +214,20 @@ export function Workflows() {
   }
 
   const columns = [
-    { key: 'name', label: t('workflows.name'), width: 200 },
+    {
+      key: 'name',
+      label: t('workflows.name'),
+      width: 240,
+      render: (row: WorkflowRecord) =>
+        row.corrupted ? (
+          <Space size="small">
+            <Tag theme="danger" variant="light">{t('workflows.corrupted')}</Tag>
+            <span>{row.name}</span>
+          </Space>
+        ) : (
+          row.name
+        ),
+    },
     { key: 'triggerType', label: t('workflows.trigger'), width: 180 },
     { key: 'actions', label: t('workflows.actions'), width: 100, render: (row: WorkflowRecord) => String(row.actions?.length ?? 0) },
     { key: 'enabled', label: t('workflows.enabled'), width: 100, render: (row: WorkflowRecord) => (row.enabled ? t('common.enabled') : t('common.disabled')) },
@@ -226,9 +239,13 @@ export function Workflows() {
           {!row.corrupted && (
             <Button size="small" variant="text" onClick={() => openEdit(row)}>{t('common.edit')}</Button>
           )}
-          <Button size="small" variant="text" onClick={() => setRunsFor(row)}>{t('workflows.runs')}</Button>
-          <Button size="small" variant="text" onClick={() => setPreviewFor(row)}>{t('workflows.preview')}</Button>
-          <Button size="small" variant="text" onClick={() => { setRunFor(row); setRunDomain(''); setRunDomainId(0); setRunValue(''); setRunOldValue(''); }}>{t('workflows.run')}</Button>
+          {!row.corrupted && (
+            <>
+              <Button size="small" variant="text" onClick={() => setRunsFor(row)}>{t('workflows.runs')}</Button>
+              <Button size="small" variant="text" onClick={() => setPreviewFor(row)}>{t('workflows.preview')}</Button>
+              <Button size="small" variant="text" onClick={() => { setRunFor(row); setRunDomain(''); setRunDomainId(0); setRunValue(''); setRunOldValue(''); }}>{t('workflows.run')}</Button>
+            </>
+          )}
           <Button size="small" variant="text" theme="danger" onClick={() => setPendingDelete(row)}>{t('common.delete')}</Button>
         </Space>
       ),
@@ -248,6 +265,11 @@ export function Workflows() {
       {allowlistQuery.isSuccess && allowlist.length === 0 && (
         <div className="workflows-error">
           {t('workflows.emptyAllowlist')}
+        </div>
+      )}
+      {allowlistQuery.isSuccess && allowlist.length > 0 && (
+        <div className="workflows-hint">
+          {t('workflows.allowlistSummary')}: {allowlist.join(', ')}
         </div>
       )}
 
@@ -345,7 +367,7 @@ export function Workflows() {
                   />
                   <Input
                     value={form.condition.value}
-                    placeholder={t('workflows.conditionValue')}
+                    placeholder={form.condition.op === 'in' ? t('workflows.inHint') : t('workflows.conditionValue')}
                     onChange={(value) => updateField('condition', { ...form.condition, value: String(value) })}
                   />
                 </div>
@@ -424,8 +446,11 @@ export function Workflows() {
               key: 'started_at',
               label: t('workflows.colStarted'),
               render: (row: WorkflowRunRecord) => {
-                const date = new Date(String(row.started_at ?? ''));
-                return Number.isNaN(date.getTime()) ? String(row.started_at ?? '-') : date.toLocaleString();
+                // 服务端存的是 UTC 的 `YYYY-MM-DD HH:mm:ss`（无时区后缀），直接 new Date 会按本地解析
+                const raw = String(row.started_at ?? '');
+                const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw) ? `${raw.replace(' ', 'T')}Z` : raw;
+                const date = new Date(iso);
+                return Number.isNaN(date.getTime()) ? (raw || '-') : date.toLocaleString();
               },
             },
             { key: 'error', label: t('workflows.colError') },
