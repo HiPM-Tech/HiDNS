@@ -19,6 +19,7 @@
         "test:verify-data": "ts-node scripts/test-verify-data.ts",
         "test:init-detect": "ts-node scripts/test-init-detect.ts",
         "test:concurrent": "ts-node scripts/test-concurrent.ts",
+        "demo:virtual": "ts-node --files scripts/demo-virtual-workflow.ts",
         "test:error-recovery": "ts-node scripts/test-error-recovery.ts",
         "db:migrate:test": "ts-node scripts/db-migrate.ts test",
         "db:rollback:test": "ts-node scripts/db-rollback.ts test",
