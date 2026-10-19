@@ -58,6 +58,12 @@ function requireString(args: Record<string, unknown>, key: string): string {
   return value;
 }
 
+/** TTL 必须是有限正整数；缺省或非法时回退默认值，避免把 NaN 传给适配器 */
+export function optionalPositiveNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
 function publish(ctx: ActionContext, domain: ResolvedDomain, action: 'created' | 'updated', record: { id: string; name: string; type: string; value?: string; oldValue?: string }): void {
   emitRecordEvent({
     action,
@@ -93,7 +99,7 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
     const name = requireString(args, 'name');
     const type = requireString(args, 'type');
     const value = requireString(args, 'value');
-    const recordId = await adapter.addDomainRecord(name, type, value, '0', Number(args.ttl ?? 600));
+    const recordId = await adapter.addDomainRecord(name, type, value, '0', optionalPositiveNumber(args.ttl, 600));
     if (!recordId) throw new Error('创建记录失败');
     publish(ctx, domain, 'created', { id: recordId, name, type, value });
     return { recordId };
@@ -139,13 +145,21 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
     }
     const results: Array<{ recordId?: string; ok: boolean; error?: string }> = [];
     for (const item of items as Array<Record<string, unknown>>) {
+      // 逐条校验：空 name/type/value 不得进入适配器，否则会写入空记录或抛不可读错误
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      const type = typeof item.type === 'string' ? item.type.trim() : '';
+      const value = typeof item.value === 'string' ? item.value.trim() : '';
+      if (!name || !type || !value) {
+        results.push({ ok: false, error: 'name / type / value 均为必填' });
+        continue;
+      }
       try {
         const recordId = await adapter.addDomainRecord(
-          String(item.name ?? ''),
-          String(item.type ?? ''),
-          String(item.value ?? ''),
+          name,
+          type,
+          value,
           '0',
-          Number(item.ttl ?? 600),
+          optionalPositiveNumber(item.ttl, 600),
         );
         results.push({ recordId: recordId ?? undefined, ok: Boolean(recordId) });
       } catch (error) {

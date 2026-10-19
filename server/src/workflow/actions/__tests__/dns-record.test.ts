@@ -56,6 +56,26 @@ describe('dns.record.* 动作', () => {
     expect(result.records).toHaveLength(1);
   });
 
+  it('显式 args.domain 优先于事件资源域名（跨域名写入）', async () => {
+    const resolveDomain = vi.fn(async (ref: { domainId?: number; domainName?: string }) => ({
+      id: ref.domainId ?? 99,
+      name: ref.domainName ?? 'event-domain.com',
+    }));
+    setRecordDeps({
+      resolveDomain: resolveDomain as never,
+      getAdapter: async () => adapter as never,
+      publish: publish as never,
+    });
+    const ctx = await authorize(
+      'dns.record.list',
+      { ...principal, allowedDomains: '*' },
+      { domainId: 7, domainName: 'event-domain.com' },
+      authDeps,
+    );
+    await dnsRecordHandlers['dns.record.list'](ctx, { domain: 'target.com' });
+    expect(resolveDomain).toHaveBeenCalledWith({ domainName: 'target.com' });
+  });
+
   it('域名不在允许列表 → 403（handler 二次校验）', async () => {
     const ctx = await ctxFor('dns.record.list');
     await expect(dnsRecordHandlers['dns.record.list'](ctx, { domain: 'other.com' })).rejects.toMatchObject({
@@ -104,6 +124,29 @@ describe('dns.record.* 动作', () => {
     await expect(dnsRecordHandlers['dns.record.batch'](ctx, { domain: 'ok.com', records })).rejects.toMatchObject({
       status: 422,
     });
+  });
+
+  it('batch 逐条校验：空字段不发请求，合法条目照常创建', async () => {
+    const ctx = await ctxFor('dns.record.batch');
+    const result = (await dnsRecordHandlers['dns.record.batch'](ctx, {
+      domain: 'ok.com',
+      records: [
+        { name: 'a', type: 'A', value: '1.1.1.1' },
+        { name: '', type: 'A', value: '1.1.1.1' },
+        { name: 'b', type: '', value: '1.1.1.1' },
+      ],
+    })) as { total: number; results: Array<{ ok: boolean; error?: string }> };
+    expect(result.total).toBe(3);
+    expect(result.results[0].ok).toBe(true);
+    expect(result.results[1].ok).toBe(false);
+    expect(result.results[2].ok).toBe(false);
+    expect(adapter.addDomainRecord).toHaveBeenCalledTimes(1);
+  });
+
+  it('TTL 非法时回退默认值，不把 NaN 传给适配器', async () => {
+    const ctx = await ctxFor('dns.record.create');
+    await dnsRecordHandlers['dns.record.create'](ctx, { domain: 'ok.com', name: 'x', type: 'A', value: '2.2.2.2', ttl: 'abc' });
+    expect(adapter.addDomainRecord).toHaveBeenCalledWith('x', 'A', '2.2.2.2', '0', 600);
   });
 
   it('delete 不发布事件（类型未知，fail-closed）', async () => {

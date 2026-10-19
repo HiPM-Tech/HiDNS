@@ -61,8 +61,12 @@ export function assertDomainAllowed(ctx: ActionContext, domainName: string): voi
 }
 
 export async function resolveTargetDomain(ctx: ActionContext, args: Record<string, unknown>): Promise<ResolvedDomain> {
-  const domainName = typeof args.domain === 'string' ? args.domain : undefined;
-  const ref = { domainId: ctx.resource?.domainId, domainName: domainName ?? ctx.resource?.domainName };
+  // 显式 args.domain **优先于** 事件资源：否则「A 记录变动 → 更新 B 域名的记录」
+  // 这类跨域名写入会被静默改成操作事件来源域名（§4.0.4 允许的替代路径之一）。
+  const explicitName = typeof args.domain === 'string' && args.domain ? args.domain : undefined;
+  const ref = explicitName
+    ? { domainName: explicitName }
+    : { domainId: ctx.resource?.domainId, domainName: ctx.resource?.domainName };
   if (!ref.domainId && !ref.domainName) {
     throw new AuthorizationError(400, '缺少目标域名');
   }
