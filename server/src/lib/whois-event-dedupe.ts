@@ -4,8 +4,9 @@
  * 背景：WHOIS 同步是周期任务，`checkAndSendNotification` 每次同步都会调用。
  * 若不做去重，一个还剩 7 天的域名会在每次同步时都发布 `whois.expiring`。
  *
- * 去重键是**到期时间**而不是剩余天数：上游偶发返回不同 expiry 时天数会 A→B→A 抖动，
- * 按天数去重会每次发布；到期日不变就绝不重复。
+ * 去重键是**剩余天数**：`whois.expiring` 的 withinDays 过滤依赖 `daysLeft` 分级
+ * （30/7/1 天各提醒一次），若改按到期时间去重，整周期只会发一次，分级永久失效。
+ * 代价：上游 expiry 抖动导致天数 A→B→A 时会重复发布一次 —— 可接受，且比丢提醒安全。
  */
 
 export class DaysLeftDedupe {
@@ -17,10 +18,9 @@ export class DaysLeftDedupe {
   }
 
   /** 返回 true 表示应当发布事件 */
-  shouldEmit(domainId: number, expiresAt: string | number): boolean {
-    if (!Number.isFinite(domainId)) return false;
-    const key = String(expiresAt);
-    if (!key || key === 'NaN' || key === 'undefined') return false;
+  shouldEmit(domainId: number, daysLeft: number): boolean {
+    if (!Number.isFinite(domainId) || !Number.isFinite(daysLeft)) return false;
+    const key = String(daysLeft);
 
     const previous = this.last.get(domainId);
     if (previous === key) {

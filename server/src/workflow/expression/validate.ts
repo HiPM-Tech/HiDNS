@@ -88,6 +88,14 @@ export function validateExpression(root: unknown, options: ValidationOptions): V
     switch (kind as NodeKind) {
       case 'literal': {
         const value = node.value;
+        // 数组字面量用于 `in` 运算（如 status in ['mismatch','missing']），
+        // 求值器已支持，校验层必须放行，否则前后端契约自相矛盾。
+        if (Array.isArray(value)) {
+          if (value.some((item) => !['string', 'number', 'boolean'].includes(typeof item))) {
+            issues.push({ code: 'INVALID_LITERAL', message: 'literal.value 数组元素类型非法', path });
+          }
+          return;
+        }
         if (!(value === null || ['string', 'number', 'boolean'].includes(typeof value))) {
           issues.push({ code: 'INVALID_LITERAL', message: 'literal.value 类型非法', path });
         }
@@ -121,6 +129,11 @@ export function validateExpression(root: unknown, options: ValidationOptions): V
           issues.push({ code: 'INVALID_OPERATOR', message: `逻辑运算非法: ${String(node.op)}`, path });
         }
         const args = node.args;
+        // op 必须是字符串：否则 String(['and']) 能过白名单，运行期严格相等落不到 and 分支
+        if (typeof node.op !== 'string') {
+          issues.push({ code: 'INVALID_ARGS', message: 'logic.op 必须是字符串', path });
+          break;
+        }
         const expected = node.op === 'not' ? 1 : 2;
         if (!Array.isArray(args) || args.length === 0) {
           issues.push({ code: 'INVALID_ARGS', message: 'logic.args 必须是非空数组', path });

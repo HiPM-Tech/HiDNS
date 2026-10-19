@@ -23,6 +23,11 @@ import {
 } from '../utils/workflows';
 import './Workflows.css';
 
+interface MetaItem {
+  value: string;
+  label?: string;
+}
+
 interface WorkflowForm {
   name: string;
   enabled: boolean;
@@ -72,6 +77,8 @@ export function Workflows() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<WorkflowRecord | null>(null);
+  // 每次打开对话框都递增：保证 initial 是新对象，useFormSync 才会重新回填/重置
+  const [formKey, setFormKey] = useState(0);
   const [pendingDelete, setPendingDelete] = useState<WorkflowRecord | null>(null);
   const [runsFor, setRunsFor] = useState<WorkflowRecord | null>(null);
   const [previewFor, setPreviewFor] = useState<WorkflowRecord | null>(null);
@@ -83,7 +90,7 @@ export function Workflows() {
   const [runValue, setRunValue] = useState('');
   const [runOldValue, setRunOldValue] = useState('');
 
-  const initial = useMemo(() => (editing ? toFormState(editing) : null), [editing]);
+  const initial = useMemo(() => (editing ? toFormState(editing) : null), [editing, formKey]);
   const { formState, updateField } = useFormSync<WorkflowForm>(initial as WorkflowForm | null, DEFAULT_FORM, {
     fields: FORM_FIELDS,
   });
@@ -93,9 +100,9 @@ export function Workflows() {
   const listQuery = useQuery({ queryKey: ['workflows'], queryFn: () => workflowsApi.list() });
   const actionsQuery = useQuery({ queryKey: ['workflow-actions'], queryFn: () => workflowsApi.meta<WorkflowActionMeta[]>('actions') });
   const triggerQuery = useQuery({ queryKey: ['workflow-triggers'], queryFn: () => workflowsApi.meta('triggerTypes') });
-  const recordTypesQuery = useQuery({ queryKey: ['workflow-meta', 'recordTypes'], queryFn: () => workflowsApi.meta<string[]>('recordTypes') });
-  const domainFieldsQuery = useQuery({ queryKey: ['workflow-meta', 'domainFields'], queryFn: () => workflowsApi.meta<string[]>('domainFields') });
-  const nsStatusesQuery = useQuery({ queryKey: ['workflow-meta', 'nsStatuses'], queryFn: () => workflowsApi.meta<string[]>('nsStatuses') });
+  const recordTypesQuery = useQuery({ queryKey: ['workflow-meta', 'recordTypes'], queryFn: () => workflowsApi.meta<MetaItem[]>('recordTypes') });
+  const domainFieldsQuery = useQuery({ queryKey: ['workflow-meta', 'domainFields'], queryFn: () => workflowsApi.meta<MetaItem[]>('domainFields') });
+  const nsStatusesQuery = useQuery({ queryKey: ['workflow-meta', 'nsStatuses'], queryFn: () => workflowsApi.meta<MetaItem[]>('nsStatuses') });
   const domainOptionsQuery = useQuery({
     queryKey: ['workflow-meta', 'domains'],
     queryFn: () => workflowsApi.meta<Array<{ value: string; label: string; id: number }>>('domains'),
@@ -187,11 +194,13 @@ export function Workflows() {
 
   function openCreate() {
     setEditing(null);
+    setFormKey((value) => value + 1);
     setDialogOpen(true);
   }
 
   function openEdit(record: WorkflowRecord) {
     setEditing(record);
+    setFormKey((value) => value + 1);
     setDialogOpen(true);
   }
 
@@ -387,7 +396,14 @@ export function Workflows() {
           columns={[
             { key: 'trace_id', label: t('workflows.colTrace'), width: 240 },
             { key: 'status', label: t('workflows.colStatus'), width: 100 },
-            { key: 'started_at', label: t('workflows.colStarted') },
+            {
+              key: 'started_at',
+              label: t('workflows.colStarted'),
+              render: (row: WorkflowRunRecord) => {
+                const date = new Date(String(row.started_at ?? ''));
+                return Number.isNaN(date.getTime()) ? String(row.started_at ?? '-') : date.toLocaleString();
+              },
+            },
             { key: 'error', label: t('workflows.colError') },
           ]}
         />

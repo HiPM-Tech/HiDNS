@@ -52,6 +52,8 @@ function resolveRef(path: string, ctx: EvalContext): unknown {
   return current;
 }
 
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function checkBudget(state: EvalState, now: () => number): void {
   if (now() > state.deadline) {
     throw new ExpressionError('TIMEOUT', '求值超时');
@@ -120,16 +122,24 @@ export async function evaluate(
     }
 
     case 'logic': {
+      // 不兜底成 or：op 不是 and/or/not 时直接报错，避免判定被静默反转
+      if (node.op !== 'and' && node.op !== 'or' && node.op !== 'not') {
+        throw new ExpressionError('INVALID_OPERATOR', `未知逻辑运算: ${String((node as { op?: unknown }).op)}`);
+      }
+      const args = Array.isArray(node.args) ? node.args : [];
+      if (args.length === 0) {
+        throw new ExpressionError('INVALID_ARGS', 'logic.args 不能为空');
+      }
       if (node.op === 'not') {
-        return !(await evaluate(node.args[0], ctx, st));
+        return !(await evaluate(args[0], ctx, st));
       }
       if (node.op === 'and') {
-        for (const arg of node.args) {
+        for (const arg of args) {
           if (!(await evaluate(arg, ctx, st))) return false;
         }
         return true;
       }
-      for (const arg of node.args) {
+      for (const arg of args) {
         if (await evaluate(arg, ctx, st)) return true;
       }
       return false;
@@ -151,7 +161,12 @@ export async function evaluate(
 
     case 'assign': {
       const value = await evaluate(node.value, ctx, st);
-      ctx.vars[node.key] = value;
+      // 运行期同样复查：历史数据可能未经保存期校验
+      const key = String(node.key ?? '');
+      if (!key || key.includes('.') || FORBIDDEN_KEYS.has(key)) {
+        throw new ExpressionError('INVALID_ARGS', `非法变量名: ${key}`);
+      }
+      ctx.vars[key] = value;
       return value;
     }
 

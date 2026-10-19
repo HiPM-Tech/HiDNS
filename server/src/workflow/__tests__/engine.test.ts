@@ -366,6 +366,44 @@ describe('执行引擎', () => {
     expect(runs[0].depth).toBe(1);
   });
 
+  it('超时返回 failed 记录而不是抛错（整批记录不丢）', async () => {
+    const onRun = vi.fn();
+    const dispatch = vi.fn(() => new Promise(() => undefined));
+    const e = new WorkflowEngine(
+      {
+        listWorkflows: async () => [wf({ id: '7' })],
+        resolvePrincipal: async () => principal,
+        dispatch: dispatch as never,
+        onRun,
+        runTimeoutMs: 20,
+      },
+      bus,
+    );
+    const runs = await e.handleEvent(event());
+    expect(runs[0].status).toBe('failed');
+    expect(runs[0].error).toContain('运行超时');
+    expect(onRun).toHaveBeenCalled();
+  });
+
+  it('超时后底层未结束前，同目标的重入仍被挡住', async () => {
+    let release: (() => void) | undefined;
+    const dispatch = vi.fn(() => new Promise<string>((resolve) => { release = () => resolve('ok'); }));
+    const e = new WorkflowEngine(
+      {
+        listWorkflows: async () => [wf({ id: '7' })],
+        resolvePrincipal: async () => principal,
+        dispatch: dispatch as never,
+        runTimeoutMs: 10,
+      },
+      bus,
+    );
+    await e.handleEvent(event());
+    const second = await e.handleEvent(event());
+    expect(second[0].status).toBe('skipped');
+    expect(second[0].error).toBe('concurrent-run');
+    release?.();
+  });
+
   it('未 start 时不订阅（无模块作用域副作用）', () => {
     engine([wf()]);
     expect(bus.subscriberCount()).toBe(0);

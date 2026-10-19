@@ -175,11 +175,15 @@ router.put('/:id', authMiddleware, adminOnly, requireJwtAuth('workflows'), async
   const existing = await loadOwnedWorkflow(req, res, id);
   if (!existing) return;
   const payload = req.body as WorkflowPayload;
+  // axios 会丢弃值为 undefined 的键，因此「清空条件」只能靠显式 null 或省略键区分：
+  // 省略 = 保留旧值；显式给 null/undefined 键 = 清空。
+  const hasCondition = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'condition');
   const merged: WorkflowPayload = {
     name: payload.name ?? existing.name,
+    enabled: payload.enabled,
     triggerType: payload.triggerType ?? existing.triggerType,
     triggerConfig: payload.triggerConfig ?? existing.triggerConfig,
-    condition: payload.condition ?? existing.condition,
+    condition: hasCondition ? (payload.condition ?? undefined) : existing.condition,
     actions: payload.actions ?? existing.actions,
   };
   const problems = validatePayload(merged);

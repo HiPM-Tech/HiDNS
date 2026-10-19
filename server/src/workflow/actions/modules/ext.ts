@@ -1,6 +1,7 @@
 import type { NamespaceClaim } from '../../../types/namespace';
 import type { ActionDeclaration, BrandedActionHandler } from '../types';
 import { defineAction } from '../types';
+import { AuthorizationError } from '../../auth';
 import { providerDefinitions, PROVIDER_TYPES } from '../../../lib/dns/providers/registry';
 
 /**
@@ -32,8 +33,23 @@ export const declarations: ActionDeclaration[] = providerDefinitions.flatMap((de
  * 扩展能力的 handler 由各提供商自行注册（P2 接入）。
  * 未注册的扩展动作会在 CI 的 A8 检查中暴露，不会静默通过。
  */
+/**
+ * 扩展能力的 handler 由各提供商自行注册。
+ *
+ * 这里必须做**域名级二次校验**：`authorize` 校验的是事件域名，
+ * 而扩展动作的目标域名来自 `args.domainId` —— 不校验就等于允许跨租户读写。
+ */
 function wrap(handler: (args: Record<string, unknown>) => Promise<unknown>): BrandedActionHandler {
-  return defineAction(async (_ctx, args) => handler(args));
+  return defineAction(async (ctx, args) => {
+    const domainId = Number(args.domainId);
+    if (Number.isFinite(domainId) && domainId > 0) {
+      const ids = ctx.principal.allowedDomainIds;
+      if (ids && !ids.includes(domainId)) {
+        throw new AuthorizationError(403, `域名权限不足: #${domainId}`);
+      }
+    }
+    return handler(args);
+  });
 }
 
 export const handlers: Record<string, BrandedActionHandler> = Object.assign(

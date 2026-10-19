@@ -7,7 +7,7 @@ import { WorkflowEngine, type WorkflowDefinition } from './engine';
 import { createDispatcher } from './dispatch';
 import { lookupActionMeta } from './actions/registry';
 import { getStoredById, listEnabledDefinitions, recordRun, storedToDefinition } from './store';
-import { getAccessibleDomainIds, getAccessibleDomains } from './access';
+import { getAccessibleDomains } from './access';
 import type { AuthorizeDeps, Principal } from './auth';
 import { buildRecordEvent, type DomainEvent as WorkflowEvent } from '../lib/domain-event-bus';
 
@@ -85,14 +85,16 @@ export async function resolvePrincipal(workflow: WorkflowDefinition): Promise<Pr
     | undefined;
   if (!user) throw new Error('工作流创建者不存在');
   if (user.status !== undefined && user.status !== 1) throw new Error('工作流创建者已停用');
+  const access = await getAccessibleDomains(user.id);
   return {
     kind: 'user',
     id: String(user.id),
     role: (user.role_level ?? 1) >= 3 ? 'super_admin' : (user.role_level ?? 1) >= 2 ? 'admin' : 'user',
     services: servicesForRole(user.role_level ?? 1),
     // 域名级权限按 owner 真实可访问集合计算；**不得**再用 '*' 通配
-    allowedDomainIds: await getAccessibleDomainIds(user.id),
-    allowedDomains: [],
+    allowedDomainIds: access.ids,
+    // 名称名单同样必要：domainId=0（如 ns.changed）时只能按名称判定
+    allowedDomains: access.names,
   };
 }
 

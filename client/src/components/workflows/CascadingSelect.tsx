@@ -36,7 +36,7 @@ export function CascadingSelect({ param, args, value, onChange }: CascadingSelec
 
   return (
     <Select
-      placeholder={ready ? param.key : `${t('workflows.needParams')}: ${missing}`}
+      placeholder={ready ? param.key : t('workflows.needParams', { params: missing })}
       disabled={!ready}
       loading={query.isLoading}
       value={value}

@@ -1,5 +1,8 @@
 import { WorkflowOperations, type WorkflowRow } from '../db/bal/business-adapter';
 import { createCachedLoader } from './cache';
+import { createLogger } from '../lib/logger';
+
+const log = createLogger('Workflow').sub('Store');
 import { runPruneScheduler } from './retention';
 import type { WorkflowDefinition, WorkflowTrigger } from './engine';
 import type { ExpressionNode } from './expression/nodes';
@@ -99,7 +102,19 @@ export function storedToDefinition(stored: StoredWorkflow): WorkflowDefinition {
 const enabledCache = createCachedLoader<WorkflowDefinition[]>(
   async () => {
     const rows = await WorkflowOperations.listEnabled();
-    return rows.map((row) => storedToDefinition(rowToStored(row)));
+    const definitions: WorkflowDefinition[] = [];
+    for (const row of rows) {
+      try {
+        definitions.push(storedToDefinition(rowToStored(row)));
+      } catch (error) {
+        // 行级隔离：一条坏数据只跳过自己，不能让它拖垮整表导致全部工作流停摆
+        log.error('skip malformed workflow row', {
+          id: (row as { id?: number }).id,
+          error: (error as Error).message,
+        });
+      }
+    }
+    return definitions;
   },
   { ttlMs: 5000 },
 );

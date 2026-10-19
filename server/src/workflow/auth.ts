@@ -1,5 +1,6 @@
 import type { AvailableService } from '../types/token';
 import type { ActionClass } from '../types/namespace';
+import { DOMAIN_TRIGGERS } from './triggers';
 
 /**
  * 统一鉴权闸门。
@@ -94,13 +95,7 @@ export interface AuthorizeOptions {
   readonly depth?: number;
 }
 
-/** 组合裁决：域名变动类触发器不得触发写动作（§4.0） */
-const DOMAIN_TRIGGERS = new Set([
-  'domain.changed',
-  'domain.created',
-  'domain.deleted',
-  'domain.renewed',
-]);
+/** 组合裁决：域名变动类触发器不得触发写动作（§4.0）；集合来自共享常量，避免两处漂移 */
 const WRITE_CLASSES = new Set<ActionClass>(['dns.record.write', 'ext.write']);
 
 export function isCombinationAllowed(triggerType: string, actionClass: ActionClass): boolean {
@@ -123,7 +118,8 @@ function assertDomainPermission(principal: Principal, resource?: ResourceRef): v
   if (principal.allowedDomains === '*' && !principal.allowedDomainIds) return;
 
   // 优先按 ID 判定：事件里的 domain.id 是权威主键，名称可能大小写/IDN 不一致
-  if (resource.domainId !== undefined && principal.allowedDomainIds) {
+  // domainId=0 表示「未知主键」（如 ns.changed 表无 domain_id），此时必须落到名称判定
+  if (resource.domainId !== undefined && resource.domainId > 0 && principal.allowedDomainIds) {
     if (principal.allowedDomainIds.includes(resource.domainId)) return;
     throw new AuthorizationError(403, `域名权限不足: #${resource.domainId}`);
   }

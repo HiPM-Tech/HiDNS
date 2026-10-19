@@ -73,6 +73,8 @@ export interface EngineDeps {
   dispatch: Dispatcher;
   /** 按 id 取工作流（含禁用）；缺省时退回 listWorkflows —— 后者在生产只含启用项 */
   getWorkflowById?(id: string): Promise<WorkflowDefinition | null>;
+  /** 单次运行硬超时（毫秒）；默认 30s，测试可注入 */
+  runTimeoutMs?: number;
   /** 租户边界：工作流 owner 是否有权访问该事件域名 */
   canAccessDomain?(workflow: WorkflowDefinition, domain: { id: number; name: string }): Promise<boolean>;
   onRun?(record: RunRecord): Promise<void> | void;
@@ -153,26 +155,42 @@ export class WorkflowEngine {
     event: AnyDomainEvent,
     trigger: 'event' | 'manual',
     cachedPrincipal?: Principal,
+    flightKey?: string,
   ): Promise<RunRecord> {
     const now = this.deps.now ?? Date.now;
     const controller = new AbortController();
+    const depth = event.type === 'record.changed' ? event.depth + 1 : 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
+
+    const worker = this.runWorkflow(workflow, event, trigger, controller.signal, cachedPrincipal);
+    // 互斥锁只在**底层工作真正结束**后释放：超时只是提前返回结果，
+    // 底层 dispatch 可能仍在跑（动作层未消费 signal），此时放锁会导致重复写入。
+    if (flightKey) {
+      void worker
+        .catch(() => undefined)
+        .then(() => { this.inFlight.delete(flightKey); });
+    }
+
+    const timeout = new Promise<RunRecord>((resolve) => {
       timer = setTimeout(() => {
         controller.abort();
-        reject(new Error(`运行超时（>${RUN_TIMEOUT_MS}ms）`));
-      }, RUN_TIMEOUT_MS);
+        resolve({
+          workflowId: workflow.id,
+          traceId: event.traceId,
+          status: 'failed',
+          startedAt: new Date(now()).toISOString(),
+          finishedAt: new Date(now()).toISOString(),
+          error: `运行超时（>${this.deps.runTimeoutMs ?? RUN_TIMEOUT_MS}ms）`,
+          event,
+          depth,
+        });
+      }, this.deps.runTimeoutMs ?? RUN_TIMEOUT_MS);
     });
 
     try {
-      const record = await Promise.race([
-        this.runWorkflow(workflow, event, trigger, controller.signal, cachedPrincipal),
-        timeout,
-      ]);
-      return {
-        ...record,
-        depth: event.type === 'record.changed' ? event.depth + 1 : 0,
-      };
+      // 超时返回 failed 记录而不是抛错：否则整批运行记录丢失、后续工作流被饿死
+      const record = await Promise.race([worker, timeout]);
+      return { ...record, depth };
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -305,16 +323,34 @@ export class WorkflowEngine {
       }
 
       this.inFlight.add(flightKey);
+      let workerStarted = false;
       try {
         // 同一事件里同一 owner 只解析一次（避免每个工作流各查一次用户表）
         let principal = principalCache.get(workflow.ownerId ?? 0);
         if (!principal) {
-          principal = await this.deps.resolvePrincipal(workflow, event);
-          principalCache.set(workflow.ownerId ?? 0, principal);
+          try {
+            principal = await this.deps.resolvePrincipal(workflow, event);
+            principalCache.set(workflow.ownerId ?? 0, principal);
+          } catch (error) {
+            // 解析失败只影响这一个工作流：否则整批运行记录丢失且后续工作流不再评估
+            const nowIso = new Date((this.deps.now ?? Date.now)()).toISOString();
+            records.push({
+              workflowId: workflow.id,
+              traceId: event.traceId,
+              status: 'failed',
+              startedAt: nowIso,
+              finishedAt: nowIso,
+              error: (error as Error).message,
+              event,
+            });
+            continue;
+          }
         }
-        records.push(await this.executeOne(workflow, event, 'event', principal));
+        workerStarted = true;
+        // 锁由 executeOne 在底层工作真正结束后释放（超时也要等它跑完）
+        records.push(await this.executeOne(workflow, event, 'event', principal, flightKey));
       } finally {
-        this.inFlight.delete(flightKey);
+        if (!workerStarted) this.inFlight.delete(flightKey);
       }
     }
 
@@ -349,12 +385,8 @@ export class WorkflowEngine {
       };
     }
     this.inFlight.add(flightKey);
-    let record: RunRecord;
-    try {
-      record = await this.executeOne(workflow, event, 'manual');
-    } finally {
-      this.inFlight.delete(flightKey);
-    }
+    // 锁由 executeOne 在底层工作结束后释放
+    const record = await this.executeOne(workflow, event, 'manual', undefined, flightKey);
     await this.report([record]);
     return record;
   }

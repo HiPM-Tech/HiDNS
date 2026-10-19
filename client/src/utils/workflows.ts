@@ -54,7 +54,11 @@ export function toLiteral(field: ConditionField, op: string, raw: string): Workf
     const items = raw.split(',').map((part) => part.trim()).filter(Boolean);
     return { kind: 'literal', value: items.map((item) => (field.type === 'number' ? Number(item) : item)) };
   }
-  if (field.type === 'number') return { kind: 'literal', value: Number(raw) };
+  // 空字符串不能 Number('') 成 0，否则"清空条件值"会静默变成"等于 0"
+  if (field.type === 'number') {
+    const trimmed = raw.trim();
+    return { kind: 'literal', value: trimmed === '' ? null : Number(trimmed) };
+  }
   if (field.type === 'boolean') return { kind: 'literal', value: raw === 'true' };
   return { kind: 'literal', value: raw };
 }
