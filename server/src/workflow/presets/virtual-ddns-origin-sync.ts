@@ -25,11 +25,11 @@ const ref = (path: string): ExpressionNode => ({ kind: 'ref', path });
 const lit = (value: string | number | boolean | null): ExpressionNode => ({ kind: 'literal', value });
 
 /** 仅当事件里的记录类型匹配时才取值，否则给空串表示"本族无更新" */
-function familyValue(type: 'A' | 'AAAA'): ExpressionNode {
+function familyField(type: 'A' | 'AAAA', path: string): ExpressionNode {
   return {
     kind: 'cond',
     test: { kind: 'compare', op: '==', left: ref('event.record.type'), right: lit(type) },
-    then: ref('event.record.value'),
+    then: ref(path),
     else: lit(''),
   };
 }
@@ -37,8 +37,11 @@ function familyValue(type: 'A' | 'AAAA'): ExpressionNode {
 const planArgs = (): Record<string, ExpressionNode> => ({
   domainId: ref('event.domain.id'),
   domainName: ref('event.domain.name'),
-  v4: familyValue('A'),
-  v6: familyValue('AAAA'),
+  v4: familyField('A', 'event.record.value'),
+  v6: familyField('AAAA', 'event.record.value'),
+  // 旧值用于精确定位：源站组里同族有多条源站时，只改这一条，其余不动
+  v4From: familyField('A', 'event.record.oldValue'),
+  v6From: familyField('AAAA', 'event.record.oldValue'),
   addIfMissing: lit(true),
 });
 

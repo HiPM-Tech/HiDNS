@@ -30,6 +30,14 @@ export type AddressFamily = 'v4' | 'v6';
 export interface AddressUpdate {
   v4?: string;
   v6?: string;
+  /**
+   * 旧值：给了就按值**精确匹配**，只替换这一条。
+   *
+   * 这是"族内有多条源站"时的正解 —— DDNS 事件本身带 `oldValue`，
+   * 用它就能在不猜的前提下定位到该改的那一条，源站池里的其它记录原样保留。
+   * 不给旧值时，族内多条一律视为歧义并拒绝。
+   */
+  from?: { v4?: string; v6?: string };
 }
 
 export interface GroupSyncOptions {
@@ -52,8 +60,14 @@ export interface FamilyChange {
 
 export interface SkippedFamily {
   family: AddressFamily;
-  code: 'FAMILY_ABSENT' | 'FAMILY_AMBIGUOUS';
+  code: 'FAMILY_ABSENT' | 'FAMILY_AMBIGUOUS' | 'FROM_NOT_FOUND';
   message: string;
+  /**
+   * 是否应阻断整组写入。
+   * - 歧义 / 族缺失：无法判断意图，阻断
+   * - 旧值未命中：能确定"这个组没在跟踪该地址"，属于无事可做，不阻断
+   */
+  blocking: boolean;
 }
 
 export interface GroupSyncPlan {
@@ -103,6 +117,23 @@ export function normalizeAddressUpdate(update: AddressUpdate): AddressUpdate {
     }
     assertPublicTarget({ record: value, type: 'IP_DOMAIN' });
     normalized[family] = value;
+
+    // 旧值：族必须匹配；不校验公网性 —— 旧值可能是历史遗留的内网地址，
+    // 拒绝它会让"清理这条内网源站"变得无法执行
+    const rawFrom = update.from?.[family];
+    if (rawFrom !== undefined && rawFrom !== null) {
+      const fromValue = String(rawFrom).trim().replace(/^\[(.*)\]$/, '$1');
+      if (fromValue) {
+        const fromFamily = ipFamily(fromValue);
+        if (fromFamily !== FAMILY_NUMBER[family]) {
+          throw new OriginGroupError(
+            'ADDRESS_FAMILY_MISMATCH',
+            `${family} 旧值不是 IPv${FAMILY_NUMBER[family]} 地址: ${fromValue}`,
+          );
+        }
+        normalized.from = { ...normalized.from, [family]: fromValue };
+      }
+    }
   }
   if (!normalized.v4 && !normalized.v6) {
     throw new OriginGroupError('INVALID_UPDATE', '至少需要一个地址族的更新值');
@@ -202,6 +233,35 @@ export function planGroupSync(
       indices.push(i);
     }
 
+    // ① 给了旧值：按值精确定位，族内多条也不歧义，源站池其余记录不动
+    const fromValue = normalized.from?.[family];
+    if (fromValue) {
+      const matched = indices.filter((i) => after[i].record.trim() === fromValue);
+      if (matched.length === 0) {
+        skipped.push({
+          family,
+          code: 'FROM_NOT_FOUND',
+          message: `源站组内没有 ${fromValue} 这条 IPv${FAMILY_NUMBER[family]} 源站，视为未跟踪该地址`,
+          blocking: false,
+        });
+        continue;
+      }
+      const alreadyTarget = matched.every((i) => after[i].record === value);
+      if (alreadyTarget) continue; // 已是目标值
+      const replaceFrom = matched.map((i) => after[i].record);
+      const keepId = preserveRecordId && matched.length === 1;
+      for (const i of matched) {
+        after[i] = {
+          ...after[i],
+          record: value,
+          ...(keepId ? {} : { recordId: undefined }),
+        };
+      }
+      changes.push({ family, from: replaceFrom, to: value });
+      continue;
+    }
+
+    // ② 未给旧值：族内必须唯一，否则不猜
     if (indices.length === 0) {
       if (addIfMissing) {
         after.push({ record: value, type: 'IP_DOMAIN' });
@@ -211,6 +271,7 @@ export function planGroupSync(
           family,
           code: 'FAMILY_ABSENT',
           message: `源站组内没有 IPv${FAMILY_NUMBER[family]} 源站，未新增（需 addIfMissing: true）`,
+          blocking: true,
         });
       }
       continue;
@@ -220,7 +281,10 @@ export function planGroupSync(
       skipped.push({
         family,
         code: 'FAMILY_AMBIGUOUS',
-        message: `源站组内有 ${indices.length} 条 IPv${FAMILY_NUMBER[family]} 源站，无法确定替换目标（需 allowMultiple: true）`,
+        message:
+          `源站组内有 ${indices.length} 条 IPv${FAMILY_NUMBER[family]} 源站，无法确定替换哪一条` +
+          `（请传 ${family} 旧值做精确匹配，或用 allowMultiple: true 全部替换）`,
+        blocking: true,
       });
       continue;
     }
@@ -241,7 +305,8 @@ export function planGroupSync(
   }
 
   const changed = changes.length > 0;
-  const blocked = skipped.length > 0 && onPartial === 'reject';
+  const blockingSkips = skipped.filter((item) => item.blocking);
+  const blocked = blockingSkips.length > 0 && onPartial === 'reject';
   const requestedFamilies = FAMILY_ORDER.filter((family) => normalized[family] !== undefined);
 
   return {
@@ -252,7 +317,7 @@ export function planGroupSync(
     changes,
     skipped,
     changed,
-    noop: !changed && skipped.length === 0,
+    noop: !changed && blockingSkips.length === 0,
     blocked,
     references: group.references,
     digest: computeScopeDigest(group.groupId, before, after, requestedFamilies),

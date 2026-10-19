@@ -1716,8 +1716,7 @@
             "dbQueries": "DB Queries/min",
             "queueDepth": "Queue Depth",
             "latencyTitle": "Response Latency (P50 / P95 / P99)"
-        }
-,
+        },
         "workflow": {
             "param": {
                 "domain_id": "Domain ID",
@@ -1729,7 +1728,9 @@
                 "add_if_missing": "Add when address family is missing",
                 "allow_multiple": "Allow replacing multiple same-family origins",
                 "on_partial": "Policy when a family cannot be handled",
-                "diff_digest": "Diff digest"
+                "diff_digest": "Diff digest",
+                "ipv4_from": "Previous IPv4 (precise match)",
+                "ipv6_from": "Previous IPv6 (precise match)"
             }
         }
     }

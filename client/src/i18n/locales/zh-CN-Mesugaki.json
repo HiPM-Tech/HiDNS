@@ -1716,8 +1716,7 @@
             "dbQueries": "DB Queries/min",
             "queueDepth": "Queue Depth",
             "latencyTitle": "Response Latency (p50 / p95 / p99)"
-        }
-,
+        },
         "workflow": {
             "param": {
                 "domain_id": "域名ID",
@@ -1729,7 +1728,9 @@
                 "add_if_missing": "缺少该地址族时新增",
                 "allow_multiple": "允许替换同族多条源站",
                 "on_partial": "某地址族无法处理时的策略",
-                "diff_digest": "差异摘要"
+                "diff_digest": "差异摘要",
+                "ipv4_from": "旧 IPv4（精确匹配）",
+                "ipv6_from": "旧 IPv6（精确匹配）"
             }
         }
     }

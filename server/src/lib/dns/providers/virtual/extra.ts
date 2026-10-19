@@ -44,6 +44,17 @@ function readAddressUpdate(args: Record<string, unknown>): AddressUpdate {
   const v6 = String(args.v6 ?? '').trim();
   if (v4) update.v4 = v4;
   if (v6) update.v6 = v6;
+
+  // 旧值：族内有多条源站时靠它精确定位，避免误伤源站池
+  const v4From = String(args.v4From ?? '').trim();
+  const v6From = String(args.v6From ?? '').trim();
+  if (v4From || v6From) {
+    update.from = {
+      ...(v4From ? { v4: v4From } : {}),
+      ...(v6From ? { v6: v6From } : {}),
+    };
+  }
+
   if (!update.v4 && !update.v6) {
     throw new OriginGroupError('INVALID_UPDATE', '需要 v4 或 v6 至少一项');
   }
@@ -160,6 +171,8 @@ export const virtualOriginGroupCapability: ProviderExtraCapability = {
         { key: 'groupIds', label: 'workflow.param.group_ids', type: 'text', required: false },
         { key: 'v4', label: 'workflow.param.ipv4', type: 'text', required: false },
         { key: 'v6', label: 'workflow.param.ipv6', type: 'text', required: false },
+        { key: 'v4From', label: 'workflow.param.ipv4_from', type: 'text', required: false },
+        { key: 'v6From', label: 'workflow.param.ipv6_from', type: 'text', required: false },
         { key: 'addIfMissing', label: 'workflow.param.add_if_missing', type: 'boolean', required: false },
         { key: 'allowMultiple', label: 'workflow.param.allow_multiple', type: 'boolean', required: false },
         { key: 'onPartial', label: 'workflow.param.on_partial', type: 'select', required: false, options: ['reject', 'apply'] },
@@ -178,6 +191,8 @@ export const virtualOriginGroupCapability: ProviderExtraCapability = {
         { key: 'groupIds', label: 'workflow.param.group_ids', type: 'text', required: false },
         { key: 'v4', label: 'workflow.param.ipv4', type: 'text', required: false },
         { key: 'v6', label: 'workflow.param.ipv6', type: 'text', required: false },
+        { key: 'v4From', label: 'workflow.param.ipv4_from', type: 'text', required: false },
+        { key: 'v6From', label: 'workflow.param.ipv6_from', type: 'text', required: false },
         { key: 'addIfMissing', label: 'workflow.param.add_if_missing', type: 'boolean', required: false },
         { key: 'allowMultiple', label: 'workflow.param.allow_multiple', type: 'boolean', required: false },
         { key: 'onPartial', label: 'workflow.param.on_partial', type: 'select', required: false, options: ['reject', 'apply'] },

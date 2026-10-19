@@ -295,6 +295,126 @@ describe('批量计划与应用', () => {
   });
 });
 
+describe('族内有多条源站（源站池）', () => {
+  const pool = (): OriginGroup[] => [
+    grp(
+      [
+        rec('203.0.113.1', { recordId: 'r1', weight: 30 }),
+        rec('203.0.113.2', { recordId: 'r2', weight: 70 }),
+      ],
+      [],
+      { groupId: 'og-1' },
+    ),
+  ];
+
+  it('给旧值时只替换命中的那一条，池里其它记录原样保留', () => {
+    const plan = planGroupSync(grp([
+      rec('203.0.113.1', { recordId: 'r1', weight: 30 }),
+      rec('203.0.113.2', { recordId: 'r2', weight: 70 }),
+    ]), { v4: '198.51.100.1', from: { v4: '203.0.113.1' } });
+
+    expect(plan.blocked).toBe(false);
+    expect(plan.after.map((r) => r.record)).toEqual(['198.51.100.1', '203.0.113.2']);
+    expect(plan.after.map((r) => r.recordId)).toEqual(['r1', 'r2']);
+    expect(plan.after.map((r) => r.weight)).toEqual([30, 70]);
+    expect(plan.changes).toEqual([{ family: 'v4', from: ['203.0.113.1'], to: '198.51.100.1' }]);
+  });
+
+  it('不给旧值时族内多条视为歧义并阻断，不猜', () => {
+    const plan = planGroupSync(
+      grp([rec('203.0.113.1'), rec('203.0.113.2')]),
+      { v4: '198.51.100.1' },
+    );
+    expect(plan.blocked).toBe(true);
+    expect(plan.skipped[0]).toMatchObject({ family: 'v4', code: 'FAMILY_AMBIGUOUS', blocking: true });
+    expect(plan.after.map((r) => r.record)).toEqual(['203.0.113.1', '203.0.113.2']);
+  });
+
+  it('旧值未命中时视为未跟踪该地址，不阻断', () => {
+    const plan = planGroupSync(
+      grp([rec('203.0.113.1'), rec('203.0.113.2')]),
+      { v4: '198.51.100.1', from: { v4: '203.0.113.99' } },
+    );
+    expect(plan.skipped[0]).toMatchObject({ family: 'v4', code: 'FROM_NOT_FOUND', blocking: false });
+    expect(plan.blocked).toBe(false);
+    expect(plan.changed).toBe(false);
+    expect(plan.noop).toBe(true);
+  });
+
+  it('旧值命中但已是目标值 → noop', () => {
+    const plan = planGroupSync(
+      grp([rec('203.0.113.1'), rec('203.0.113.2')]),
+      { v4: '203.0.113.1', from: { v4: '203.0.113.1' } },
+    );
+    expect(plan.noop).toBe(true);
+    expect(plan.changed).toBe(false);
+  });
+
+  it('旧值族别不匹配直接报错', () => {
+    expect(() =>
+      planGroupSync(grp([rec('203.0.113.1')]), { v4: '198.51.100.1', from: { v4: '2001:db8::1' } }),
+    ).toThrow(/旧值不是 IPv4/);
+  });
+
+  it('A/AAAA 各自独立：给 v4 旧值时不影响同族的 v6 记录', () => {
+    const plan = planGroupSync(
+      grp([rec('203.0.113.1'), rec('203.0.113.2'), rec('2001:db8::1'), rec('2001:db8::2')]),
+      { v4: '198.51.100.1', from: { v4: '203.0.113.2' } },
+    );
+    expect(plan.after.map((r) => r.record)).toEqual([
+      '203.0.113.1',
+      '198.51.100.1',
+      '2001:db8::1',
+      '2001:db8::2',
+    ]);
+  });
+
+  it('域名有两条 A 记录时，两条事件各自精确替换，最终都更新', async () => {
+    const ops = fakeOps(pool());
+    const first = await planSyncSet(ops, {
+      groupIds: ['og-1'],
+      update: { v4: '198.51.100.1', from: { v4: '203.0.113.1' } },
+    });
+    await applySyncSet(
+      ops,
+      { groupIds: ['og-1'], update: { v4: '198.51.100.1', from: { v4: '203.0.113.1' } } },
+      first.digest,
+    );
+
+    const second = await planSyncSet(ops, {
+      groupIds: ['og-1'],
+      update: { v4: '198.51.100.2', from: { v4: '203.0.113.2' } },
+    });
+    const { results } = await applySyncSet(
+      ops,
+      { groupIds: ['og-1'], update: { v4: '198.51.100.2', from: { v4: '203.0.113.2' } } },
+      second.digest,
+    );
+    expect(results[0].status).toBe('applied');
+
+    const after = await ops.get('og-1');
+    expect(after?.records.map((r) => r.record)).toEqual(['198.51.100.1', '198.51.100.2']);
+    expect(after?.records.map((r) => r.recordId)).toEqual(['r1', 'r2']);
+  });
+
+  it('批量同步时，池组被精确替换、单条组按唯一值替换，互不干扰', async () => {
+    const ops = fakeOps([
+      grp([rec('203.0.113.1', { recordId: 'p1' }), rec('203.0.113.2', { recordId: 'p2' })], [], { groupId: 'og-pool' }),
+      grp([rec('203.0.113.1', { recordId: 's1' })], [], { groupId: 'og-single' }),
+    ]);
+    const request: SyncRequest = {
+      groupIds: ['og-pool', 'og-single'],
+      update: { v4: '198.51.100.1', from: { v4: '203.0.113.1' } },
+    };
+    const set = await planSyncSet(ops, request);
+    expect(set.hasBlocked).toBe(false);
+    await applySyncSet(ops, request, set.digest);
+
+    expect((await ops.get('og-pool'))?.records.map((r) => r.record)).toEqual(['198.51.100.1', '203.0.113.2']);
+    expect((await ops.get('og-single'))?.records.map((r) => r.record)).toEqual(['198.51.100.1']);
+  });
+});
+
 describe('并发：A 与 AAAA 作为两个独立事件同时到达', () => {
   const dual = (): OriginGroup[] => [
     grp([rec(V4_SLOT, { recordId: 'r1' }), rec(V6_SLOT, { recordId: 'r2' })], [], { groupId: 'og-1' }),
