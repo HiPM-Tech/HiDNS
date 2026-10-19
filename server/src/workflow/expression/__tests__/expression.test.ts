@@ -80,6 +80,28 @@ describe('DSL 静态校验', () => {
     expect(await evaluate(node('!=') as never, ctx as never)).toBe(true);
   });
 
+  it('关系运算：混合类型 fail-closed，纯字符串按字典序', async () => {
+    const { evaluate } = await import('../evaluator');
+    const ctx = { event: {}, vars: {}, call: async () => null };
+    const node = (op: string, l: unknown, r: unknown) => ({
+      kind: 'compare' as const,
+      op,
+      left: { kind: 'literal' as const, value: l },
+      right: { kind: 'literal' as const, value: r },
+    });
+    // 数字与数字：数值比较
+    expect(await evaluate(node('>', 9, 10) as never, ctx as never)).toBe(false);
+    // 数字字符串与数字：仍按数值
+    expect(await evaluate(node('>', '9', 10) as never, ctx as never)).toBe(false);
+    // 非数字字符串 vs 数字：fail-closed
+    expect(await evaluate(node('>', 'abc', 5) as never, ctx as never)).toBe(false);
+    expect(await evaluate(node('>=', 'unknown', 5) as never, ctx as never)).toBe(false);
+    // 布尔 vs 数字：fail-closed
+    expect(await evaluate(node('>', false, 1) as never, ctx as never)).toBe(false);
+    // 纯字符串：字典序（ISO 日期可比）
+    expect(await evaluate(node('>', '2026-09-01', '2026-08-01') as never, ctx as never)).toBe(true);
+  });
+
   it('拒绝未知节点类型', () => {
     const result = validate({ kind: 'eval', code: 'process.exit(1)' });
     expect(result.ok).toBe(false);

@@ -1,5 +1,6 @@
 import { WorkflowOperations, type WorkflowRow } from '../db/bal/business-adapter';
 import { createCachedLoader } from './cache';
+import { ALLOWED_TRIGGERS } from './triggers';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('Workflow').sub('Store');
@@ -42,23 +43,33 @@ function safeParse<T>(raw: string | null | undefined, fallback: T): T {
   }
 }
 
-const KNOWN_TRIGGER_TYPES = new Set(['record.changed', 'domain.changed', 'ns.changed', 'whois.expiring']);
-
 export function rowToStored(row: WorkflowRow): StoredWorkflow {
   // definition 解析失败必须视为损坏：回落成 {} 会让该工作流「每次触发都成功但什么都不做」，
   // 而截断/半写入正是最常见的损坏形态。
   let definition: { condition?: ExpressionNode; actions?: ExpressionNode[] };
   try {
-    definition = row.definition ? (JSON.parse(row.definition) as typeof definition) : {};
-  } catch {
-    throw new Error(`definition 不是合法 JSON: ${row.id}`);
+    const parsed: unknown = row.definition ? JSON.parse(row.definition) : {};
+    // 合法 JSON 但不是普通对象（[] / "x" / 123 / null）同样算损坏，否则 actions=[] 仍会 fail-open
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error(`definition 必须是 JSON 对象: ${row.id}`);
+    }
+    definition = parsed as { condition?: ExpressionNode; actions?: ExpressionNode[] };
+  } catch (error) {
+    throw new Error(`definition 非法: ${row.id} (${(error as Error).message})`);
   }
   // trigger_type 非法同样视为损坏：否则列表显示启用、引擎静默跳过，用户无法察觉。
-  if (typeof row.trigger_type === 'string' && !KNOWN_TRIGGER_TYPES.has(row.trigger_type)) {
+  if (typeof row.trigger_type === 'string' && !ALLOWED_TRIGGERS.includes(row.trigger_type as never)) {
     throw new Error(`trigger_type 非法: ${row.id} (${row.trigger_type})`);
   }
-  // trigger_config 非对象会被静默兜底成 ['A','AAAA']，把触发面放宽。
-  const triggerConfig = safeParse<unknown>(row.trigger_config, {});
+  // trigger_config 语法损坏同样视为损坏：静默兜底成 {} 会把 recordTypes 放宽为 ['A','AAAA']。
+  let triggerConfig: unknown = {};
+  if (row.trigger_config) {
+    try {
+      triggerConfig = JSON.parse(row.trigger_config);
+    } catch {
+      throw new Error(`trigger_config 不是合法 JSON: ${row.id}`);
+    }
+  }
   if (typeof triggerConfig !== 'object' || triggerConfig === null || Array.isArray(triggerConfig)) {
     throw new Error(`trigger_config 必须是对象: ${row.id}`);
   }
@@ -67,7 +78,8 @@ export function rowToStored(row: WorkflowRow): StoredWorkflow {
   if (definition.actions !== undefined && !Array.isArray(definition.actions)) {
     throw new Error(`definition.actions 必须是数组: ${row.id}`);
   }
-  if (definition.condition !== undefined && (typeof definition.condition !== 'object' || definition.condition === null)) {
+  // condition === null 是 API 的「清空」语义，读回时归一化为 undefined，不判损坏
+  if (definition.condition !== undefined && definition.condition !== null && (typeof definition.condition !== 'object' || Array.isArray(definition.condition))) {
     throw new Error(`definition.condition 必须是对象: ${row.id}`);
   }
   return {
@@ -77,6 +89,7 @@ export function rowToStored(row: WorkflowRow): StoredWorkflow {
     enabled: row.enabled === 1,
     triggerType: row.trigger_type,
     triggerConfig: triggerConfig as Record<string, unknown>,
+    // API 契约里 condition:null 表示「清空」，读回时归一化为 undefined，不能判成损坏
     condition: definition.condition ?? undefined,
     actions: definition.actions ?? [],
   };

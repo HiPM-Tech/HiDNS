@@ -96,9 +96,15 @@ export function fromConditionNode(node: WorkflowDslNode | null | undefined): Con
     if (fieldDef?.type === 'boolean') return typeof value === 'boolean';
     return typeof value === 'string';
   };
-  // `in` 的右值是标量数组：元素逐个校验，保证 join/split 往返无损
+  // 字符串元素还要能被逗号文本无损表示：含逗号 / 首尾空格 / 空串都会被
+  // join(', ') → split(',') 破坏，这类必须整节点保留 raw。
+  const roundTripSafe = (value: unknown): boolean => {
+    if (typeof value !== 'string') return true;
+    return value !== '' && value.trim() === value && !value.includes(',');
+  };
+  // `in` 的右值是标量数组：元素类型 + 文本可逆性都要满足
   const valueTypeOk = Array.isArray(rightNode.value)
-    ? node.op === 'in' && rightNode.value.every((item) => matchesFieldType(item))
+    ? node.op === 'in' && rightNode.value.every((item) => matchesFieldType(item) && roundTripSafe(item))
     : rightNode.value === null
       ? fieldDef?.type === 'number'
       : matchesFieldType(rightNode.value);

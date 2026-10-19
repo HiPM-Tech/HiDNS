@@ -5,6 +5,7 @@ import { getLoginLimitConfig, updateLoginLimitConfig, getLoginAttemptStats, unlo
 import { SettingsOperations, NotificationOperations, AuditRuleOperations, DomainExpiryOperations, UserOperations } from '../db/bal/business-adapter';
 import { getSmtpConfig, updateSmtpConfig, sendSmtpEmail } from '../service/smtp';
 import { logAuditOperation } from '../service/audit';
+import { isIP } from 'node:net';
 import { getOutboundAllowlist, reloadOutboundPolicy } from '../workflow/index';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createLogger } from '../lib/logger';
@@ -672,7 +673,9 @@ router.put('/workflow-http-allowlist', authMiddleware, noTokenAuth('system setti
   const normalized = allowlist.map((item) => String(item).trim()).filter(Boolean);
   // 条目必须是**纯主机名**：带 scheme/端口/路径的条目永远匹配不上，
   // 放进去会让「配好了却恒被拒」重现，因此直接 422。
-  const invalid = normalized.filter((item) => /[:/\\?#@\s]/.test(item));
+  // IPv6 字面量含冒号，引擎侧（policy.normalizeHost/matchesAllowlist）明确支持，
+  // 因此只对其余条目禁冒号，否则 IPv6-only 出站永远配不上。
+  const invalid = normalized.filter((item) => (isIP(item) === 6 ? false : /[:/\\?#@\s]/.test(item)));
   if (invalid.length > 0) {
     sendError(res, `以下条目不是纯主机名: ${invalid.join(', ')}`, 422);
     return;

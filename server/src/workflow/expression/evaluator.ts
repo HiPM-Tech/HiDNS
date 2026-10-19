@@ -101,9 +101,12 @@ function relationalCompare(op: string, left: unknown, right: unknown): boolean {
       case '<=': return ln <= rn;
     }
   }
-  // 非数值（如 ISO 日期字符串）按字典序比较，与 JS 原生语义一致
-  const ls = String(left);
-  const rs = String(right);
+  // 字典序**只在两侧都是字符串**时使用（如 ISO 日期）。
+  // 一侧是数字、另一侧是非数字字符串/布尔时属无意义输入，必须 fail-closed：
+  // 否则 'abc' > 5 会因字母码位大于数字码位而恒真，重演「空值恒真」的坑。
+  if (typeof left !== 'string' || typeof right !== 'string') return false;
+  const ls = left;
+  const rs = right;
   switch (op) {
     case '>': return ls > rs;
     case '>=': return ls >= rs;

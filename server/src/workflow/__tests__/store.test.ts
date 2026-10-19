@@ -49,7 +49,7 @@ describe('工作流持久化映射', () => {
 
   it('definition 语法损坏视为损坏数据（fail-closed）', () => {
     // 截断/半写入是最常见的损坏形态：回落成空定义会变成「每次触发都成功但什么都不做」
-    expect(() => rowToStored(row({ definition: '{not json' }))).toThrowError(/definition 不是合法 JSON/);
+    expect(() => rowToStored(row({ definition: '{not json' }))).toThrowError(/definition 非法/);
   });
 
   it('definition 缺失按空定义处理', () => {
