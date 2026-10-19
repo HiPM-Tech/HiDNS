@@ -44,6 +44,14 @@ function safeParse<T>(raw: string | null | undefined, fallback: T): T {
 
 export function rowToStored(row: WorkflowRow): StoredWorkflow {
   const definition = safeParse<{ condition?: ExpressionNode; actions?: ExpressionNode[] }>(row.definition, {});
+  // 结构校验：definition 被写坏时宁可抛错（由上层行级容错跳过），
+  // 也不要把字符串当 actions 传下去（引擎会逐字符求值，错误信息误导）。
+  if (definition.actions !== undefined && !Array.isArray(definition.actions)) {
+    throw new Error(`definition.actions 必须是数组: ${row.id}`);
+  }
+  if (definition.condition !== undefined && (typeof definition.condition !== 'object' || definition.condition === null)) {
+    throw new Error(`definition.condition 必须是对象: ${row.id}`);
+  }
   return {
     id: row.id,
     ownerId: row.owner_id,
@@ -51,7 +59,7 @@ export function rowToStored(row: WorkflowRow): StoredWorkflow {
     enabled: row.enabled === 1,
     triggerType: row.trigger_type,
     triggerConfig: safeParse<Record<string, unknown>>(row.trigger_config, {}),
-    condition: definition.condition,
+    condition: definition.condition ?? undefined,
     actions: definition.actions ?? [],
   };
 }

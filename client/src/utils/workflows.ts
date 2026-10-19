@@ -73,7 +73,7 @@ export function toConditionNode(draft: ConditionDraft): WorkflowDslNode | undefi
   };
 }
 
-export function fromConditionNode(node: WorkflowDslNode | undefined): ConditionDraft {
+export function fromConditionNode(node: WorkflowDslNode | null | undefined): ConditionDraft {
   if (!node || node.kind !== 'compare') return { ...EMPTY_CONDITION };
   const left = (node.left ?? {}) as { path?: string };
   const right = (node.right ?? {}) as { value?: unknown };

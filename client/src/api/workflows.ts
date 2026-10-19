@@ -34,7 +34,8 @@ export interface WorkflowRecord {
   enabled: boolean;
   triggerType: string;
   triggerConfig: Record<string, unknown>;
-  condition?: WorkflowDslNode;
+  /** null 表示显式清空条件（undefined 会被 axios 丢弃，服务端会保留旧值） */
+  condition?: WorkflowDslNode | null;
   actions: WorkflowDslNode[];
 }
 
@@ -53,7 +54,8 @@ export interface WorkflowPayload {
   enabled?: boolean;
   triggerType: string;
   triggerConfig: Record<string, unknown>;
-  condition?: WorkflowDslNode;
+  /** null 表示显式清空条件（undefined 会被 axios 丢弃，服务端会保留旧值） */
+  condition?: WorkflowDslNode | null;
   actions: WorkflowDslNode[];
 }
 

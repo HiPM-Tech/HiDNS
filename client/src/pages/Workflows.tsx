@@ -91,7 +91,7 @@ export function Workflows() {
   const [runOldValue, setRunOldValue] = useState('');
 
   const initial = useMemo(() => (editing ? toFormState(editing) : null), [editing, formKey]);
-  const { formState, updateField } = useFormSync<WorkflowForm>(initial as WorkflowForm | null, DEFAULT_FORM, {
+  const { formState, updateField, resetForm } = useFormSync<WorkflowForm>(initial as WorkflowForm | null, DEFAULT_FORM, {
     fields: FORM_FIELDS,
   });
 
@@ -123,8 +123,9 @@ export function Workflows() {
   const actions = (actionsQuery.data?.data?.data as { items?: WorkflowActionMeta[] } | undefined)?.items ?? [];
   const triggers = (triggerQuery.data?.data?.data as { items?: Array<{ value: string; label: string }> } | undefined)?.items ?? [];
   // meta 返回的是 { value, label } 对象数组，不是字符串数组
-  const metaItems = (source: { data?: { data?: { items?: Array<{ value?: string; label?: string }> } } } | undefined): string[] =>
-    (source?.data?.data?.items ?? []).map((item) => String(item.value ?? '')).filter(Boolean);
+  // axios → AxiosResponse.data → ApiResponse.data → { items }
+  const metaItems = (source: { data?: { data?: { data?: { items?: Array<{ value?: string; label?: string }> } } } } | undefined): string[] =>
+    (source?.data?.data?.data?.items ?? []).map((item) => String(item.value ?? '')).filter(Boolean);
   const recordTypes = metaItems(recordTypesQuery);
   const domainFields = metaItems(domainFieldsQuery);
   const nsStatuses = metaItems(nsStatusesQuery);
@@ -150,7 +151,8 @@ export function Workflows() {
                 : form.triggerType === 'whois.expiring'
                   ? form.withinDays === '' ? {} : { withinDays: Number(form.withinDays) }
                   : {},
-        condition: toConditionNode(form.condition),
+        // 关闭条件时发 null：undefined 会被 JSON.stringify 丢弃，服务端会保留旧条件
+        condition: toConditionNode(form.condition) ?? null,
         actions: toDslNodes(form.rows),
       };
       return editing ? workflowsApi.update(editing.id, payload) : workflowsApi.create(payload);
@@ -194,6 +196,8 @@ export function Workflows() {
 
   function openCreate() {
     setEditing(null);
+    // initial 为 null 时引用不变，useFormSync 的 effect 不会重跑，必须显式重置
+    resetForm();
     setFormKey((value) => value + 1);
     setDialogOpen(true);
   }

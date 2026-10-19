@@ -8,6 +8,8 @@ import { createDispatcher } from './dispatch';
 import { lookupActionMeta } from './actions/registry';
 import { getStoredById, listEnabledDefinitions, recordRun, storedToDefinition } from './store';
 import { getAccessibleDomains, getWritableDomainIds } from './access';
+import { SettingsOperations } from '../db/bal/business-adapter';
+import { setHttpFetchPolicy } from './actions/http/outbound';
 import type { AuthorizeDeps, Principal } from './auth';
 import { buildRecordEvent, type DomainEvent as WorkflowEvent } from '../lib/domain-event-bus';
 
@@ -102,12 +104,40 @@ export async function resolvePrincipal(workflow: WorkflowDefinition): Promise<Pr
 
 let engine: WorkflowEngine | null = null;
 
+/**
+ * 装载出站白名单。
+ * 此前 `setHttpFetchPolicy` 只在测试里调用，生产 allowlist 恒为空，
+ * 导致 `http.outbound.fetch` **永远** NOT_ALLOWLISTED（fail-closed 退化成 fail-always）。
+ */
+async function loadOutboundPolicy(): Promise<void> {
+  try {
+    const raw = (await SettingsOperations.get('workflow_http_allowlist')) as unknown as
+      | string
+      | { value?: string }
+      | null
+      | undefined;
+    const value = typeof raw === 'string' ? raw : raw?.value;
+    const allowlist = String(value ?? '')
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    setHttpFetchPolicy({ allowlist });
+    if (allowlist.length === 0) {
+      log.warn('workflow http allowlist is empty; http.outbound.fetch will reject everything');
+    }
+  } catch (error) {
+    log.warn('load workflow http allowlist failed', { error: (error as Error).message });
+  }
+}
+
 export function startWorkflowModule(): void {
   if (engine) return;
   if (!isSystemInitialized()) {
     log.info('workflow module not started: system not initialized');
     return;
   }
+
+  void loadOutboundPolicy();
 
   const dispatcher = createDispatcher({ authorizeDeps });
 

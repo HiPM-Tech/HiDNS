@@ -128,6 +128,14 @@ export async function executeDomainRenewal(): Promise<void> {
               // 主核心事件主线：续期成功。事件需要 domains 表的主键，
               // renewable_domains 的 id 与 domains.id 不是同一实体，不能混用。
               const renewedName = String(result.domain_name ?? domain.full_domain ?? domain.name ?? '');
+              if (renewedName) {
+                // 重置必须无条件执行：被订阅者守卫包住的话，无订阅者期间续期不会重置，
+                // 一年后同一 daysLeft 会被永久抑制
+                const anyRecord = (await DomainOperations.getByName(renewedName)) as unknown as
+                  | { id: number }
+                  | undefined;
+                if (anyRecord) whoisEventDedupe.reset(anyRecord.id);
+              }
               // 先判订阅者：没有工作流时不必为发布而查库
               if (renewedName && hasDomainEventSubscribers()) {
                 const localRecord = (await DomainOperations.getByName(renewedName)) as unknown as

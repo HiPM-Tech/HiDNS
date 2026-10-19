@@ -118,17 +118,15 @@ export class AuthorizationError extends Error {
 function assertDomainPermission(
   principal: Principal,
   resource?: ResourceRef,
-  actionClass?: ActionClass,
+  _actionClass?: ActionClass,
 ): void {
   if (!resource) return;
   if (principal.allowedDomains === '*' && !principal.allowedDomainIds) return;
 
-  // 写类动作必须命中「可写集合」，避免只读授权被提升为整域写
-  const writeClass = actionClass === 'dns.record.write' || actionClass === 'ext.write';
-  const idSet = writeClass ? principal.allowedWriteDomainIds : principal.allowedDomainIds;
-  if (writeClass && !idSet) {
-    throw new AuthorizationError(403, '写类动作缺少可写域名集合');
-  }
+  // 事件域名只是**触发来源**，一律按读集合判定；
+  // 写权限由动作层针对**目标域名**（args.domain / args.domainId）另行校验。
+  // 若在这里套写集合，会误杀「A 记录变动 → 写 B 域名」这条合法路径。
+  const idSet = principal.allowedDomainIds;
 
   // 优先按 ID 判定：事件里的 domain.id 是权威主键，名称可能大小写/IDN 不一致
   // domainId=0 表示「未知主键」（如 ns.changed 表无 domain_id），此时必须落到名称判定

@@ -26,9 +26,12 @@ export interface EvalContext {
 
 export interface EvalState {
   calls: number;
+  /** 当前表达式的求值截止时间（**不含**动作执行耗时） */
   deadline: number;
-  /** 运行期节点计数：保存期校验可能被绕过（如历史数据），求值器自己也要有上界 */
+  /** 当前表达式的节点数 */
   nodes?: number;
+  /** 本次运行累计节点数（防止用多个根绕过单表达式上界） */
+  runNodes?: number;
 }
 
 /** 运行级求值状态：一次运行内所有根节点共享同一份预算 */
@@ -60,8 +63,12 @@ function checkBudget(state: EvalState, now: () => number): void {
   }
   // 运行期节点上限：不依赖保存期校验，避免历史/异常数据把求值器拖进深递归
   state.nodes = (state.nodes ?? 0) + 1;
+  state.runNodes = (state.runNodes ?? 0) + 1;
   if (state.nodes > LIMITS.maxNodes) {
     throw new ExpressionError('TOO_MANY_NODES', '表达式节点过多');
+  }
+  if (state.runNodes > LIMITS.maxRunNodes) {
+    throw new ExpressionError('TOO_MANY_NODES', '本次运行节点总数过多');
   }
 }
 

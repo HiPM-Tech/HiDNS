@@ -39,14 +39,24 @@ export const declarations: ActionDeclaration[] = providerDefinitions.flatMap((de
  * 这里必须做**域名级二次校验**：`authorize` 校验的是事件域名，
  * 而扩展动作的目标域名来自 `args.domainId` —— 不校验就等于允许跨租户读写。
  */
-function wrap(handler: (args: Record<string, unknown>) => Promise<unknown>): BrandedActionHandler {
+function wrap(
+  handler: (args: Record<string, unknown>) => Promise<unknown>,
+  actionClass: string,
+): BrandedActionHandler {
+  const writeClass = actionClass === 'ext.write';
   return defineAction(async (ctx, args) => {
     const domainId = Number(args.domainId);
-    if (Number.isFinite(domainId) && domainId > 0) {
-      const ids = ctx.principal.allowedDomainIds;
-      if (ids && !ids.includes(domainId)) {
-        throw new AuthorizationError(403, `域名权限不足: #${domainId}`);
-      }
+    const ids = writeClass ? ctx.principal.allowedWriteDomainIds : ctx.principal.allowedDomainIds;
+
+    // 写类动作没有可写集合时 fail-closed；读类缺集合时同样拒绝（不再 fail-open）
+    if (!ids) {
+      throw new AuthorizationError(403, writeClass ? '写类动作缺少可写域名集合' : '缺少可访问域名集合');
+    }
+    if (!Number.isFinite(domainId) || domainId <= 0) {
+      throw new AuthorizationError(400, '扩展动作必须提供有效的 domainId');
+    }
+    if (!ids.includes(domainId)) {
+      throw new AuthorizationError(403, `域名权限不足: #${domainId}`);
     }
     return handler(args);
   });
@@ -57,7 +67,10 @@ export const handlers: Record<string, BrandedActionHandler> = Object.assign(
   ...providerDefinitions.flatMap((definition) =>
     (definition.extraCapabilities ?? []).map((capability) =>
       Object.fromEntries(
-        Object.entries(capability.handlers ?? {}).map(([name, handler]) => [name, wrap(handler)]),
+        Object.entries(capability.handlers ?? {}).map(([name, handler]) => {
+          const declaration = capability.actions.find((action) => action.name === name);
+          return [name, wrap(handler, declaration?.actionClass ?? 'ext.read')];
+        }),
       ),
     ),
   ),

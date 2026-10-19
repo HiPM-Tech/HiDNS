@@ -109,7 +109,7 @@ export function validateExpression(root: unknown, options: ValidationOptions): V
         return;
       }
       case 'compare': {
-        if (!(COMPARE_OPS as readonly string[]).includes(String(node.op))) {
+        if (typeof node.op !== 'string' || !(COMPARE_OPS as readonly string[]).includes(node.op)) {
           issues.push({ code: 'INVALID_OPERATOR', message: `比较运算非法: ${String(node.op)}`, path });
         }
         visit(node.left, `${path}.left`, depth + 1);
@@ -117,7 +117,7 @@ export function validateExpression(root: unknown, options: ValidationOptions): V
         return;
       }
       case 'arith': {
-        if (!(ARITH_OPS as readonly string[]).includes(String(node.op))) {
+        if (typeof node.op !== 'string' || !(ARITH_OPS as readonly string[]).includes(node.op)) {
           issues.push({ code: 'INVALID_OPERATOR', message: `算术运算非法: ${String(node.op)}`, path });
         }
         visit(node.left, `${path}.left`, depth + 1);

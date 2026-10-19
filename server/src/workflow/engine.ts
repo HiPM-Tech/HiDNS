@@ -4,6 +4,7 @@ import { workflowEventBus, type WorkflowEvent } from './event-bus';
 import type { AnyDomainEvent } from '../lib/domain-event-bus';
 import type { ExpressionNode } from './expression/nodes';
 import { evaluate, createEvalState } from './expression/evaluator';
+import { LIMITS } from './expression/nodes';
 import type { Dispatcher } from './dispatch';
 import type { Principal } from './auth';
 
@@ -95,8 +96,8 @@ export interface EngineDeps {
  */
 export class WorkflowEngine {
   private unsubscribe: (() => void) | null = null;
-  /** 同一工作流不允许并发执行：快速连续事件会重复写记录 */
-  private readonly inFlight = new Set<string>();
+  /** 同一工作流+同一目标不允许并发执行；value 为本次持有的 token，防旧 worker 删新锁 */
+  private readonly inFlight = new Map<string, string>();
 
   constructor(
     private readonly deps: EngineDeps,
@@ -159,19 +160,26 @@ export class WorkflowEngine {
     trigger: 'event' | 'manual',
     cachedPrincipal?: Principal,
     flightKey?: string,
+    flightToken?: string,
   ): Promise<RunRecord> {
     const now = this.deps.now ?? Date.now;
     const controller = new AbortController();
     const depth = event.type === 'record.changed' ? event.depth + 1 : 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
+    const runStartedAt = new Date(now()).toISOString();
     const worker = this.runWorkflow(workflow, event, trigger, controller.signal, cachedPrincipal);
     // 互斥锁只在**底层工作真正结束**后释放：超时只是提前返回结果，
     // 底层 dispatch 可能仍在跑（动作层未消费 signal），此时放锁会导致重复写入。
     if (flightKey) {
+      // 释放前校验 token：强制放锁后旧 worker 结束时不得删掉**新**运行的锁
+      const release = () => {
+        if (this.inFlight.get(flightKey) === flightToken) this.inFlight.delete(flightKey);
+      };
       // 兜底：底层若永不返回（连接层卡死），锁不能永久占用 —— 超过硬上界后强制释放并告警
       const forceRelease = setTimeout(() => {
-        if (this.inFlight.delete(flightKey)) {
+        if (this.inFlight.get(flightKey) === flightToken) {
+          this.inFlight.delete(flightKey);
           log.error('in-flight lock force released', { flightKey });
         }
       }, (this.deps.runTimeoutMs ?? RUN_TIMEOUT_MS) * LOCK_TTL_FACTOR);
@@ -180,7 +188,7 @@ export class WorkflowEngine {
         .catch(() => undefined)
         .then(() => {
           clearTimeout(forceRelease);
-          this.inFlight.delete(flightKey);
+          release();
         });
     }
 
@@ -191,7 +199,7 @@ export class WorkflowEngine {
           workflowId: workflow.id,
           traceId: event.traceId,
           status: 'failed',
-          startedAt: new Date(now()).toISOString(),
+          startedAt: runStartedAt,
           finishedAt: new Date(now()).toISOString(),
           error: `运行超时（>${this.deps.runTimeoutMs ?? RUN_TIMEOUT_MS}ms）`,
           event,
@@ -240,8 +248,13 @@ export class WorkflowEngine {
       // 否则每个根节点各拿一份预算，单次运行上限被放大为「根数 × 50」。
       const evalState = createEvalState(now);
       const evalCtx = { event: event as unknown as Record<string, unknown>, vars, call, now };
-      // nodes 是「单表达式」上限（与保存期口径一致），calls/deadline 才是运行级
-      const resetNodes = () => { evalState.nodes = 0; };
+      // nodes 与 deadline 都是「单表达式」口径（与保存期一致）；
+      // 动作耗时绝不能计入求值超时，否则慢动作会让后续根节点误报 TIMEOUT。
+      // calls 与 runNodes 才是运行级上界。
+      const resetNodes = () => {
+        evalState.nodes = 0;
+        evalState.deadline = now() + LIMITS.timeoutMs;
+      };
 
       if (workflow.condition) {
         resetNodes();
@@ -327,9 +340,34 @@ export class WorkflowEngine {
         continue;
       }
 
-      // 并发保护：只对**同一目标**的重入跳过。
-      // 键里带记录 id —— 否则批量导入 10 条不同记录时，后 9 条会被误丢弃。
-      const flightKey = `${workflow.id}:${event.type === 'record.changed' ? event.record.id : '*'}`;
+      // 并发保护：只对**同一工作流 + 同一目标域名（+ 同一记录）**的重入跳过。
+      // 键里必须带域名：否则 ns.changed 一批多个域名时只有第一个能执行，其余被静默丢弃。
+      const target = event.type === 'record.changed' ? event.record.id : String(event.domain.id || event.domain.name);
+      const flightKey = `${workflow.id}:${target}`;
+
+      // 执行身份在**取锁之前**解析：解析卡死时不得把锁永久占住
+      let principal = principalCache.get(workflow.ownerId ?? 0);
+      if (!principal) {
+        try {
+          // 同一事件里同一 owner 只解析一次（避免每个工作流各查一次用户表）
+          principal = await this.deps.resolvePrincipal(workflow, event);
+          principalCache.set(workflow.ownerId ?? 0, principal);
+        } catch (error) {
+          // 解析失败只影响这一个工作流：否则整批运行记录丢失且后续工作流不再评估
+          const nowIso = new Date((this.deps.now ?? Date.now)()).toISOString();
+          records.push({
+            workflowId: workflow.id,
+            traceId: event.traceId,
+            status: 'failed',
+            startedAt: nowIso,
+            finishedAt: nowIso,
+            error: (error as Error).message,
+            event,
+          });
+          continue;
+        }
+      }
+
       if (this.inFlight.has(flightKey)) {
         const nowIso = new Date((this.deps.now ?? Date.now)()).toISOString();
         records.push({
@@ -344,36 +382,10 @@ export class WorkflowEngine {
         continue;
       }
 
-      this.inFlight.add(flightKey);
-      let workerStarted = false;
-      try {
-        // 同一事件里同一 owner 只解析一次（避免每个工作流各查一次用户表）
-        let principal = principalCache.get(workflow.ownerId ?? 0);
-        if (!principal) {
-          try {
-            principal = await this.deps.resolvePrincipal(workflow, event);
-            principalCache.set(workflow.ownerId ?? 0, principal);
-          } catch (error) {
-            // 解析失败只影响这一个工作流：否则整批运行记录丢失且后续工作流不再评估
-            const nowIso = new Date((this.deps.now ?? Date.now)()).toISOString();
-            records.push({
-              workflowId: workflow.id,
-              traceId: event.traceId,
-              status: 'failed',
-              startedAt: nowIso,
-              finishedAt: nowIso,
-              error: (error as Error).message,
-              event,
-            });
-            continue;
-          }
-        }
-        workerStarted = true;
-        // 锁由 executeOne 在底层工作真正结束后释放（超时也要等它跑完）
-        records.push(await this.executeOne(workflow, event, 'event', principal, flightKey));
-      } finally {
-        if (!workerStarted) this.inFlight.delete(flightKey);
-      }
+      const flightToken = newTraceId();
+      this.inFlight.set(flightKey, flightToken);
+      // 锁由 executeOne 在底层工作真正结束后释放（带 token 校验）
+      records.push(await this.executeOne(workflow, event, 'event', principal, flightKey, flightToken));
     }
 
     await this.report(records);
@@ -392,7 +404,8 @@ export class WorkflowEngine {
       : (await this.deps.listWorkflows()).find((item) => item.id === workflowId) ?? null;
     if (!workflow) return null;
 
-    const flightKey = `${workflow.id}:${event.type === 'record.changed' ? event.record.id : '*'}`;
+    const manualTarget = event.type === 'record.changed' ? event.record.id : String(event.domain.id || event.domain.name);
+    const flightKey = `${workflow.id}:${manualTarget}`;
     if (this.inFlight.has(flightKey)) {
       // 并发冲突不是「不存在」：返回可区分的记录，由路由映射成 409
       const nowIso = new Date((this.deps.now ?? Date.now)()).toISOString();
@@ -406,9 +419,10 @@ export class WorkflowEngine {
         event,
       };
     }
-    this.inFlight.add(flightKey);
-    // 锁由 executeOne 在底层工作结束后释放
-    const record = await this.executeOne(workflow, event, 'manual', undefined, flightKey);
+    const flightToken = newTraceId();
+    this.inFlight.set(flightKey, flightToken);
+    // 锁由 executeOne 在底层工作结束后释放（带 token 校验）
+    const record = await this.executeOne(workflow, event, 'manual', undefined, flightKey, flightToken);
     const failures = await this.report([record]);
     // 落库失败不得对外报告成功：否则用户看到 success 但运行记录里什么都没有
     if (failures > 0) throw new Error('运行记录写入失败');

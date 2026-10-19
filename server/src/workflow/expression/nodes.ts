@@ -96,6 +96,8 @@ export type ExpressionNode =
 export const LIMITS = {
   maxDepth: 64,
   maxNodes: 2000,
+  /** 单次运行的节点总数上界（多个根合计） */
+  maxRunNodes: 20000,
   maxCalls: 50,
   timeoutMs: 5000,
 } as const;

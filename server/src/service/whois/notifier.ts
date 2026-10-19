@@ -10,6 +10,7 @@ import { sendNotification } from '../notification';
 import { createLogger } from '../../lib/logger';
 import { publishWhoisEvent } from '../../lib/domain-event-bus';
 import { whoisEventDedupe } from '../../lib/whois-event-dedupe';
+import { hasDomainEventSubscribers } from '../../lib/domain-event-bus';
 
 const log = createLogger('WhoisService').sub('Notifier');
 /**
@@ -30,7 +31,8 @@ export async function checkAndSendNotification(domain: Domain, expiresAt: Date):
     // 主核心事件主线：到期临近（独立于通知开关，工作流可自行决定如何处置）。
     // 去重：剩余天数变化才发布，避免每次 WHOIS 同步都重复触发工作流。
     const domainId = Number((domain as unknown as { id: number }).id);
-    if (daysLeft <= threshold && whoisEventDedupe.shouldEmit(domainId, daysLeft)) {
+    // 先判订阅者再消费去重：否则无订阅者期间去重状态已推进，事后建工作流会一直等到天数变化
+    if (daysLeft <= threshold && hasDomainEventSubscribers() && whoisEventDedupe.shouldEmit(domainId, daysLeft)) {
       publishWhoisEvent({
         domain: { id: domainId, name: String(domain.name) },
         expiresAt: expiresAt.toISOString(),
