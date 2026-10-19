@@ -55,6 +55,7 @@ const domainItems: NavItem[] = [
 const adminItems: NavItem[] = [
   { to: '/dash/users', icon: <UserSettingIcon />, key: 'common.users' },
   { to: '/dash/audit', icon: <FileSearchIcon />, key: 'common.audit' },
+  { to: '/dash/workflows', icon: <LinkIcon />, key: 'workflows.title' },
 ];
 
 const systemItems: NavItem[] = [

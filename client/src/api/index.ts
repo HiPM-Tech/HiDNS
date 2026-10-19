@@ -19,6 +19,8 @@ export { logsApi } from './logs';
 export { systemApi, settingsApi, securityApi } from './settings';
 export { tokensApi } from './tokens';
 export { nsMonitorApi } from './ns-monitor';
+export { workflowsApi } from './workflows';
+export type { WorkflowRecord, WorkflowRunRecord, WorkflowPayload, WorkflowActionMeta } from './workflows';
 export { networkApi } from './network';
 export { serviceMonitorApi } from './servicemonitor';
 export { resourceMonitorApi } from './resource-monitor';

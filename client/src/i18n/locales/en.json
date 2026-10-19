@@ -2,6 +2,24 @@
     "code": "en",
     "label": "English",
     "messages": {
+        "workflows": {
+            "title": "Workflows",
+            "name": "Name",
+            "trigger": "Trigger",
+            "actions": "Actions",
+            "enabled": "Enabled",
+            "operations": "Operations",
+            "runs": "Runs",
+            "run": "Run now",
+            "create": "New workflow",
+            "edit": "Edit workflow",
+            "saved": "Saved",
+            "runTriggered": "Run triggered",
+            "recordTypes": "Record types",
+            "fields": "Fields",
+            "pickAction": "Pick an action",
+            "addAction": "Add action"
+        },
         "common": {
             "dashboard": "Dashboard",
             "dnsAccounts": "DNS Accounts",

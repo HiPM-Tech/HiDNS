@@ -31,6 +31,7 @@ const Tokens = lazy(() => import('./pages/Tokens').then((m) => ({ default: m.Tok
 const McpManagement = lazy(() => import('./pages/McpManagement').then((m) => ({ default: m.McpManagement })));
 const About = lazy(() => import('./pages/About').then((m) => ({ default: m.About })));
 const System = lazy(() => import('./pages/System').then((m) => ({ default: m.System })));
+const Workflows = lazy(() => import('./pages/Workflows').then((m) => ({ default: m.Workflows })));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -77,6 +78,7 @@ function App() {
                         <Route element={<AdminRoute />}>
                           <Route path="dash/users" element={<Suspense fallback={<RouteFallback />}><Users /></Suspense>} />
                           <Route path="dash/audit" element={<Suspense fallback={<RouteFallback />}><Audit /></Suspense>} />
+                          <Route path="dash/workflows" element={<Suspense fallback={<RouteFallback />}><Workflows /></Suspense>} />
                           <Route path="dash/system" element={<Suspense fallback={<RouteFallback />}><System activeTab="overview" /></Suspense>} />
                           <Route path="dash/system/database" element={<Suspense fallback={<RouteFallback />}><System activeTab="database" /></Suspense>} />
                           <Route path="dash/system/security" element={<Suspense fallback={<RouteFallback />}><System activeTab="security" /></Suspense>} />

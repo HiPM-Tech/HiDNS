@@ -1,0 +1,17 @@
+.workflows-page {
+  padding: 16px;
+}
+
+.workflows-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.workflow-action-row {
+  display: grid;
+  grid-template-columns: 280px 1fr 80px;
+  gap: 8px;
+  align-items: center;
+}
