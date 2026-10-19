@@ -10,6 +10,7 @@ const metaMock = vi.fn();
 const createMock = vi.fn();
 const removeMock = vi.fn();
 const updateMock = vi.fn();
+const runMock = vi.fn();
 
 vi.mock('../api', () => ({
   workflowsApi: {
@@ -20,7 +21,7 @@ vi.mock('../api', () => ({
     remove: (id: number) => removeMock(id),
     runs: vi.fn(async () => ({ data: { data: { runs: [] } } })),
     sampleEvent: vi.fn(async () => ({ data: { data: { event: null } } })),
-    run: vi.fn(async () => ({ data: { data: { status: 'success' } } })),
+    run: (id: number, payload: unknown) => runMock(id, payload),
     test: vi.fn(async () => ({ data: { code: 0 } })),
   },
 }));
@@ -60,6 +61,7 @@ beforeEach(() => {
   createMock.mockResolvedValue({ data: { code: 0, data: { id: 3 } } });
   removeMock.mockResolvedValue({ data: { code: 0 } });
   updateMock.mockResolvedValue({ data: { code: 0 } });
+  runMock.mockResolvedValue({ data: { data: { status: 'success' } } });
 });
 
 describe('工作流页面（DOM 交互）', () => {
@@ -127,5 +129,16 @@ describe('工作流页面（编辑 / 删除 / 运行）', () => {
     const rows = screen.getAllByText('删除');
     expect(rows.length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('编辑').length).toBe(1);
+  });
+});
+describe('工作流页面（手动运行）', () => {
+  it('打开运行对话框后可提交，调用 run 并携带域名', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('ok-flow')).toBeTruthy());
+    fireEvent.click(screen.getAllByText('手动运行')[0]);
+    // 运行对话框的表单项标签是字面量 domain / record.name
+    await waitFor(() => expect(screen.getAllByText('domain').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText('手动运行')[screen.getAllByText('手动运行').length - 1]);
+    await waitFor(() => expect(runMock).toHaveBeenCalled());
   });
 });
