@@ -294,3 +294,39 @@ describe('批量计划与应用', () => {
     expect(results[0].status).toBe('failed');
   });
 });
+
+describe('并发：A 与 AAAA 作为两个独立事件同时到达', () => {
+  const dual = (): OriginGroup[] => [
+    grp([rec(V4_SLOT, { recordId: 'r1' }), rec(V6_SLOT, { recordId: 'r2' })], [], { groupId: 'og-1' }),
+  ];
+  const reqV4: SyncRequest = { groupIds: ['og-1'], update: { v4: V4_NEXT } };
+  const reqV6: SyncRequest = { groupIds: ['og-1'], update: { v6: V6_NEXT } };
+
+  it('两族分别提交都成功，最终两族都是新值，谁也没被丢弃', async () => {
+    const ops = fakeOps(dual());
+    const planV4 = await planSyncSet(ops, reqV4);
+    const planV6 = await planSyncSet(ops, reqV6);
+
+    await applySyncSet(ops, reqV4, planV4.digest);
+    // v6 的作用域摘要只含 IPv6 记录，不受 v4 写入影响
+    const { results } = await applySyncSet(ops, reqV6, planV6.digest);
+    expect(results[0].status).toBe('applied');
+
+    const after = await ops.get('og-1');
+    expect(after?.records.map((r) => r.record)).toEqual([V4_NEXT, V6_NEXT]);
+  });
+
+  it('同族记录在预览后被改动则拒绝提交', async () => {
+    const ops = fakeOps(dual());
+    const plan = await planSyncSet(ops, reqV4);
+    await ops.replace('og-1', [rec('203.0.113.55'), rec(V6_SLOT, { recordId: 'r2' })]);
+    await expect(applySyncSet(ops, reqV4, plan.digest)).rejects.toThrow(/与预览不一致/);
+  });
+
+  it('无关族的漂移不改变作用域摘要，但会改变整组摘要', async () => {
+    const before = planGroupSync(grp([rec(V4_SLOT), rec(V6_SLOT)]), { v4: V4_NEXT });
+    const drifted = planGroupSync(grp([rec(V4_SLOT), rec('2001:db8::77')]), { v4: V4_NEXT });
+    expect(drifted.digest).toBe(before.digest);
+    expect(drifted.fullDigest).not.toBe(before.fullDigest);
+  });
+});

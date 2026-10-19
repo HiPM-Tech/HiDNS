@@ -70,7 +70,14 @@ export interface GroupSyncPlan {
   /** 存在无法处理的地址族且策略为 reject */
   blocked: boolean;
   references: OriginGroup['references'];
+  /**
+   * 提交闸门摘要：**只覆盖本次要改的地址族**。
+   * 无关族的漂移（例如并发的 AAAA 事件刚改完 IPv6）不应让本次 v4 同步失效，
+   * 因为写入时按实时状态重新规划，无关记录会被原样保留。
+   */
   digest: string;
+  /** 整组摘要：供人工复核与审计，记录"预览时这组长什么样" */
+  fullDigest: string;
 }
 
 const FAMILY_NUMBER: Record<AddressFamily, 4 | 6> = { v4: 4, v6: 6 };
@@ -121,11 +128,42 @@ function sameShape(actual: OriginRecord[], expected: OriginRecord[]): boolean {
   return true;
 }
 
-function computeSyncDigest(groupId: string, before: OriginRecord[], after: OriginRecord[]): string {
+function computeFullDigest(groupId: string, before: OriginRecord[], after: OriginRecord[]): string {
   return stableStringify({
     g: groupId,
     b: before.map(recordFingerprint),
     a: after.map(recordFingerprint),
+  });
+}
+
+function recordFamily(record: OriginRecord): AddressFamily | null {
+  const family = ipFamily(record.record);
+  return family === 4 ? 'v4' : family === 6 ? 'v6' : null;
+}
+
+/**
+ * 作用域摘要：只取本次涉及的地址族的记录。
+ * 这些记录若在预览与提交之间被别人改动，必须拒绝；其它族的改动不影响本次写入，
+ * 因为写入时是按实时状态重新规划的，无关记录原样保留。
+ */
+function computeScopeDigest(
+  groupId: string,
+  before: OriginRecord[],
+  after: OriginRecord[],
+  families: AddressFamily[],
+): string {
+  const pick = (records: OriginRecord[]) =>
+    records
+      .filter((record) => {
+        const family = recordFamily(record);
+        return family !== null && families.includes(family);
+      })
+      .map(recordFingerprint);
+  return stableStringify({
+    g: groupId,
+    f: [...families].sort(),
+    b: pick(before),
+    a: pick(after),
   });
 }
 
@@ -204,6 +242,7 @@ export function planGroupSync(
 
   const changed = changes.length > 0;
   const blocked = skipped.length > 0 && onPartial === 'reject';
+  const requestedFamilies = FAMILY_ORDER.filter((family) => normalized[family] !== undefined);
 
   return {
     groupId: group.groupId,
@@ -216,7 +255,8 @@ export function planGroupSync(
     noop: !changed && skipped.length === 0,
     blocked,
     references: group.references,
-    digest: computeSyncDigest(group.groupId, before, after),
+    digest: computeScopeDigest(group.groupId, before, after, requestedFamilies),
+    fullDigest: computeFullDigest(group.groupId, before, after),
   };
 }
 
