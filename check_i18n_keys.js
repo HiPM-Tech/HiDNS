@@ -66,6 +66,36 @@ for (const file of walk(path.join(ROOT, 'server/src'))) {
   }
 }
 
+// 3) 动态拼接的键家族：t(`provider.${type}`) 这类上面的扫描器抓不到，
+//    只能校验"前缀对应的对象存在"，否则整个家族都会退化成原始 key。
+const templatePrefixPattern = /\bt\(`([a-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*\.)\$\{/g;
+const prefixes = new Map();
+for (const file of walk(path.join(ROOT, 'client/src'))) {
+  const src = fs.readFileSync(file, 'utf8');
+  for (const match of src.matchAll(templatePrefixPattern)) {
+    if (!prefixes.has(match[1])) prefixes.set(match[1], path.relative(ROOT, file));
+  }
+}
+for (const [prefix, file] of prefixes) {
+  const node = prefix
+    .replace(/\.$/, '')
+    .split('.')
+    .reduce((acc, seg) => (acc && typeof acc === 'object' ? acc[seg] : undefined), en);
+  if (!node || typeof node !== 'object' || Object.keys(node).length === 0) {
+    missing.set(prefix + '*', file);
+  }
+}
+
+// 4) 每个注册的提供商都要有 provider.<type>，否则徽标会显示成 provider.xxx
+const registrySrc = fs.readFileSync(
+  path.join(ROOT, 'server/src/lib/dns/providers/registry.ts'),
+  'utf8',
+);
+for (const match of registrySrc.matchAll(/^ {4}type: '([a-z0-9_]+)',$/gm)) {
+  const key = `provider.${match[1]}`;
+  if (resolve(key) === undefined) missing.set(key, 'server/src/lib/dns/providers/registry.ts');
+}
+
 if (missing.size > 0) {
   console.error('以下 i18n key 在界面上会原样显示（en.json 里没有）：');
   for (const [key, file] of [...missing.entries()].sort()) {

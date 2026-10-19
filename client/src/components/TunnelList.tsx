@@ -51,7 +51,9 @@ export function TunnelList({ accountId }: { accountId?: number }) {
       key: 'status',
       label: t('audit.fields.status'),
       render: (row: TunnelRow) => (
-        <Tag theme={row.status === 'active' ? 'success' : 'default'} variant="light">{row.status}</Tag>
+        <Tag theme={row.status === 'active' ? 'success' : 'default'} variant="light">
+          {t(row.status === 'active' ? 'common.active' : 'common.inactive')}
+        </Tag>
       ),
     },
     { key: 'account', label: t('accounts.provider'), render: (row: TunnelRow) => <span className="page-muted">{row.account_name}</span> },

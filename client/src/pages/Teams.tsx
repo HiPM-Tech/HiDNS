@@ -33,8 +33,25 @@ function selectToPermission(value: SelectValue): 'read' | 'write' {
   return raw === 'read' ? 'read' : 'write';
 }
 
+/**
+ * 角色 → i18n key 的显式映射。
+ *
+ * 原来用字符串拼接（teams.role + 首字母大写），键名一旦对不上就会把
+ * teams.roleSuper_admin 这种原始 key 直接显示给用户；而且 `super_admin`
+ * 无论如何都拼不到 `teams.roleSuper`。显式映射不会拼错，未知角色回落到角色名本身。
+ */
+const ROLE_LABEL_KEY: Record<string, string> = {
+  owner: 'teams.roleOwner',
+  member: 'teams.roleMember',
+  admin: 'teams.roleAdmin',
+  super: 'teams.roleSuper',
+  super_admin: 'teams.roleSuper',
+  user: 'teams.roleMember',
+};
+
 function roleLabel(role: string, t: (key: string) => string) {
-  return t(`teams.role${role.charAt(0).toUpperCase() + role.slice(1)}` as any);
+  const key = ROLE_LABEL_KEY[role];
+  return key ? t(key) : role;
 }
 
 const teamDialogField = (label: string, control: ReactNode) => (
