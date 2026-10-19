@@ -150,6 +150,22 @@ describe('出站请求执行', () => {
     }
   });
 
+  it('私网门禁先于白名单：显式写入白名单仍被拒', () => {
+    const cases: Array<[string, string]> = [
+      ['https://[::1]/', '::1'],
+      ['https://[::ffff:a00:1]/', '::ffff:a00:1'],
+      ['https://[fe80::1]/', 'fe80::1'],
+      ['https://[fd00::1]/', 'fd00::1'],
+      ['https://[ff02::1]/', 'ff02::1'],
+      ['https://[fec0::1]/', 'fec0::1'],
+      ['https://[::7f00:1]/', '::7f00:1'],
+    ];
+    for (const [url, host] of cases) {
+      const result = validateOutboundUrl(url, { ...policy, allowlist: [host] });
+      expect(result.rejection?.code, url).toBe('INTERNAL_ADDRESS');
+    }
+  });
+
   it('公网 IPv6 放行', () => {
     const result = validateOutboundUrl('https://[2606:4700::1111]/', {
       ...policy,

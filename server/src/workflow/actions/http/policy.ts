@@ -114,6 +114,14 @@ export function isPrivateIPv6(ip: string): boolean {
   // 2002::/16（6to4）与 64:ff9b::/96（NAT64）
   if (first === 0x20 && second === 0x02) return true;
   if (first === 0x00 && second === 0x64 && bytes[2] === 0xff && bytes[3] === 0x9b) return true;
+  // ff00::/8 组播与 fec0::/10 站点本地（已废弃但仍应拒绝）
+  if (first === 0xff) return true;
+  if (first === 0xfe && (second & 0xc0) === 0xc0) return true;
+  // 0000::/96 IPv4-compatible（::7f00:1 等）：除 :: 与 ::1 外一律按内网处理
+  if (bytes.slice(0, 12).every((b) => b === 0)) {
+    const v4 = `${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`;
+    return isPrivateIPv4(v4);
+  }
   // ::ffff:0:0/96（IPv4-mapped）→ 取后 4 字节按 IPv4 判定
   if (bytes.slice(0, 10).every((b) => b === 0) && bytes[10] === 0xff && bytes[11] === 0xff) {
     const v4 = `${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`;
