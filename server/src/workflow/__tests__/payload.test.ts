@@ -98,6 +98,32 @@ describe('保存期校验', () => {
     ).toContain('remark / is_hidden / enabled');
   });
 
+  it('ns.changed / whois.expiring 触发器合法（只读动作）', () => {
+    for (const triggerType of ['ns.changed', 'whois.expiring']) {
+      expect(
+        validatePayload(
+          base({
+            triggerType,
+            triggerConfig: {},
+            actions: [{ kind: 'call', action: 'notify.channel.send', args: {} }],
+          }),
+        ),
+      ).toEqual([]);
+    }
+  });
+
+  it('ns.changed 允许写动作（不受 §4.0 约束）', () => {
+    expect(
+      validatePayload(
+        base({
+          triggerType: 'ns.changed',
+          triggerConfig: { statuses: ['poisoned'] },
+          actions: [{ kind: 'call', action: 'dns.record.update', args: { domain: { kind: 'literal', value: 'a.com' } } }],
+        }),
+      ),
+    ).toEqual([]);
+  });
+
   it('条件节点同样受校验', () => {
     expect(
       validatePayload(base({ condition: { kind: 'eval', code: '1' } })).join(),

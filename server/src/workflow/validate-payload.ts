@@ -12,7 +12,7 @@ const ACTION_PARAMS: Record<string, string[]> = Object.fromEntries(
   ALL_ACTIONS.map((a) => [a.name, a.params.map((p) => p.key)]),
 );
 
-const ALLOWED_TRIGGERS = new Set(['record.changed', 'domain.changed']);
+const ALLOWED_TRIGGERS = new Set(['record.changed', 'domain.changed', 'ns.changed', 'whois.expiring']);
 const DOMAIN_TRIGGERS = new Set(['domain.changed']);
 const WRITE_CLASSES = new Set(['dns.record.write', 'ext.write']);
 
@@ -34,7 +34,7 @@ export function validatePayload(payload: WorkflowPayload): string[] {
     problems.push('name 必填');
   }
   if (typeof payload.triggerType !== 'string' || !ALLOWED_TRIGGERS.has(payload.triggerType)) {
-    problems.push('triggerType 仅支持 record.changed / domain.changed');
+    problems.push('triggerType 仅支持 record.changed / domain.changed / ns.changed / whois.expiring');
   }
 
   const triggerConfig = payload.triggerConfig as { recordTypes?: unknown; fields?: unknown } | undefined;

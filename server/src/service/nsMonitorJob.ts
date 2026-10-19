@@ -8,6 +8,7 @@ import { resolveNsRecords, getNsStatus, validateNsRecords } from '../lib/dns/ns-
 import { sendNotification, sendEmailToUser } from './notification';
 import { taskManager } from './taskManager';
 import { createLogger } from '../lib/logger';
+import { publishNsEvent } from '../lib/domain-event-bus';
 
 const log = createLogger('Job').sub('NsMonitor');
 let monitorInterval: NodeJS.Timeout | null = null;
@@ -163,6 +164,15 @@ async function checkDomainNs(monitor: {
       status,
       last_check_at: nowStr,
     });
+
+    // 主核心事件主线：NS 状态变化（去重由总线按 status !== previousStatus 再判一次）
+    if (monitor.status !== status) {
+      publishNsEvent({
+        domain: { id: Number(monitor.domain_id), name: monitor.domain_name },
+        status,
+        previousStatus: (monitor.status ?? 'ok') as never,
+      });
+    }
 
     // 如果状态异常且与上次不同，发送告警
     if (status !== 'ok' && monitor.status !== status) {

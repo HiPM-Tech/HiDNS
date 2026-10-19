@@ -35,6 +35,38 @@ describe('域名变更事件', () => {
   });
 });
 
+describe('NS 与 WHOIS 事件', () => {
+  const bus = new WorkflowEventBus();
+  const ns = (status: string, previousStatus: string) =>
+    ({
+      type: 'ns.changed',
+      domain: { id: 1, name: 'a.com' },
+      status,
+      previousStatus,
+      actor: { source: 'system' },
+      traceId: 't',
+      at: new Date().toISOString(),
+    }) as never;
+
+  it('NS 状态真的变化才通过', () => {
+    expect(bus.publish(ns('mismatch', 'ok'))).toBe(true);
+    expect(bus.publish(ns('mismatch', 'mismatch'))).toBe(false);
+  });
+
+  it('WHOIS 事件携带 daysLeft 才通过', () => {
+    const base = {
+      type: 'whois.expiring',
+      domain: { id: 1, name: 'a.com' },
+      expiresAt: new Date().toISOString(),
+      actor: { source: 'system' },
+      traceId: 't',
+      at: new Date().toISOString(),
+    };
+    expect(bus.publish({ ...base, daysLeft: 7 } as never)).toBe(true);
+    expect(bus.publish({ ...base, daysLeft: Number.NaN } as never)).toBe(false);
+  });
+});
+
 describe('事件总线过滤', () => {
   let bus: WorkflowEventBus;
   beforeEach(() => {

@@ -57,13 +57,26 @@ export function storedToDefinition(stored: StoredWorkflow): WorkflowDefinition {
     ? (rawTypes as unknown[]).filter((t): t is 'A' | 'AAAA' => t === 'A' || t === 'AAAA')
     : ['A', 'AAAA'];
   const rawFields = stored.triggerConfig.fields;
-  const trigger: WorkflowTrigger =
-    stored.triggerType === 'domain.changed'
-      ? {
-          type: 'domain.changed',
-          fields: Array.isArray(rawFields) ? (rawFields as unknown[]).map(String) : undefined,
-        }
-      : { type: 'record.changed', recordTypes };
+  const fields = Array.isArray(rawFields) ? (rawFields as unknown[]).map(String) : undefined;
+  const rawStatuses = stored.triggerConfig.statuses;
+  const statuses = Array.isArray(rawStatuses) ? (rawStatuses as unknown[]).map(String) : undefined;
+  const withinDays =
+    typeof stored.triggerConfig.withinDays === 'number' ? stored.triggerConfig.withinDays : undefined;
+
+  let trigger: WorkflowTrigger;
+  switch (stored.triggerType) {
+    case 'domain.changed':
+      trigger = { type: 'domain.changed', fields };
+      break;
+    case 'ns.changed':
+      trigger = { type: 'ns.changed', statuses };
+      break;
+    case 'whois.expiring':
+      trigger = { type: 'whois.expiring', withinDays };
+      break;
+    default:
+      trigger = { type: 'record.changed', recordTypes };
+  }
 
   return {
     id: String(stored.id),

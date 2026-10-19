@@ -20,7 +20,23 @@ export interface DomainChangedTrigger {
   readonly fields?: readonly string[];
 }
 
-export type WorkflowTrigger = RecordChangedTrigger | DomainChangedTrigger;
+export interface NsChangedTrigger {
+  readonly type: 'ns.changed';
+  /** 关心的状态；缺省表示任意非 ok 状态变化 */
+  readonly statuses?: readonly string[];
+}
+
+export interface WhoisExpiringTrigger {
+  readonly type: 'whois.expiring';
+  /** 仅在剩余天数 ≤ 该值时触发；缺省表示不限制 */
+  readonly withinDays?: number;
+}
+
+export type WorkflowTrigger =
+  | RecordChangedTrigger
+  | DomainChangedTrigger
+  | NsChangedTrigger
+  | WhoisExpiringTrigger;
 
 export interface WorkflowDefinition {
   readonly id: string;
@@ -94,10 +110,23 @@ export class WorkflowEngine {
         : false;
     }
 
-    if (workflow.trigger.type !== 'domain.changed') return false;
-    const wanted = workflow.trigger.fields;
-    if (!wanted || wanted.length === 0) return true;
-    return event.changedFields.some((field) => wanted.includes(field));
+    if (event.type === 'domain.changed') {
+      if (workflow.trigger.type !== 'domain.changed') return false;
+      const wanted = workflow.trigger.fields;
+      if (!wanted || wanted.length === 0) return true;
+      return event.changedFields.some((field) => wanted.includes(field));
+    }
+
+    if (event.type === 'ns.changed') {
+      if (workflow.trigger.type !== 'ns.changed') return false;
+      const statuses = workflow.trigger.statuses;
+      if (!statuses || statuses.length === 0) return true;
+      return statuses.includes(event.status);
+    }
+
+    if (workflow.trigger.type !== 'whois.expiring') return false;
+    const within = workflow.trigger.withinDays;
+    return within === undefined ? true : event.daysLeft <= within;
   }
 
   /** 单次执行：handleEvent 与手动运行共用同一条路径 */

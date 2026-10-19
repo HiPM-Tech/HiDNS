@@ -47,8 +47,36 @@ export interface DomainChangedEvent {
   readonly at: string;
 }
 
+export type NsStatus = 'ok' | 'mismatch' | 'missing' | 'poisoned';
+
+/** NS 监控状态变化（由既有 NS 调度器产生） */
+export interface NsChangedEvent {
+  readonly type: 'ns.changed';
+  readonly domain: { readonly id: number; readonly name: string };
+  readonly status: NsStatus;
+  readonly previousStatus: NsStatus;
+  readonly actor: { readonly userId?: number; readonly source: ActorSource };
+  readonly traceId: string;
+  readonly at: string;
+}
+
+/** WHOIS 到期临近（由既有 WHOIS 调度器产生） */
+export interface WhoisExpiringEvent {
+  readonly type: 'whois.expiring';
+  readonly domain: { readonly id: number; readonly name: string };
+  readonly expiresAt: string;
+  readonly daysLeft: number;
+  readonly actor: { readonly userId?: number; readonly source: ActorSource };
+  readonly traceId: string;
+  readonly at: string;
+}
+
 export type DomainEvent = RecordChangedEvent;
-export type AnyDomainEvent = RecordChangedEvent | DomainChangedEvent;
+export type AnyDomainEvent =
+  | RecordChangedEvent
+  | DomainChangedEvent
+  | NsChangedEvent
+  | WhoisExpiringEvent;
 export type EventListener = (event: AnyDomainEvent) => void | Promise<void>;
 
 export interface BusOptions {
@@ -84,6 +112,13 @@ export class DomainEventBus {
     if (event.type === 'domain.changed') {
       // 域名事件不携带解析值，也不参与深度限制
       return event.changedFields.length > 0;
+    }
+    if (event.type === 'ns.changed') {
+      // 只有状态真的变化才有意义；重复告警不应反复触发工作流
+      return event.status !== event.previousStatus;
+    }
+    if (event.type === 'whois.expiring') {
+      return Number.isFinite(event.daysLeft);
     }
     if (!ALLOWED_RECORD_TYPES.has(event.record.type)) return false;
     if (event.depth > this.options.maxDepth) return false;
@@ -199,6 +234,58 @@ export function publishRecordEvent(input: PublishRecordInput): void {
     if (event) domainEventBus.publish(event);
   } catch {
     // 事件发布属于旁路，失败不得影响主流程
+  }
+}
+
+export interface BuildNsEventInput {
+  domain: { id: number; name: string };
+  status: NsStatus;
+  previousStatus: NsStatus;
+  actor?: { userId?: number; source: ActorSource };
+  traceId?: string;
+}
+
+export function publishNsEvent(input: BuildNsEventInput): void {
+  try {
+    if (!hasDomainEventSubscribers()) return;
+    const event: NsChangedEvent = {
+      type: 'ns.changed',
+      domain: input.domain,
+      status: input.status,
+      previousStatus: input.previousStatus,
+      actor: input.actor ?? { source: 'system' },
+      traceId: input.traceId ?? randomUUID(),
+      at: new Date().toISOString(),
+    };
+    domainEventBus.publish(event);
+  } catch {
+    // 旁路
+  }
+}
+
+export interface BuildWhoisEventInput {
+  domain: { id: number; name: string };
+  expiresAt: string;
+  daysLeft: number;
+  actor?: { userId?: number; source: ActorSource };
+  traceId?: string;
+}
+
+export function publishWhoisEvent(input: BuildWhoisEventInput): void {
+  try {
+    if (!hasDomainEventSubscribers()) return;
+    const event: WhoisExpiringEvent = {
+      type: 'whois.expiring',
+      domain: input.domain,
+      expiresAt: input.expiresAt,
+      daysLeft: input.daysLeft,
+      actor: input.actor ?? { source: 'system' },
+      traceId: input.traceId ?? randomUUID(),
+      at: new Date().toISOString(),
+    };
+    domainEventBus.publish(event);
+  } catch {
+    // 旁路
   }
 }
 
