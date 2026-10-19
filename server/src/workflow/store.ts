@@ -229,8 +229,9 @@ export async function recordRun(record: {
   if (runPruneScheduler.onInsert(record.workflowId)) {
     try {
       await WorkflowOperations.pruneRuns(record.workflowId, runPruneScheduler.keep());
-    } catch {
-      // 清理属于旁路
+    } catch (error) {
+      // 清理属于旁路，不能影响本次记录，但必须留痕：长期失败会让表无界增长
+      log.warn('prune runs failed', { workflowId: record.workflowId, error: (error as Error).message });
     }
   }
 }

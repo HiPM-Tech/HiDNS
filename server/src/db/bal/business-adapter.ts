@@ -5424,14 +5424,10 @@ export const WorkflowOperations = {
   },
 
   async remove(id: number): Promise<void> {
-    // 先清运行记录：workflow_runs 无外键级联时会产生永不回收的孤儿行
-    await executeInternal('DELETE FROM workflow_runs WHERE workflow_id = ?', [id], {
-      operation: 'Workflow.remove.runs',
-      table: 'workflow_runs',
-    });
-    await executeInternal('DELETE FROM workflows WHERE id = ?', [id], {
-      operation: 'Workflow.remove',
-      table: 'workflows',
+    // 同事务：两步之间失败会留下孤儿行，或运行史被清空但定义还在
+    await withTransaction(async (trx) => {
+      await trx.execute('DELETE FROM workflow_runs WHERE workflow_id = ?', [id]);
+      await trx.execute('DELETE FROM workflows WHERE id = ?', [id]);
     });
   },
 

@@ -200,7 +200,9 @@ export async function authorize(
   }
 
   // 6) DSL 通道
-  if (trigger === 'event' && !meta!.dslVisible) {
+  // event / manual 执行的都是声明式定义，只有显式的 api 通道可以调不可见动作。
+  // 此前只拦 event，导致手动运行可以穿透 dslVisible。
+  if (trigger !== 'api' && !meta!.dslVisible) {
     await deny(403, `动作 ${action} 不对声明式 DSL 可见`);
   }
 

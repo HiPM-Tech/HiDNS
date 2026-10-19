@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { validateToolPermission, logMcpAction, getModuleByToolName } from '../service/mcp-permission';
 import { McpOperations, DomainOperations, RenewableDomainOperations, ServiceMonitorOperations, NSMonitorOperations, RecordOperations, UserPreferencesOperations, AuditExportOperations } from '../db/bal/business-adapter';
 import { DnsProviderService } from '../service/dns-provider-service';
-import { publishDomainEvent } from '../lib/domain-event-bus';
+import { hasDomainEventSubscribers, publishDomainEvent } from '../lib/domain-event-bus';
 import { checkWhoisForDomain } from '../service/whois/checker';
 import { resolveNsRecords, validateNsRecords } from '../lib/dns/ns-lookup';
 import { validateRecordValue } from '../lib/dns/record-types';
@@ -1147,8 +1147,9 @@ export function registerTools(server: McpServer): void {
         // 调用业务适配器更新域名状态
         await DomainOperations.setEnabled(domainId, enabled ? 1 : 0);
 
-        // 主核心事件主线：MCP 侧启停域名同样要发布（此前完全静默）
-        {
+        // 主核心事件主线：MCP 侧启停域名同样要发布（此前完全静默）。
+        // 先判订阅者再查库 —— 否则没有工作流时每次启停都多一次查询（设计 §4.3 硬约束）。
+        if (hasDomainEventSubscribers()) {
           const domainRow = (await DomainOperations.getById(domainId)) as unknown as
             | { id: number; name: string; account_id?: number }
             | undefined;

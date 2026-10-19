@@ -227,8 +227,11 @@ export class WorkflowEngine {
       // 否则每个根节点各拿一份预算，单次运行上限被放大为「根数 × 50」。
       const evalState = createEvalState(now);
       const evalCtx = { event: event as unknown as Record<string, unknown>, vars, call, now };
+      // nodes 是「单表达式」上限（与保存期口径一致），calls/deadline 才是运行级
+      const resetNodes = () => { evalState.nodes = 0; };
 
       if (workflow.condition) {
+        resetNodes();
         const passed = await evaluate(workflow.condition, evalCtx, evalState);
         if (!passed) {
           return {
@@ -243,6 +246,7 @@ export class WorkflowEngine {
       }
 
       for (const action of workflow.actions) {
+        resetNodes();
         await evaluate(action, evalCtx, evalState);
       }
 

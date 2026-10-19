@@ -216,7 +216,9 @@ router.get('/:id/runs', authMiddleware, adminOnly, asyncHandler(async (req: Requ
   const id = toId(req.params.id);
   const item = await loadOwnedWorkflow(req, res, id);
   if (!item) return;
-  const runs = await listRuns(id, toId(req.query.limit as string) || 50);
+  // 负值必须夹到合法区间：SQLite 的 LIMIT -5 等于「无上限」
+  const runsLimit = Math.min(200, Math.max(1, toId(String(req.query.limit ?? '')) || 50));
+  const runs = await listRuns(id, runsLimit);
   sendSuccess(res, { total: runs.length, runs });
 }));
 

@@ -7,6 +7,7 @@ import { logAuditOperation } from '../service/audit';
 import { sendError, sendSuccess } from '../utils/http';
 import { createLogger } from '../lib/logger';
 import { TeamOperations, DomainPermissionOperations, UserOperations } from '../db/bal/business-adapter';
+import { invalidateAccessCache } from '../workflow/access';
 import { wsService } from '../service/websocket';
 import { getDisplayDomain } from '../utils/dns';
 
@@ -721,6 +722,7 @@ router.put('/:id/domain-permissions/:permissionId', authMiddleware, asyncHandler
   }
 
   await DomainPermissionOperations.updatePermission(permissionId, permission);
+  invalidateAccessCache();
 
   await logAuditOperation(userId, 'update_team_domain_permission', team.name, { teamId, permissionId, permission }, req as any);
   sendSuccess(res);
@@ -769,6 +771,7 @@ router.delete('/:id/domain-permissions/:permissionId', authMiddleware, asyncHand
   }
 
   await DomainPermissionOperations.deleteByTeamAndId(permissionId, teamId);
+  invalidateAccessCache();
 
   await logAuditOperation(userId, 'remove_team_domain_permission', team.name, { teamId, permissionId }, req as any);
   sendSuccess(res);
@@ -968,6 +971,7 @@ router.delete('/:id/members/:userId/domain-permissions/:permissionId', authMiddl
   }
 
   await DomainPermissionOperations.deleteByUserAndId(permissionId, targetUserId);
+  invalidateAccessCache();
 
   await logAuditOperation(userId, 'remove_domain_permission', team.name, { teamId, targetUserId, permissionId }, req as any);
   sendSuccess(res);

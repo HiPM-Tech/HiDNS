@@ -96,6 +96,11 @@ function freezeEvent<T extends AnyDomainEvent>(event: T): T {
   if (event.domain) Object.freeze(event.domain);
   const record = (event as { record?: object }).record;
   if (record) Object.freeze(record);
+  // 数组与 actor 同样是共享引用：订阅者 push changedFields 或改 actor.source 会污染后续订阅者
+  const changedFields = (event as { changedFields?: unknown }).changedFields;
+  if (Array.isArray(changedFields)) Object.freeze(changedFields);
+  const actor = (event as { actor?: object }).actor;
+  if (actor) Object.freeze(actor);
   return Object.freeze(event);
 }
 

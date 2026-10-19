@@ -27,8 +27,15 @@ export const dnsDomainHandlers: Record<string, BrandedActionHandler> = {
       name: string;
       account_id?: number;
     }>;
-    const allowed = ctx.principal.allowedDomains;
-    const visible = allowed === '*' ? rows : rows.filter((row) => allowed.includes(row.name));
+    // 生产身份的可访问集合在 allowedDomainIds；allowedDomains 只作名称兜底
+    const ids = ctx.principal.allowedDomainIds;
+    const names = ctx.principal.allowedDomains;
+    const visible =
+      ids !== undefined
+        ? rows.filter((row) => ids.includes(Number(row.id)))
+        : names === '*'
+          ? rows
+          : rows.filter((row) => names.includes(row.name));
     return { total: visible.length, domains: visible.map((row) => ({ id: row.id, name: row.name })) };
   }),
 };
