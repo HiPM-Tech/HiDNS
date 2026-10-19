@@ -157,12 +157,13 @@ export interface ProviderCapabilities {
 | 5 | **日志子模块名残留**：`createLogger('Workflow').sub('Engine' | 'Sandbox' | 'Broker')`，`Sandbox` 已不存在 | P2 | 已改为 `Interpreter` |
 | 6 | **架构图残留"定时器"**：与 D5 直接矛盾 | P1 | 已移除 |
 | 7 | **R3 表述过期**："凭据不入沙箱" | P2 | 已改为"凭据不入求值上下文" |
+| 8 | **`root.ai.md` §302 陈旧**：把 `DnsCapabilities` 与 `ProviderCapabilities` 混写，且写了不存在的 `line` 字段 | P1（会误导下一个适配器作者） | 已按代码实况重写，见 §8.4 |
 
 ### 8.4 对第一轮结论的更正（不静默修改）
 
 | 第一轮结论 | 现状 | 原因 |
 |---|---|---|
-| §三："本设计的 `originGroup` 应加在 `DnsCapabilities` 上，设计侧命名正确" | **作废** | 后续改为 `ProviderDefinition.extraCapabilities`（布尔位承载不了动作/参数/权限/风险）。设计侧已改，规范 §302 仍需修正 |
+| §三："本设计的 `originGroup` 应加在 `DnsCapabilities` 上，设计侧命名正确" | **作废，规范 §302 已于 2026-10-19 修正** | 后续改为 `ProviderDefinition.extraCapabilities`（布尔位承载不了动作/参数/权限/风险）。`root.ai.md` §302 已按代码实况重写：拆分 `DnsCapabilities` / `ProviderCapabilities` 两层、删除不存在的 `line` 字段、补入 `proxiable` / `recordTypes` / `renewal`，并写入扩展能力机制与顶级前缀白名单归属 |
 | §二 G1–G4 已补齐 | **仍然成立** | 本轮未回退 |
 | §四 V1（使用脚本改文档） | **仍然成立**，本轮全程使用 `edit` 工具，未再引脚本 | 已改正 |
 | §四 V2（提交信息格式） | **已改正**：自 `7082b96` 起全部使用 `详细描述：` 结构 | 已改正 |

@@ -299,8 +299,16 @@
     - PowerDNS（powerdns）、青云（qingcloud）、雨云（rainyun）、Spaceship（spaceship）、腾讯EdgeOne（tencenteo）
     - VPS8（vps8）、西部数码（west）
 6. 提供商能力模型
-    - 每个提供商在 `registry.ts` 中定义 `ProviderCapabilities`，包含：remark（备注）、status（启用/禁用）、redirect（重定向）、log（操作日志）、weight（权重）、line（线路）、cnameFlattening（CNAME 展平）。
-    - 每个提供商定义 `ProviderConfigField[]` 描述其配置字段（类型、是否必填、分组等）。
+    - 能力分**两层**，不得混写：
+        - `DnsCapabilities`（`registry.ts`）：DNS 解析能力位，包含 `remark`（备注）、`status`（启用/禁用）、`redirect`（重定向）、`weight`（权重）、`proxiable`（可代理）、`cnameFlattening`（CNAME 展平）、`recordTypes`（支持的记录类型数组）。
+        - `ProviderCapabilities`（`registry.ts`）：提供商整体能力，形如 `{ dns: DnsCapabilities | null, log: boolean, renewal: boolean }`；`dns: null` 表示该提供商不提供 DNS 解析能力。
+    - 每个提供商定义 `ProviderConfigField[]` 描述其配置字段：`{ key, label, type: 'text' | 'password' | 'select', required, group?, options? }`。
+    - **提供商特有能力的扩展机制（强制）**：提供商可在自己目录下的 `extra.ts` 中声明独有能力，通过 `ProviderDefinition.extraCapabilities?: ProviderExtraCapability[]` 挂载。
+        - 命名规则：能力全名为 `ext.<providerType>.<后缀>`，动作全名为 `<能力全名>.<动词>`。**顶级前缀与二级前缀由核心规定，提供商只能自定后缀**，全名必须全局唯一。
+        - 声明结构见 `server/src/lib/dns/providers/extra-types.ts`：`ProviderExtraCapability`（`name` / `label` / `actions` / `handlers`）与 `ProviderExtraAction`（`name` / `actionClass` / `risk` / `service` / `label` / `dslVisible` / `params`）。
+        - 核心**不解释**扩展能力的语义，只校验命名与唯一性；实现留在提供商目录内，对外只暴露裸原语，保护由能力层承担。
+        - 命名与唯一性由 CI 门禁强制（`server/src/workflow/actions/validate-names.ts`），**不得**只依赖运行时校验。
+    - 顶级前缀白名单定义在 `server/src/types/namespace.ts`（全局主核心）。各子系统只能**认领**，不得自行新增；预留前缀在认领前禁止出现在任何动作名中。
 7. Provider 类型与别名映射
     - 创建/更新 DNS 账号时，API 会将 lego 风格 provider 名称归一化为内部 provider 类型。
     - 别名映射定义在 `DnsHelper.ts` 的 `PROVIDER_ALIASES` 或各适配器的 `alias` 属性中。
