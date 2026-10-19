@@ -18,7 +18,9 @@
             "recordTypes": "记录类型",
             "fields": "关注字段",
             "pickAction": "选择动作",
-            "addAction": "添加动作"
+            "addAction": "添加动作",
+            "preview": "预览 (…)",
+            "waitingForEvent": "尚无真实事件，等待触发后即可预览"
         },
         "about": {
             "community": "社区",

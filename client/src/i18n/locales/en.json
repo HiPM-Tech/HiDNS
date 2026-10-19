@@ -18,7 +18,9 @@
             "recordTypes": "Record types",
             "fields": "Fields",
             "pickAction": "Pick an action",
-            "addAction": "Add action"
+            "addAction": "Add action",
+            "preview": "Preview (…)",
+            "waitingForEvent": "No real event yet; preview appears after the first trigger"
         },
         "common": {
             "dashboard": "Dashboard",

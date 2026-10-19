@@ -9,6 +9,12 @@
   margin-bottom: 12px;
 }
 
+.workflow-preview {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
 .workflow-action-row {
   display: grid;
   grid-template-columns: 280px 1fr 80px;

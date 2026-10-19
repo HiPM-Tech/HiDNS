@@ -21,6 +21,7 @@ import { validatePayload, type WorkflowPayload } from '../workflow/validate-payl
 import {
   createWorkflow,
   getStoredById,
+  latestSampleEvent,
   listByOwner,
   listRuns,
   removeWorkflow,
@@ -89,6 +90,21 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
 
   sendError(res, `未知候选源: ${source}`, 404);
 }));
+/**
+ * 最近一次运行的事件快照：供前端 `(...)` 用**真实值**渲染，而不是显示变量名。
+ * 设计依据：§3.1
+ */
+router.get('/:id/sample-event', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {
+  const id = toId(req.params.id);
+  const item = await getStoredById(id);
+  if (!item) {
+    sendError(res, '工作流不存在', 404);
+    return;
+  }
+  const event = await latestSampleEvent(id);
+  sendSuccess(res, { event });
+}));
+
 router.get('/:id', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const item = await getStoredById(toId(req.params.id));
   if (!item) {

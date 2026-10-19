@@ -110,6 +110,7 @@ export function startWorkflowModule(): void {
         error: run.error,
         startedAt: run.startedAt,
         finishedAt: run.finishedAt,
+        triggerEvent: run.event,
       });
     },
   });

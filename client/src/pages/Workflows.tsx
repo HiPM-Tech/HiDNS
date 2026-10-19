@@ -58,6 +58,7 @@ export function Workflows() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [runsFor, setRunsFor] = useState<WorkflowRecord | null>(null);
   const [runFor, setRunFor] = useState<WorkflowRecord | null>(null);
+  const [previewFor, setPreviewFor] = useState<WorkflowRecord | null>(null);
 
   const [name, setName] = useState('');
   const [enabled, setEnabled] = useState(true);
@@ -73,6 +74,11 @@ export function Workflows() {
   const listQuery = useQuery({ queryKey: ['workflows'], queryFn: () => workflowsApi.list() });
   const actionsQuery = useQuery({ queryKey: ['workflow-actions'], queryFn: () => workflowsApi.meta<WorkflowActionMeta[]>('actions') });
   const triggerQuery = useQuery({ queryKey: ['workflow-triggers'], queryFn: () => workflowsApi.meta('triggerTypes') });
+  const sampleQuery = useQuery({
+    queryKey: ['workflow-sample', previewFor?.id],
+    queryFn: () => workflowsApi.sampleEvent(previewFor!.id),
+    enabled: Boolean(previewFor),
+  });
   const runsQuery = useQuery({
     queryKey: ['workflow-runs', runsFor?.id],
     queryFn: () => workflowsApi.runs(runsFor!.id),
@@ -185,6 +191,7 @@ export function Workflows() {
         <Space>
           <Button size="small" variant="text" onClick={() => openEdit(row)}>{t('common.edit')}</Button>
           <Button size="small" variant="text" onClick={() => setRunsFor(row)}>{t('workflows.runs')}</Button>
+          <Button size="small" variant="text" onClick={() => setPreviewFor(row)}>{t('workflows.preview')}</Button>
           <Button size="small" variant="text" onClick={() => { setRunFor(row); setRunDomain(''); setRunValue(''); }}>{t('workflows.run')}</Button>
           <Button size="small" variant="text" theme="danger" onClick={() => deleteMutation.mutate(row.id)}>{t('common.delete')}</Button>
         </Space>
@@ -305,6 +312,25 @@ export function Workflows() {
             { colKey: 'error', title: 'error' },
           ] as never}
         />
+      </Dialog>
+
+      <Dialog visible={Boolean(previewFor)} onClose={() => setPreviewFor(null)} header={t('workflows.preview')} width="560px"
+        footer={<Button variant="outline" onClick={() => setPreviewFor(null)}>{t('common.close')}</Button>}>
+        {(() => {
+          const event = (sampleQuery.data?.data as { event?: Record<string, unknown> | null } | undefined)?.event ?? null;
+          if (!event) return <div>{t('workflows.waitingForEvent')}</div>;
+          const domain = (event.domain ?? {}) as { name?: string };
+          const record = (event.record ?? {}) as { name?: string; type?: string; value?: string; oldValue?: string };
+          return (
+            <div className="workflow-preview">
+              <div><strong>type</strong>: {String(event.type ?? '')}</div>
+              <div><strong>domain</strong>: {domain.name ?? '-'}</div>
+              <div><strong>record</strong>: {record.name ?? '-'} {record.type ?? ''}</div>
+              <div><strong>value</strong>: {record.value ?? '-'}</div>
+              <div><strong>oldValue</strong>: {record.oldValue ?? '-'}</div>
+            </div>
+          );
+        })()}
       </Dialog>
 
       <Dialog visible={Boolean(runFor)} onClose={() => setRunFor(null)} header={t('workflows.run')} width="520px"

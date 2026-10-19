@@ -58,6 +58,8 @@ export interface RunRecord {
   readonly startedAt: string;
   readonly finishedAt: string;
   readonly error?: string;
+  /** 触发本次运行的事件快照；供 `(...)` 预览与事后追溯使用 */
+  readonly event?: AnyDomainEvent;
 }
 
 export interface EngineDeps {
@@ -165,6 +167,7 @@ export class WorkflowEngine {
             status: 'skipped',
             startedAt,
             finishedAt: new Date(now()).toISOString(),
+            event,
           };
         }
       }
@@ -179,6 +182,7 @@ export class WorkflowEngine {
         status: 'success',
         startedAt,
         finishedAt: new Date(now()).toISOString(),
+        event,
       };
     } catch (error) {
       const message = (error as Error).message;
@@ -190,6 +194,7 @@ export class WorkflowEngine {
         startedAt,
         finishedAt: new Date(now()).toISOString(),
         error: message,
+        event,
       };
     }
   }

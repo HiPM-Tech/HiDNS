@@ -62,6 +62,8 @@ export const workflowsApi = {
   runs: (id: number, limit = 50) =>
     api.get<ApiResponse<{ total: number; runs: WorkflowRunRecord[] }>>(`/workflows/${id}/runs`, { params: { limit } }),
   test: (id: number) => api.post<ApiResponse<{ ok: boolean; issues: string[] }>>(`/workflows/${id}/test`),
+  sampleEvent: (id: number) =>
+    api.get<ApiResponse<{ event: Record<string, unknown> | null }>>(`/workflows/${id}/sample-event`),
   run: (id: number, body: { domainId: number; domainName: string; record: { name: string; type: string; value?: string; oldValue?: string } }) =>
     api.post<ApiResponse<{ status: string; traceId: string; error?: string }>>(`/workflows/${id}/run`, body),
   meta: <T = Array<Record<string, unknown>>>(source: string) =>

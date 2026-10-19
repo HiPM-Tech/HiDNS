@@ -214,6 +214,25 @@ describe('执行引擎', () => {
     );
   });
 
+  it('运行记录携带触发事件快照（供 (...) 预览）', async () => {
+    const onRun = vi.fn();
+    const e = engine([wf({ id: '7' })], vi.fn(async () => 'ok'), onRun);
+    const evt = event();
+    await e.handleEvent(evt);
+    expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ event: evt }));
+  });
+
+  it('失败与跳过同样携带事件快照', async () => {
+    const onRun = vi.fn();
+    const failing = engine([wf({ id: '7' })], vi.fn(async () => { throw new Error('x'); }), onRun);
+    await failing.handleEvent(event());
+    expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', event: expect.anything() }));
+
+    const skipped = engine([wf({ id: '8', condition: { kind: 'literal', value: false } })], vi.fn(async () => 'ok'), onRun);
+    await skipped.handleEvent(event());
+    expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ status: 'skipped', event: expect.anything() }));
+  });
+
   it('runSingle：结果写入 onRun', async () => {
     const onRun = vi.fn();
     const e = engine([wf({ id: '7' })], vi.fn(async () => 'ok'), onRun);

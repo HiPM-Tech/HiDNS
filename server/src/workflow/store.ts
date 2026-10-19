@@ -156,12 +156,23 @@ export async function recordRun(record: {
   error?: string;
   startedAt: string;
   finishedAt: string;
+  /** 触发事件快照，供 `(...)` 预览与追溯 */
+  triggerEvent?: unknown;
 }): Promise<void> {
+  let triggerEvent: string | null = null;
+  if (record.triggerEvent !== undefined) {
+    try {
+      triggerEvent = JSON.stringify(record.triggerEvent);
+    } catch {
+      triggerEvent = null;
+    }
+  }
   await WorkflowOperations.insertRun({
     workflow_id: record.workflowId,
     trace_id: record.traceId,
     status: record.status,
     error: record.error ?? null,
+    trigger_event: triggerEvent,
     started_at: record.startedAt,
     finished_at: record.finishedAt,
   });
@@ -169,4 +180,21 @@ export async function recordRun(record: {
 
 export async function listRuns(workflowId: number, limit = 50) {
   return WorkflowOperations.listRuns(workflowId, limit);
+}
+
+/**
+ * 取最近一次运行的事件快照，供前端 `(...)` 预览渲染真实值。
+ * 没有运行记录时返回 null（前端显示"等待触发"）。
+ */
+export async function latestSampleEvent(workflowId: number): Promise<Record<string, unknown> | null> {
+  const runs = await WorkflowOperations.listRuns(workflowId, 20);
+  for (const run of runs) {
+    if (!run.trigger_event) continue;
+    try {
+      return JSON.parse(run.trigger_event) as Record<string, unknown>;
+    } catch {
+      // 损坏的快照跳过，继续找更早的一条
+    }
+  }
+  return null;
 }
