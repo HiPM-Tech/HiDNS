@@ -64,6 +64,13 @@ export function optionalPositiveNumber(value: unknown, fallback: number): number
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
+/**
+ * 发布记录事件。
+ *
+ * 注意：事件带 `actor.source='workflow'`，总线默认**丢弃**这类事件（防自激，§7.2）。
+ * 因此工作流自身的写入默认不会触发下游工作流 —— 这是设计取舍，不是漏发。
+ * 只有显式开启 `allowSelfTrigger` 时这些事件才会投递，并由 depth 上限兜底。
+ */
 function publish(
   ctx: ActionContext,
   domain: ResolvedDomain,

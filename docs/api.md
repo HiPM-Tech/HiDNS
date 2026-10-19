@@ -905,7 +905,7 @@ WebSocket 事件：`resource:snapshot`，每 10 秒推送一次当前资源快�
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| GET | `/api/workflows` | JWT + admin | 列出**自己**的工作流（超管可管全部） |
+| GET | `/api/workflows` | JWT + admin | 列出**自己**的工作流（按 `owner_id` 过滤；超管跨 owner 的详情/修改走 `/:id` 的豁免分支） |
 | POST | `/api/workflows` | JWT + admin + noToken | 创建工作流 |
 | GET | `/api/workflows/:id` | JWT + admin | 详情；非本人且非超管 → 403 |
 | PUT | `/api/workflows/:id` | JWT + admin + noToken | 更新（部分字段可省略，省略即保留旧值） |

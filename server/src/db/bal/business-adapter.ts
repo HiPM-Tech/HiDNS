@@ -5477,7 +5477,8 @@ export const WorkflowOperations = {
       [workflowId, watermark],
       { operation: 'Workflow.pruneRuns.delete', table: 'workflow_runs' }
     );
-    return watermark > 0 ? 1 : 0;
+    // executeInternal 不返回影响行数，这里不伪造计数：调用方只关心是否执行过清理
+    return 0;
   },
 
   async listRuns(workflowId: number, limit = 50): Promise<WorkflowRunRow[]> {

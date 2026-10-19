@@ -250,6 +250,7 @@ export function Workflows() {
       />
 
       <Dialog
+        dialogClassName="app-td-dialog"
         visible={dialogOpen}
         onClose={() => setDialogOpen(false)}
         header={editing ? t('workflows.edit') : t('workflows.create')}
@@ -383,6 +384,7 @@ export function Workflows() {
       </Dialog>
 
       <Dialog
+        dialogClassName="app-td-dialog"
         visible={Boolean(runsFor)}
         onClose={() => setRunsFor(null)}
         header={t('workflows.runs')}
@@ -410,6 +412,7 @@ export function Workflows() {
       </Dialog>
 
       <Dialog
+        dialogClassName="app-td-dialog"
         visible={Boolean(previewFor)}
         onClose={() => setPreviewFor(null)}
         header={t('workflows.preview')}
@@ -434,6 +437,7 @@ export function Workflows() {
       </Dialog>
 
       <Dialog
+        dialogClassName="app-td-dialog"
         visible={Boolean(runFor)}
         onClose={() => setRunFor(null)}
         header={t('workflows.run')}
