@@ -156,12 +156,18 @@ export function Workflows() {
   const [condition, setCondition] = useState<ConditionDraft>({ enabled: false, field: CONDITION_FIELDS[0], op: '==', value: '' });
 
   const [runDomain, setRunDomain] = useState('');
+  const [runDomainId, setRunDomainId] = useState<number>(0);
   const [runName, setRunName] = useState('www');
   const [runValue, setRunValue] = useState('');
 
   const listQuery = useQuery({ queryKey: ['workflows'], queryFn: () => workflowsApi.list() });
   const actionsQuery = useQuery({ queryKey: ['workflow-actions'], queryFn: () => workflowsApi.meta<WorkflowActionMeta[]>('actions') });
   const triggerQuery = useQuery({ queryKey: ['workflow-triggers'], queryFn: () => workflowsApi.meta('triggerTypes') });
+  const domainOptionsQuery = useQuery({
+    queryKey: ['workflow-meta', 'domains'],
+    queryFn: () => workflowsApi.meta<Array<{ value: string; label: string; id: number }>>('domains'),
+    enabled: Boolean(runFor),
+  });
   const sampleQuery = useQuery({
     queryKey: ['workflow-sample', previewFor?.id],
     queryFn: () => workflowsApi.sampleEvent(previewFor!.id),
@@ -223,7 +229,7 @@ export function Workflows() {
   const runMutation = useMutation({
     mutationFn: () =>
       workflowsApi.run(runFor!.id, {
-        domainId: 0,
+        domainId: runDomainId,
         domainName: runDomain,
         record: { name: runName, type: 'A', value: runValue },
       }),
@@ -517,8 +523,20 @@ export function Workflows() {
           </Space>
         )}>
         <Form labelWidth="120px">
-          <Form.FormItem label="domainName">
-            <Input value={runDomain} onChange={(value) => setRunDomain(String(value))} />
+          <Form.FormItem label="domain">
+            <Select
+              value={runDomain}
+              placeholder={t('workflows.pickDomain')}
+              loading={domainOptionsQuery.isLoading}
+              options={((domainOptionsQuery.data?.data as { items?: Array<{ value: string; label: string; id: number }> } | undefined)?.items ?? [])
+                .map((item) => ({ label: `${item.label} (#${item.id})`, value: item.value }))}
+              onChange={(value) => {
+                const picked = ((domainOptionsQuery.data?.data as { items?: Array<{ value: string; id: number }> } | undefined)?.items ?? [])
+                  .find((item) => item.value === String(value));
+                setRunDomain(String(value));
+                setRunDomainId(picked?.id ?? 0);
+              }}
+            />
           </Form.FormItem>
           <Form.FormItem label="record.name">
             <Input value={runName} onChange={(value) => setRunName(String(value))} />

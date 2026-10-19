@@ -19,6 +19,7 @@
             "fields": "Fields",
             "pickAction": "Pick an action",
             "addAction": "Add action",
+            "pickDomain": "Pick a domain",
             "nsStatuses": "Watched statuses",
             "withinDays": "Days ahead",
             "condition": "Condition",

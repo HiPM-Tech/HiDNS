@@ -19,6 +19,7 @@
             "fields": "关注字段",
             "pickAction": "选择动作",
             "addAction": "添加动作",
+            "pickDomain": "选择域名",
             "nsStatuses": "监听状态",
             "withinDays": "提前天数",
             "condition": "执行条件",

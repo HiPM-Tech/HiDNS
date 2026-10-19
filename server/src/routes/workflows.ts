@@ -219,12 +219,21 @@ router.post('/:id/run', authMiddleware, adminOnly, requireJwtAuth('workflows'), 
     domainName?: unknown;
     record?: { name?: unknown; type?: unknown; value?: unknown; oldValue?: unknown };
   };
-  const domainId = Number(body.domainId);
+  let domainId = Number(body.domainId);
   const domainName = typeof body.domainName === 'string' ? body.domainName : '';
   const record = body.record ?? {};
 
-  if (!Number.isFinite(domainId) || !domainName) {
-    sendError(res, '需要 domainId 与 domainName 构造合成事件', 422);
+  // 允许只给域名：合成事件里的 domain.id 必须是真实主键，
+  // 否则引擎会把 0 当作 domainId 传给鉴权与动作。
+  if ((!Number.isFinite(domainId) || domainId <= 0) && domainName) {
+    const found = (await DomainOperations.getByName(domainName)) as unknown as
+      | { id: number }
+      | undefined;
+    if (found) domainId = found.id;
+  }
+
+  if (!Number.isFinite(domainId) || domainId <= 0 || !domainName) {
+    sendError(res, '需要有效的 domainId 或 domainName 构造合成事件', 422);
     return;
   }
   if (typeof record.name !== 'string' || typeof record.type !== 'string') {
