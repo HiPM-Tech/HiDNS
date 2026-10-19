@@ -1233,6 +1233,8 @@ interface WorkflowEvent {
 | `service/nsMonitorJob.ts` | `ns.changed` | 去重：`status !== previousStatus` 才放行，重复告警不重复触发 |
 | `service/whois/notifier.ts` | `whois.expiring` | 剩余天数 ≤ 阈值即发布，**独立于通知开关**——工作流自行决定处置 |
 
+**读取路径**：引擎每个事件都要拿「启用中的工作流」，直连数据库等于**每个事件一次查询**。因此 `listEnabledDefinitions()` 走 5 秒 TTL 缓存，并在工作流创建/更新/删除时**显式失效**；同时到达的多个事件合并为一次加载。直接改库（绕过 API）最多滞后 5 秒。
+
 **两条硬约束**：
 
 1. **无订阅者时零成本**——发布入口先查 `hasDomainEventSubscribers()`，跳过构造与额外回查；否则等于给所有写入加一次无谓查询。

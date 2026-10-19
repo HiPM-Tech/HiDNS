@@ -1,4 +1,5 @@
 import { WorkflowOperations, type WorkflowRow } from '../db/bal/business-adapter';
+import { createCachedLoader } from './cache';
 import type { WorkflowDefinition, WorkflowTrigger } from './engine';
 import type { ExpressionNode } from './expression/nodes';
 
@@ -89,10 +90,24 @@ export function storedToDefinition(stored: StoredWorkflow): WorkflowDefinition {
   };
 }
 
-export async function listEnabledDefinitions(): Promise<WorkflowDefinition[]> {
-  const rows = await WorkflowOperations.listEnabled();
-  return rows.map((row) => storedToDefinition(rowToStored(row)));
+/** 引擎读取频率高（每个事件一次），用短 TTL 缓存；写操作显式失效 */
+const enabledCache = createCachedLoader<WorkflowDefinition[]>(
+  async () => {
+    const rows = await WorkflowOperations.listEnabled();
+    return rows.map((row) => storedToDefinition(rowToStored(row)));
+  },
+  { ttlMs: 5000 },
+);
+
+export function invalidateWorkflowCache(): void {
+  enabledCache.invalidate();
 }
+
+export function listEnabledDefinitions(): Promise<WorkflowDefinition[]> {
+  return enabledCache.get();
+}
+
+export const workflowCacheStats = () => enabledCache.stats();
 
 export async function listByOwner(ownerId: number): Promise<StoredWorkflow[]> {
   const rows = await WorkflowOperations.listByOwner(ownerId);
@@ -113,7 +128,7 @@ export async function createWorkflow(input: {
   condition?: ExpressionNode;
   actions: ExpressionNode[];
 }): Promise<number> {
-  return WorkflowOperations.create({
+  const id = await WorkflowOperations.create({
     name: input.name,
     owner_id: input.ownerId,
     enabled: input.enabled ? 1 : 0,
@@ -121,6 +136,8 @@ export async function createWorkflow(input: {
     trigger_config: JSON.stringify(input.triggerConfig ?? {}),
     definition: JSON.stringify({ condition: input.condition, actions: input.actions }),
   });
+  invalidateWorkflowCache();
+  return id;
 }
 
 export async function updateWorkflow(
@@ -143,10 +160,12 @@ export async function updateWorkflow(
     patch.definition = JSON.stringify({ condition: input.condition, actions: input.actions ?? [] });
   }
   await WorkflowOperations.update(id, patch);
+  invalidateWorkflowCache();
 }
 
 export async function removeWorkflow(id: number): Promise<void> {
   await WorkflowOperations.remove(id);
+  invalidateWorkflowCache();
 }
 
 export async function recordRun(record: {
