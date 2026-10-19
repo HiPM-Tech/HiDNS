@@ -927,6 +927,7 @@ WebSocket 事件：`resource:snapshot`，每 10 秒推送一次当前资源快�
 | `nsStatuses` | `ok` / `mismatch` / `missing` / `poisoned` |
 | `domains` | 当前用户可访问域名 |
 | `originGroups` | 需 `?domainId=`；由域名反查账号与站点，返回源站组及其记录数/引用数；域名不属于调用方 → 404 |
+| `outboundAllowlist` | 当前**生效**的出站白名单（读自内存策略，与执行一致） |
 
 ### 24b. 错误码
 
@@ -994,6 +995,11 @@ WebSocket 事件：`resource:snapshot`，每 10 秒推送一次当前资源快�
 | PUT | `/api/settings/workflow-http-allowlist` | JWT + admin + noToken | 覆盖白名单（写审计，立即热重载） |
 
 请求体：`{ "allowlist": ["api.ipify.org", "*.cloudflare.com"] }`（字符串数组；空数组合法，表示全部拒绝）。
+
+响应体：`{ "code": 0, "data": { "allowlist": [...] }, "msg": "success" }`（返回**写入后立即生效**的列表）。
+
+条目约束：必须是**纯主机名**——含 scheme、端口、路径、查询串、凭据或空白的条目会被 **422** 拒绝（IPv6 字面量除外，如 `2606:4700::1111`）。
+匹配语义：大小写与尾点归一化；`*.example.com` 同时命中裸 `example.com` 与其子域；私网/本地地址即使命中白名单仍被拒绝。
 
 语义：`http.outbound.fetch` 仅允许命中该白名单的主机；白名单为空时**所有出站请求都会被拒绝**（fail-closed）。
 存储键：`system_settings.workflow_http_allowlist`，值为 JSON 数组字符串；也兼容逗号分隔的旧格式。
