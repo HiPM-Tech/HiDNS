@@ -9,13 +9,14 @@ const listMock = vi.fn();
 const metaMock = vi.fn();
 const createMock = vi.fn();
 const removeMock = vi.fn();
+const updateMock = vi.fn();
 
 vi.mock('../api', () => ({
   workflowsApi: {
     list: () => listMock(),
     meta: (source: string) => metaMock(source),
     create: (payload: unknown) => createMock(payload),
-    update: vi.fn(async () => ({ data: { code: 0 } })),
+    update: (id: number, payload: unknown) => updateMock(id, payload),
     remove: (id: number) => removeMock(id),
     runs: vi.fn(async () => ({ data: { data: { runs: [] } } })),
     sampleEvent: vi.fn(async () => ({ data: { data: { event: null } } })),
@@ -58,6 +59,7 @@ beforeEach(() => {
   });
   createMock.mockResolvedValue({ data: { code: 0, data: { id: 3 } } });
   removeMock.mockResolvedValue({ data: { code: 0 } });
+  updateMock.mockResolvedValue({ data: { code: 0 } });
 });
 
 describe('工作流页面（DOM 交互）', () => {
@@ -95,5 +97,35 @@ describe('工作流页面（DOM 交互）', () => {
     // 条件关闭时必须显式发 null（undefined 会被 JSON.stringify 丢弃，服务端会保留旧值）
     expect(payload.condition).toBeNull();
     expect(Array.isArray(payload.actions)).toBe(true);
+  });
+});
+describe('工作流页面（编辑 / 删除 / 运行）', () => {
+  it('编辑正常行时回填名称，保存走 update 而不是 create', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('ok-flow')).toBeTruthy());
+    fireEvent.click(screen.getAllByText('编辑')[0]);
+    await waitFor(() => expect(screen.getAllByText('执行条件').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText('保存')[0]);
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('删除需要二次确认，确认后才调用 remove', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('ok-flow')).toBeTruthy());
+    fireEvent.click(screen.getAllByText('删除')[0]);
+    // ConfirmDialog 出现前不应调用
+    expect(removeMock).not.toHaveBeenCalled();
+    const confirm = await screen.findAllByText('删除');
+    fireEvent.click(confirm[confirm.length - 1]);
+    await waitFor(() => expect(removeMock).toHaveBeenCalledWith(1));
+  });
+
+  it('损坏行仍可删除（但不可编辑）', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('bad-flow')).toBeTruthy());
+    const rows = screen.getAllByText('删除');
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('编辑').length).toBe(1);
   });
 });
