@@ -10,6 +10,7 @@ const DNSNEKO_RECORD_TYPES: RecordType[] = [
 import * as Adapters from './index';
 import type { ProviderExtraCapability } from './extra-types';
 import { tencenteoOriginGroupCapability } from './tencenteo/extra';
+import { virtualOriginGroupCapability } from './virtual/extra';
 
 export interface DnsCapabilities {
   remark: boolean;
@@ -225,6 +226,33 @@ export const providerDefinitions: ProviderDefinition[] = [
       ]},
     ],
     adapterFactory: (config) => new Adapters.TencenteoAdapter(config),
+  },
+  {
+    /**
+     * 虚拟提供商：不需要任何真实凭证，用于完整演练工作流。
+     * 默认关闭，必须在账号配置里显式 `virtual_enabled=true` 才可用（失败关闭）。
+     * 另有进程级硬开关 HIDNS_DISABLE_VIRTUAL_PROVIDER=1，生产可一键停用。
+     */
+    type: 'virtual',
+    name: 'provider.virtual',
+    capabilities: { dns: { remark: true, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    extraCapabilities: [virtualOriginGroupCapability],
+    configFields: [
+      { key: 'virtual_enabled', label: 'provider.config.virtual_enabled', type: 'select', required: true, options: [
+        { value: 'true', label: 'provider.config.virtual_enabled_on' },
+        { value: 'false', label: 'provider.config.virtual_enabled_off' },
+      ]},
+      { key: 'virtual_tenant', label: 'provider.config.virtual_tenant', type: 'text', required: false },
+      { key: 'virtual_state', label: 'provider.config.virtual_state', type: 'select', required: false, options: [
+        { value: 'file', label: 'provider.config.virtual_state_file' },
+        { value: 'memory', label: 'provider.config.virtual_state_memory' },
+      ]},
+      { key: 'virtual_seed', label: 'provider.config.virtual_seed', type: 'select', required: false, options: [
+        { value: 'demo', label: 'provider.config.virtual_seed_demo' },
+        { value: 'empty', label: 'provider.config.virtual_seed_empty' },
+      ]},
+    ],
+    adapterFactory: (config) => new Adapters.VirtualAdapter(config),
   },
   {
     type: 'dnshe',

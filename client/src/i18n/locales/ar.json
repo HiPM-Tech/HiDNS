@@ -1654,6 +1654,12 @@
             "dnsneko": "DNSNeko",
             "dpdns": "DigitalPlat Domains",
             "dpdns_reverse": "DigitalPlat Domains (Reverse)",
+            "virtual": "Virtual DNS (test)",
+            "virtual_origin_group": "Virtual origin group",
+            "virtual_origin_group_list": "List origin groups",
+            "virtual_origin_group_get": "Get origin group",
+            "virtual_origin_group_plan_sync": "Plan origin group sync",
+            "virtual_origin_group_sync": "Sync origin groups",
             "config": {
                 "access_key_id": "AccessKeyId",
                 "access_key_secret": "AccessKeySecret",
@@ -1683,7 +1689,17 @@
                 "hidns_url": "HiDNS URL",
                 "caihong_url": "Rainbow DNS URL",
                 "user_id": "معرف المستخدم",
-                "remember_token": "remember_token"
+                "remember_token": "remember_token",
+                "virtual_enabled": "Enable virtual provider",
+                "virtual_enabled_on": "Enabled",
+                "virtual_enabled_off": "Disabled",
+                "virtual_tenant": "Tenant key (isolates state)",
+                "virtual_state": "State storage",
+                "virtual_state_file": "File (persists)",
+                "virtual_state_memory": "Memory (ephemeral)",
+                "virtual_seed": "Initial data",
+                "virtual_seed_demo": "Demo dataset",
+                "virtual_seed_empty": "Empty"
             }
         },
         "resourceMonitor": {
@@ -1700,6 +1716,21 @@
             "dbQueries": "DB Queries/min",
             "queueDepth": "Queue Depth",
             "latencyTitle": "Response Latency (p50 / p95 / p99)"
+        }
+,
+        "workflow": {
+            "param": {
+                "domain_id": "Domain ID",
+                "group_id": "Origin group ID",
+                "domain_name": "Domain name",
+                "group_ids": "Origin group IDs (comma separated)",
+                "ipv4": "IPv4 address",
+                "ipv6": "IPv6 address",
+                "add_if_missing": "Add when address family is missing",
+                "allow_multiple": "Allow replacing multiple same-family origins",
+                "on_partial": "Policy when a family cannot be handled",
+                "diff_digest": "Diff digest"
+            }
         }
     }
 }

@@ -39,6 +39,14 @@ export interface WorkflowFacade {
         readonly replace: FacadeCall;
       };
     };
+    readonly virtual: {
+      readonly originGroup: {
+        readonly list: FacadeCall;
+        readonly get: FacadeCall;
+        readonly planSync: FacadeCall;
+        readonly sync: FacadeCall;
+      };
+    };
   };
   readonly http: { readonly outbound: { readonly fetch: FacadeCall } };
   readonly notify: { readonly channel: { readonly send: FacadeCall } };
@@ -71,6 +79,14 @@ export function createFacade(dispatch: Dispatcher): WorkflowFacade {
           get: bind('ext.tencenteo.originGroup.get'),
           plan: bind('ext.tencenteo.originGroup.plan'),
           replace: bind('ext.tencenteo.originGroup.replace'),
+        },
+      },
+      virtual: {
+        originGroup: {
+          list: bind('ext.virtual.originGroup.list'),
+          get: bind('ext.virtual.originGroup.get'),
+          planSync: bind('ext.virtual.originGroup.planSync'),
+          sync: bind('ext.virtual.originGroup.sync'),
         },
       },
     },

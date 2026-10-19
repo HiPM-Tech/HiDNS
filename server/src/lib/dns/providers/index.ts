@@ -2,6 +2,7 @@ export { CloudflareAdapter } from './cloudflare';
 export { AliyunAdapter } from './aliyun';
 export { DnspodAdapter } from './dnspod';
 export { TencenteoAdapter } from './tencenteo';
+export { VirtualAdapter, VirtualStore, createVirtualTeoCall } from './virtual';
 export { DnsheAdapter } from './dnshe';
 export {
   buildAuthHeaders as dnsheBuildAuthHeaders,
