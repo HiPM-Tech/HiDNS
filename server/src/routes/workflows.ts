@@ -5,6 +5,7 @@ import { createLimiter } from '../middleware/rateLimit';
 import {
   InvalidSyntheticEventError,
   WorkflowNotRunningError,
+  getOutboundAllowlist,
   runWorkflowManually,
 } from '../workflow';
 import { createLogger } from '../lib/logger';
@@ -19,11 +20,13 @@ import { DomainOperations } from '../db/bal/business-adapter';
 import { buildStaticMeta, isStaticMetaSource } from '../workflow/meta';
 import { DnsProviderService } from '../service/dns-provider-service';
 import { getProviderMetaSource } from '../lib/dns/providers/meta-sources';
+
 import '../lib/dns/providers/tencenteo/meta-source';
 import { validatePayload, type WorkflowPayload } from '../workflow/validate-payload';
 import {
   createWorkflow,
   getStoredById,
+  getWorkflowMetaById,
   latestSampleEvent,
   listByOwner,
   listRuns,
@@ -39,7 +42,14 @@ const router = Router();
  * 设计依据：审核团 P0-C（此前 PUT/DELETE/run/runs/sample-event 缺 owner 校验）。
  */
 async function loadOwnedWorkflow(req: Request, res: Response, id: number) {
-  const item = await getStoredById(id);
+  let item: Awaited<ReturnType<typeof getStoredById>>;
+  try {
+    item = await getStoredById(id);
+  } catch (error) {
+    // 数据损坏：明确 422，而不是让 errorHandler 兜成 500
+    sendError(res, (error as Error).message, 422);
+    return null;
+  }
   if (!item) {
     sendError(res, '工作流不存在', 404);
     return null;
@@ -133,6 +143,12 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
     return;
   }
 
+  // 出站白名单（设计 §5.5.1：编辑器需实时展示当前白名单）
+  if (source === 'outboundAllowlist') {
+    sendSuccess(res, { items: getOutboundAllowlist() });
+    return;
+  }
+
   if (source === 'domains') {
     const limit = Math.min(500, Math.max(1, toId(String(req.query.limit ?? '')) || 200));
     const keyword = String(req.query.q ?? '').trim().toLowerCase();
@@ -209,8 +225,17 @@ router.put('/:id', authMiddleware, adminOnly, requireJwtAuth('workflows'), async
 
 router.delete('/:id', authMiddleware, adminOnly, requireJwtAuth('workflows'), asyncHandler(async (req: Request, res: Response) => {
   const id = toId(req.params.id);
-  const existing = await loadOwnedWorkflow(req, res, id);
-  if (!existing) return;
+  // 删除不能依赖 definition 解析：否则数据损坏的工作流永远删不掉
+  const meta = await getWorkflowMetaById(id);
+  if (!meta) {
+    sendError(res, '工作流不存在', 404);
+    return;
+  }
+  const requesterId = Number(req.user!.userId);
+  if (req.user?.role !== 3 && meta.ownerId !== requesterId) {
+    sendError(res, '无权访问该工作流', 403);
+    return;
+  }
   await removeWorkflow(id);
   sendSuccess(res);
 }));

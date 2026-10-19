@@ -21,6 +21,7 @@
             "addAction": "إضافة إجراء",
             "preview": "معاينة (…)",
             "waitingForEvent": "لا توجد أحداث حقيقية بعد؛ تظهر المعاينة بعد أول تشغيل",
+            "emptyAllowlist": "قائمة السماح الصادرة فارغة: سيرفض http.outbound.fetch كل شيء. اضبطها في إعدادات النظام.",
             "advancedCondition": "شرط متقدم (للقراءة فقط؛ يُحرَّر عبر API)",
             "condition": "الشرط",
             "conditionValue": "القيمة",

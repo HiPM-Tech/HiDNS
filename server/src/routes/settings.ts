@@ -5,6 +5,7 @@ import { getLoginLimitConfig, updateLoginLimitConfig, getLoginAttemptStats, unlo
 import { SettingsOperations, NotificationOperations, AuditRuleOperations, DomainExpiryOperations, UserOperations } from '../db/bal/business-adapter';
 import { getSmtpConfig, updateSmtpConfig, sendSmtpEmail } from '../service/smtp';
 import { logAuditOperation } from '../service/audit';
+import { reloadOutboundPolicy } from '../workflow/index';
 import { createLogger } from '../lib/logger';
 import { wsService } from '../service/websocket';
 import { sendError } from '../utils/http';
@@ -652,3 +653,41 @@ router.post('/login-attempts/unlock', authMiddleware, noTokenAuth('system settin
 });
 
 export default router;
+/**
+ * 工作流出站白名单（设计 §5.5.1）。
+ * 此前只有读取方没有写入方，导致 allowlist 恒为空、http.outbound.fetch 永远 NOT_ALLOWLISTED。
+ */
+router.get('/workflow-http-allowlist', authMiddleware, noTokenAuth('system settings'), adminOnly, async (_req: Request, res: Response) => {
+  const raw = await SettingsOperations.get('workflow_http_allowlist');
+  let allowlist: string[] = [];
+  const text = typeof raw === 'string' ? raw : (raw as unknown as { value?: string } | null)?.value;
+  if (text) {
+    try {
+      const parsed: unknown = JSON.parse(String(text));
+      if (Array.isArray(parsed)) allowlist = parsed.map((item) => String(item));
+    } catch {
+      allowlist = String(text).split(/[,\n]/).map((item) => item.trim()).filter(Boolean);
+    }
+  }
+  res.json({ code: 0, data: { allowlist }, msg: 'success' });
+});
+
+router.put('/workflow-http-allowlist', authMiddleware, noTokenAuth('system settings'), adminOnly, async (req: Request, res: Response) => {
+  const { allowlist } = req.body as { allowlist?: unknown };
+  if (!Array.isArray(allowlist) || allowlist.some((item) => typeof item !== 'string')) {
+    sendError(res, 'allowlist 必须是字符串数组', 400);
+    return;
+  }
+  const normalized = allowlist.map((item) => String(item).trim()).filter(Boolean);
+  await SettingsOperations.set('workflow_http_allowlist', JSON.stringify(normalized));
+  // 立即重载，避免必须重启进程
+  await reloadOutboundPolicy();
+  await logAuditOperation(
+    Number(req.user!.userId),
+    'update_workflow_http_allowlist',
+    'workflow',
+    { count: normalized.length },
+    req as never,
+  );
+  res.json({ code: 0, data: { allowlist: normalized }, msg: 'success' });
+});

@@ -1805,6 +1805,15 @@ export const DomainPermissionOperations = {
     );
   },
 
+  /** 更新团队权限：必须带 team_id 约束，否则可跨团队改他人授权行（IDOR） */
+  async updatePermissionByTeam(id: number, teamId: number, permission: 'read' | 'write'): Promise<void> {
+    return executeInternal(
+      'UPDATE domain_permissions SET permission = ? WHERE id = ? AND team_id = ?',
+      [permission, id, teamId],
+      { operation: 'DomainPermission.updatePermissionByTeam', table: 'domain_permissions' }
+    );
+  },
+
   /** 删除团队权限 */
   async deleteByTeamAndId(id: number, teamId: number): Promise<void> {
     return executeInternal(

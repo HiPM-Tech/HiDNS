@@ -21,6 +21,7 @@
             "addAction": "Adicionar ação",
             "preview": "Pré-visualizar (…)",
             "waitingForEvent": "Ainda sem eventos reais; a pré-visualização surge após o primeiro gatilho",
+            "emptyAllowlist": "A lista de saída está vazia: http.outbound.fetch recusará tudo. Configure nas configurações do sistema.",
             "advancedCondition": "Condição avançada (somente leitura; editar via API)",
             "condition": "Condição",
             "conditionValue": "Valor",

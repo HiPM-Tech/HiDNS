@@ -32,6 +32,7 @@
             "nsStatuses": "Watched statuses",
             "withinDays": "Days ahead",
             "advancedCondition": "Advanced condition (read-only; edit via API)",
+            "emptyAllowlist": "Outbound allowlist is empty: http.outbound.fetch will reject everything. Configure it in system settings.",
             "condition": "Condition",
             "conditionValue": "Value",
             "preview": "Preview (…)",

@@ -65,6 +65,21 @@ describe('DSL 静态校验', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('关系运算遇空值为假（避免 null 被当成 0）', async () => {
+    const { evaluate } = await import('../evaluator');
+    const ctx = { event: { daysLeft: 30 }, vars: {}, call: async () => null };
+    const node = (op: string) => ({
+      kind: 'compare' as const,
+      op,
+      left: { kind: 'ref' as const, path: 'event.daysLeft' },
+      right: { kind: 'literal' as const, value: null },
+    });
+    for (const op of ['>', '>=', '<', '<='] as const) {
+      expect(await evaluate(node(op) as never, ctx as never)).toBe(false);
+    }
+    expect(await evaluate(node('!=') as never, ctx as never)).toBe(true);
+  });
+
   it('拒绝未知节点类型', () => {
     const result = validate({ kind: 'eval', code: 'process.exit(1)' });
     expect(result.ok).toBe(false);

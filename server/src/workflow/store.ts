@@ -44,6 +44,12 @@ function safeParse<T>(raw: string | null | undefined, fallback: T): T {
 
 export function rowToStored(row: WorkflowRow): StoredWorkflow {
   const definition = safeParse<{ condition?: ExpressionNode; actions?: ExpressionNode[] }>(row.definition, {});
+  // trigger_config 同样要校验：null 会让 storedToDefinition 抛原生 TypeError（→500），
+  // 非对象则会被静默兜底成 ['A','AAAA']，把触发面放宽。
+  const triggerConfig = safeParse<unknown>(row.trigger_config, {});
+  if (typeof triggerConfig !== 'object' || triggerConfig === null || Array.isArray(triggerConfig)) {
+    throw new Error(`trigger_config 必须是对象: ${row.id}`);
+  }
   // 结构校验：definition 被写坏时宁可抛错（由上层行级容错跳过），
   // 也不要把字符串当 actions 传下去（引擎会逐字符求值，错误信息误导）。
   if (definition.actions !== undefined && !Array.isArray(definition.actions)) {
@@ -58,7 +64,7 @@ export function rowToStored(row: WorkflowRow): StoredWorkflow {
     name: row.name,
     enabled: row.enabled === 1,
     triggerType: row.trigger_type,
-    triggerConfig: safeParse<Record<string, unknown>>(row.trigger_config, {}),
+    triggerConfig: triggerConfig as Record<string, unknown>,
     condition: definition.condition ?? undefined,
     actions: definition.actions ?? [],
   };
@@ -144,11 +150,33 @@ export async function listByOwner(ownerId: number): Promise<StoredWorkflow[]> {
     try {
       items.push(rowToStored(row));
     } catch (error) {
-      // 行级隔离：一条坏数据不能把整个列表打成 500，否则用户既看不到也删不掉它
-      log.error('skip malformed workflow row', { id: (row as { id?: number }).id, error: (error as Error).message });
+      // 行级隔离：坏行**不能静默丢弃** —— 丢弃后用户既看不到也删不掉，只能改库。
+      // 这里返回占位项（corrupted 标记），让前端能展示并触发删除。
+      log.error('malformed workflow row surfaced as placeholder', {
+        id: (row as { id?: number }).id,
+        error: (error as Error).message,
+      });
+      items.push({
+        id: Number((row as { id?: number }).id ?? 0),
+        ownerId: Number((row as { owner_id?: number }).owner_id ?? 0),
+        name: String((row as { name?: string }).name ?? '(损坏)'),
+        enabled: false,
+        triggerType: 'record.changed',
+        triggerConfig: {},
+        condition: undefined,
+        actions: [],
+        corrupted: true,
+      } as StoredWorkflow);
     }
   }
   return items;
+}
+
+/** 只取归属与名称，不解析 definition：供删除路径在数据损坏时仍能鉴权与清理 */
+export async function getWorkflowMetaById(id: number): Promise<{ id: number; ownerId: number } | null> {
+  const row = await WorkflowOperations.getById(id);
+  if (!row) return null;
+  return { id: Number((row as { id?: number }).id ?? 0), ownerId: Number((row as { owner_id?: number }).owner_id ?? 0) };
 }
 
 export async function getStoredById(id: number): Promise<StoredWorkflow | null> {
@@ -157,8 +185,8 @@ export async function getStoredById(id: number): Promise<StoredWorkflow | null> 
   try {
     return rowToStored(row);
   } catch (error) {
-    // 详情路径无法跳过：抛带 id 的明确错误，由路由映射成 422 而不是 500
-    throw new Error(`工作流数据损坏（id=${id}）: ${(error as Error).message}`);
+    // 详情路径无法跳过：抛工作流层错误，由路由映射成 422（不要依赖 HTTP 中间件的 AppError）
+    throw new WorkflowStoreError('CORRUPTED', `工作流数据损坏（id=${id}）: ${(error as Error).message}`);
   }
 }
 

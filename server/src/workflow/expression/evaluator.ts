@@ -77,13 +77,18 @@ function checkBudget(state: EvalState, now: () => number, signal?: AbortSignal):
 }
 
 function compare(op: string, left: unknown, right: unknown): boolean {
+  // 关系运算遇空值一律为假：JS 会把 null 转成 0，导致「30 >= 空」恒真
+  const relational = op === '>' || op === '>=' || op === '<' || op === '<=';
+  if (relational && (left === null || left === undefined || right === null || right === undefined)) {
+    return false;
+  }
   switch (op) {
     case '==': return left === right;
     case '!=': return left !== right;
-    case '>': return (left as number) > (right as number);
-    case '>=': return (left as number) >= (right as number);
-    case '<': return (left as number) < (right as number);
-    case '<=': return (left as number) <= (right as number);
+    case '>': return Number(left) > Number(right);
+    case '>=': return Number(left) >= Number(right);
+    case '<': return Number(left) < Number(right);
+    case '<=': return Number(left) <= Number(right);
     case 'in':
       if (Array.isArray(right)) return right.includes(left);
       if (right && typeof right === 'object') return Object.prototype.hasOwnProperty.call(right, String(left));

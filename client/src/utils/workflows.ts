@@ -80,17 +80,28 @@ export function toConditionNode(draft: ConditionDraft): WorkflowDslNode | undefi
 
 export function fromConditionNode(node: WorkflowDslNode | null | undefined): ConditionDraft {
   if (!node) return { ...EMPTY_CONDITION };
-  if (node.kind !== 'compare') {
-    // 复杂条件（logic/cond/...）保留原节点，避免「打开编辑→保存」静默清空
+  const leftNode = (node.left ?? {}) as { kind?: string; path?: string };
+  const rightNode = (node.right ?? {}) as { kind?: string; value?: unknown };
+
+  // 只有「表单能无损表达」的条件才结构化：
+  //   compare + 左值为白名单字段的 ref + 右值为标量 literal
+  // 其余（logic/cond/... 根节点、右值是 ref/concat/arith、左路径不在白名单）
+  // 一律整节点保留，否则「打开编辑→保存」会把原节点改写成 literal ""。
+  const lossless =
+    node.kind === 'compare' &&
+    leftNode.kind === 'ref' &&
+    CONDITION_FIELDS.some((field) => field.path === leftNode.path) &&
+    rightNode.kind === 'literal' &&
+    (rightNode.value === null || ['string', 'number', 'boolean'].includes(typeof rightNode.value));
+
+  if (!lossless) {
     return { ...EMPTY_CONDITION, enabled: true, raw: node };
   }
-  const left = (node.left ?? {}) as { path?: string };
-  const right = (node.right ?? {}) as { value?: unknown };
-  const raw = right.value;
-  const value = Array.isArray(raw) ? raw.join(', ') : String(raw ?? '');
+  const rawValue = rightNode.value;
+  const value = Array.isArray(rawValue) ? rawValue.join(', ') : String(rawValue ?? '');
   return {
     enabled: true,
-    field: left.path ?? CONDITION_FIELDS[0].path,
+    field: leftNode.path ?? CONDITION_FIELDS[0].path,
     op: String(node.op ?? '=='),
     value,
   };

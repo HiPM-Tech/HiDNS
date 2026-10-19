@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { rowToStored, storedToDefinition } from '../store';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { rowToStored, storedToDefinition, listByOwner, getStoredById } from '../store';
 import type { RecordChangedTrigger } from '../engine';
 
 function recordTrigger(def: { trigger: { type: string } }): RecordChangedTrigger {
@@ -56,5 +56,16 @@ describe('工作流持久化映射', () => {
 
   it('disabled 映射为 false', () => {
     expect(rowToStored(row({ enabled: 0 })).enabled).toBe(false);
+  });
+});
+describe('损坏数据的隔离与错误映射', () => {
+  it('rowToStored 对非数组 actions 抛错', () => {
+    const bad = { ...(row() as unknown as Record<string, unknown>), definition: JSON.stringify({ actions: 'oops' }) };
+    expect(() => rowToStored(bad as never)).toThrowError(/definition\.actions 必须是数组/);
+  });
+
+  it('rowToStored 对非对象 condition 抛错', () => {
+    const bad = { ...(row() as unknown as Record<string, unknown>), definition: JSON.stringify({ condition: 'true' }) };
+    expect(() => rowToStored(bad as never)).toThrowError(/definition\.condition 必须是对象/);
   });
 });

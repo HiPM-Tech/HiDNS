@@ -21,6 +21,7 @@
             "addAction": "Ajouter une action",
             "preview": "Aperçu (…)",
             "waitingForEvent": "Aucun événement réel pour l'instant ; l'aperçu apparaît après le premier déclenchement",
+            "emptyAllowlist": "Liste d'autorisation sortante vide : http.outbound.fetch refusera tout. Configurez-la dans les paramètres système.",
             "advancedCondition": "Condition avancée (lecture seule ; modifier via l'API)",
             "condition": "Condition",
             "conditionValue": "Valeur",

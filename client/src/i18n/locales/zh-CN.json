@@ -32,6 +32,7 @@
             "nsStatuses": "监听状态",
             "withinDays": "提前天数",
             "advancedCondition": "复杂条件（只读，请在 API 中编辑）",
+            "emptyAllowlist": "出站白名单为空：http.outbound.fetch 会被全部拒绝，请在系统设置中配置",
             "condition": "执行条件",
             "conditionValue": "条件值",
             "preview": "预览 (…)",

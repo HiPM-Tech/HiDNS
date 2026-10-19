@@ -6,7 +6,7 @@ import { ROLE_ADMIN, isAdmin, isSuper } from '../utils/roles';
 import { logAuditOperation } from '../service/audit';
 import { sendError, sendSuccess } from '../utils/http';
 import { createLogger } from '../lib/logger';
-import { TeamOperations, DomainPermissionOperations, UserOperations } from '../db/bal/business-adapter';
+import { TeamOperations, DomainPermissionOperations, UserOperations, DomainOperations, DnsAccountOperations } from '../db/bal/business-adapter';
 import { invalidateAccessCache } from '../workflow/access';
 import { wsService } from '../service/websocket';
 import { getDisplayDomain } from '../utils/dns';
@@ -649,6 +649,22 @@ router.post('/:id/domain-permissions', authMiddleware, asyncHandler(async (req: 
     return;
   }
 
+  // 域名归属校验：否则任意登录用户可给自己团队授予他人域名的写权限（P0）
+  if (!isSuper(role)) {
+    const domain = (await DomainOperations.getById(domain_id)) as unknown as
+      | { id: number; account_id: number }
+      | undefined;
+    if (!domain) {
+      sendError(res, 'Domain not found', 404);
+      return;
+    }
+    const createdBy = await DnsAccountOperations.getCreatedBy(domain.account_id);
+    if (createdBy !== userId) {
+      sendError(res, 'Permission denied', 403);
+      return;
+    }
+  }
+
   // Check if already exists
   const existing = await DomainPermissionOperations.getByTeamDomainAndSub(teamId, domain_id, sub || '');
   if (existing) {
@@ -721,7 +737,8 @@ router.put('/:id/domain-permissions/:permissionId', authMiddleware, asyncHandler
     return;
   }
 
-  await DomainPermissionOperations.updatePermission(permissionId, permission);
+  // 带 team_id 约束：否则 A 团队管理员可改 B 团队/他人授权行
+  await DomainPermissionOperations.updatePermissionByTeam(permissionId, teamId, permission);
   invalidateAccessCache();
 
   await logAuditOperation(userId, 'update_team_domain_permission', team.name, { teamId, permissionId, permission }, req as any);

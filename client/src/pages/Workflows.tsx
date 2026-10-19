@@ -103,6 +103,10 @@ export function Workflows() {
   const recordTypesQuery = useQuery({ queryKey: ['workflow-meta', 'recordTypes'], queryFn: () => workflowsApi.meta<MetaItem[]>('recordTypes') });
   const domainFieldsQuery = useQuery({ queryKey: ['workflow-meta', 'domainFields'], queryFn: () => workflowsApi.meta<MetaItem[]>('domainFields') });
   const nsStatusesQuery = useQuery({ queryKey: ['workflow-meta', 'nsStatuses'], queryFn: () => workflowsApi.meta<MetaItem[]>('nsStatuses') });
+  const allowlistQuery = useQuery({
+    queryKey: ['workflow-meta', 'outboundAllowlist'],
+    queryFn: () => workflowsApi.meta<string[]>('outboundAllowlist'),
+  });
   const domainOptionsQuery = useQuery({
     queryKey: ['workflow-meta', 'domains'],
     queryFn: () => workflowsApi.meta<Array<{ value: string; label: string; id: number }>>('domains'),
@@ -131,6 +135,7 @@ export function Workflows() {
   const nsStatuses = metaItems(nsStatusesQuery);
   const domainOptions = (domainOptionsQuery.data?.data?.data as { items?: Array<{ value: string; label: string; id: number }> } | undefined)?.items ?? [];
   const runs = (runsQuery.data?.data?.data as { runs?: WorkflowRunRecord[] } | undefined)?.runs ?? [];
+  const allowlist = (allowlistQuery.data?.data?.data as { items?: string[] } | undefined)?.items ?? [];
 
   const actionMap = useMemo(() => new Map(actions.map((item) => [item.value, item])), [actions]);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['workflows'] });
@@ -237,6 +242,12 @@ export function Workflows() {
           <Button theme="primary" onClick={openCreate}>{t('workflows.create')}</Button>
         </Space>
       </div>
+
+      {allowlist.length === 0 && (
+        <div className="workflows-error">
+          {t('workflows.emptyAllowlist')}
+        </div>
+      )}
 
       {listQuery.isError && (
         <div className="workflows-error">

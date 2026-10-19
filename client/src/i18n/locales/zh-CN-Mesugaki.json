@@ -21,6 +21,7 @@
             "addAction": "新增動作",
             "preview": "預覽 (…)",
             "waitingForEvent": "尚無真實事件，觸發後即可預覽",
+            "emptyAllowlist": "出站白名單為空：http.outbound.fetch 會被全部拒絕，請在系統設定中設定",
             "advancedCondition": "複雜條件（唯讀，請用 API 編輯）",
             "condition": "執行條件",
             "conditionValue": "條件值",

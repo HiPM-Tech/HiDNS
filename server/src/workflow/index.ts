@@ -9,7 +9,7 @@ import { lookupActionMeta } from './actions/registry';
 import { getStoredById, listEnabledDefinitions, recordRun, storedToDefinition } from './store';
 import { getAccessibleDomains, getWritableDomainIds } from './access';
 import { SettingsOperations } from '../db/bal/business-adapter';
-import { setHttpFetchPolicy } from './actions/http/outbound';
+import { setHttpFetchPolicy, getHttpFetchPolicy } from './actions/http/outbound';
 import type { AuthorizeDeps, Principal } from './auth';
 import { buildRecordEvent, type DomainEvent as WorkflowEvent } from '../lib/domain-event-bus';
 
@@ -109,7 +109,12 @@ let engine: WorkflowEngine | null = null;
  * 此前 `setHttpFetchPolicy` 只在测试里调用，生产 allowlist 恒为空，
  * 导致 `http.outbound.fetch` **永远** NOT_ALLOWLISTED（fail-closed 退化成 fail-always）。
  */
-async function loadOutboundPolicy(): Promise<void> {
+/** 供路由/前端展示当前出站白名单（设计 §5.5.1），避免路由直连 actions 实现 */
+export function getOutboundAllowlist(): string[] {
+  return [...getHttpFetchPolicy().allowlist];
+}
+
+export async function reloadOutboundPolicy(): Promise<void> {
   try {
     const raw = (await SettingsOperations.get('workflow_http_allowlist')) as unknown as
       | string
@@ -120,17 +125,20 @@ async function loadOutboundPolicy(): Promise<void> {
     // 规范（§5.5.1）约定存 JSON 数组；同时兼容历史/手写的逗号分隔
     const rawValue = String(value ?? '').trim();
     let allowlist: string[] = [];
+    let parsedJson = false;
     if (rawValue.startsWith('[')) {
       try {
         const parsed: unknown = JSON.parse(rawValue);
         if (Array.isArray(parsed)) {
+          // JSON 解析成功即短路：空数组是**合法配置**，不能当成解析失败回退成 CSV
           allowlist = parsed.map((item) => String(item).trim()).filter(Boolean);
+          parsedJson = true;
         }
       } catch {
         log.warn('workflow http allowlist is not valid JSON, falling back to CSV');
       }
     }
-    if (allowlist.length === 0) {
+    if (!parsedJson) {
       allowlist = rawValue.split(/[,\n]/).map((item) => item.trim()).filter(Boolean);
     }
     setHttpFetchPolicy({ allowlist });
@@ -149,7 +157,7 @@ export function startWorkflowModule(): void {
     return;
   }
 
-  void loadOutboundPolicy();
+  void reloadOutboundPolicy();
 
   const dispatcher = createDispatcher({ authorizeDeps });
 

@@ -10,6 +10,7 @@ import { whoisEventDedupe } from '../lib/whois-event-dedupe';
 import { renewalRegistry } from './renewalScheduler';
 import { taskManager } from './taskManager';
 import { createLogger } from '../lib/logger';
+import { normalizeDomain } from '../utils/domain';
 
 const log = createLogger('Job').sub('DomainRenewal');
 let renewalInterval: NodeJS.Timeout | null = null;
@@ -129,7 +130,10 @@ export async function executeDomainRenewal(): Promise<void> {
               // renewable_domains 的 id 与 domains.id 不是同一实体，不能混用。
               // 回查域名时必须用**库里存的名字**（full_domain），
               // 提供商返回的 domain_name 可能大小写/apex 形态不一致，getByName 是精确匹配。
-              const lookupName = String(domain.full_domain ?? domain.name ?? result.domain_name ?? '');
+              // domains.name 入库前已归一化为 Punycode/小写，提供商串必须同样归一化才能命中
+              const lookupName = normalizeDomain(
+                String(domain.full_domain ?? domain.name ?? result.domain_name ?? ''),
+              );
               const localRecord = lookupName
                 ? ((await DomainOperations.getByName(lookupName)) as unknown as
                     | { id: number; account_id?: number }
