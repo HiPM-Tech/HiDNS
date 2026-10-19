@@ -33,25 +33,38 @@ function getNestedValue(obj, path) {
 
 const enKeys = getAllKeys(en.messages).sort();
 
-// 只检查日语文件
-const file = 'ja.json';
-const filePath = path.join(localesDir, file);
-const lang = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-const missingKeys = [];
+// 检查**全部**语言包（此前只查 ja.json，其余语言的缺键不会被拦住）
+const files = fs.readdirSync(localesDir).filter((name) => name.endsWith('.json'));
+let totalMissing = 0;
 
-for (const key of enKeys) {
-  const value = getNestedValue(lang.messages, key);
-  if (value === undefined) {
-    missingKeys.push(key);
+for (const file of files) {
+  if (file === 'en.json') continue;
+  const filePath = path.join(localesDir, file);
+  const lang = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  const missingKeys = [];
+
+  for (const key of enKeys) {
+    const value = getNestedValue(lang.messages, key);
+    if (value === undefined) {
+      missingKeys.push(key);
+    }
+  }
+
+  if (missingKeys.length > 0) {
+    totalMissing += missingKeys.length;
+    console.log(`${file} missing ${missingKeys.length} keys:`);
+    missingKeys.slice(0, 50).forEach((key) => {
+      const enValue = getNestedValue(en.messages, key);
+      console.log(`${key}=${enValue}`);
+    });
+    if (missingKeys.length > 50) console.log(`... and ${missingKeys.length - 50} more`);
+  } else {
+    console.log(`${file} is complete!`);
   }
 }
 
-if (missingKeys.length > 0) {
-  console.log(`${file} missing ${missingKeys.length} keys:`);
-  missingKeys.forEach(key => {
-    const enValue = getNestedValue(en.messages, key);
-    console.log(`${key}=${enValue}`);
-  });
-} else {
-  console.log(`${file} is complete!`);
+if (totalMissing > 0) {
+  console.log(`\nTOTAL MISSING: ${totalMissing}`);
+  process.exit(1);
 }
+console.log('All locales complete.');

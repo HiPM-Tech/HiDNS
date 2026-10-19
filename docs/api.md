@@ -898,6 +898,79 @@ WebSocket 事件：`resource:snapshot`，每 10 秒推送一次当前资源快�
 
 ---
 
+## 24. 自动化工作流
+
+> 全部端点要求 **JWT 登录** + **管理员（role ≥ 2）**；创建工作流、修改定义、删除、手动运行、测试额外要求 `requireJwtAuth`（禁止 API Token 调用）。
+> `/api/workflows` **不在** `initCheckMiddleware` 豁免清单内：系统未初始化时一律 503。
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/workflows` | JWT + admin | 列出**自己**的工作流（超管可管全部） |
+| POST | `/api/workflows` | JWT + admin + noToken | 创建工作流 |
+| GET | `/api/workflows/:id` | JWT + admin | 详情；非本人且非超管 → 403 |
+| PUT | `/api/workflows/:id` | JWT + admin + noToken | 更新（部分字段可省略，省略即保留旧值） |
+| DELETE | `/api/workflows/:id` | JWT + admin + noToken | 删除（同事务清理运行记录） |
+| GET | `/api/workflows/:id/runs` | JWT + admin | 运行记录，支持 `?limit`（默认 50，上限 200） |
+| GET | `/api/workflows/:id/sample-event` | JWT + admin | 最近一次运行的事件快照，供 `(...)` 预览；无记录返回 `null` |
+| POST | `/api/workflows/:id/run` | JWT + admin + noToken | 手动运行（限流 10 次/分钟） |
+| POST | `/api/workflows/:id/test` | JWT + admin + noToken | 保存期校验（不执行） |
+| GET | `/api/workflows/meta/:source` | JWT + admin | 候选值 |
+
+### 24a. 候选值 `meta/:source`
+
+| source | 返回 |
+|--------|------|
+| `actions` | 全部已注册动作（含 `actionClass` / `risk` / `dslVisible` / `params`） |
+| `triggerTypes` | `record.changed` / `domain.changed` / `ns.changed` / `whois.expiring` |
+| `recordTypes` | 仅 `A` / `AAAA`（§4.0.5） |
+| `domainFields` | `remark` / `is_hidden` / `enabled` |
+| `nsStatuses` | `ok` / `mismatch` / `missing` / `poisoned` |
+| `domains` | 当前用户可访问域名 |
+| `originGroups` | 需 `?domainId=`；由域名反查账号与站点，返回源站组及其记录数/引用数；域名不属于调用方 → 404 |
+
+### 24b. 错误码
+
+| 状态码 | 来源 |
+|--------|------|
+| 401 | 未登录 / JWT 失效 |
+| 403 | 非管理员；或非本人工作流 |
+| 404 | 工作流不存在；候选值来源未知；源站组域名无权限 |
+| 422 | 保存期校验失败（DSL 结构、必填参数、`dslVisible`、域名变动触发写动作、触发配置取值） |
+| 429 | 手动运行超限 |
+| 503 | 系统未初始化，或工作流模块未启动（数据库不可达降级模式） |
+
+### 24c. 创建/更新请求体
+
+```json
+{
+  "name": "同步回源",
+  "enabled": true,
+  "triggerType": "record.changed",
+  "triggerConfig": { "recordTypes": ["A"] },
+  "condition": {
+    "kind": "compare", "op": "==",
+    "left": { "kind": "ref", "path": "event.record.type" },
+    "right": { "kind": "literal", "value": "A" }
+  },
+  "actions": [
+    {
+      "kind": "call",
+      "action": "dns.record.update",
+      "args": {
+        "domain": { "kind": "literal", "value": "example.com" },
+        "recordId": { "kind": "literal", "value": "r-123" },
+        "value": { "kind": "ref", "path": "event.record.value" }
+      }
+    }
+  ]
+}
+```
+
+- `triggerConfig`：`record.changed` → `recordTypes`；`domain.changed` → `fields`；`ns.changed` → `statuses`；`whois.expiring` → `withinDays`。
+- `actions` 中的 `call.action` **必须是字面量**且已注册；引用 `dslVisible:false` 的动作会被 422 拒绝。
+- 必填参数缺失、`select` 取值越界同样在保存期 422。
+---
+
 ## 23. Swagger 文档
 
 | 方法 | 路径 | 鉴权 | 说明 |

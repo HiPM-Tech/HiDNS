@@ -18,6 +18,14 @@ import type { WorkflowRecord, WorkflowDslNode, WorkflowActionMeta, WorkflowRunRe
 import { useI18n } from '../contexts/I18nContext';
 import './Workflows.css';
 
+/** 统一错误描述：优先取服务端 msg，而不是 axios 的 "Request failed with status code 422" */
+function describeError(error: unknown): string {
+  const response = (error as { response?: { data?: { msg?: string } } })?.response;
+  const serverMsg = response?.data?.msg;
+  if (serverMsg) return serverMsg;
+  return error instanceof Error ? error.message : String(error);
+}
+
 interface ActionRow {
   action: string;
   args: Record<string, string>;
@@ -72,21 +80,47 @@ function CascadingSelect({
   );
 }
 
-const CONDITION_FIELDS = [
-  'event.record.value',
-  'event.record.oldValue',
-  'event.record.name',
-  'event.record.type',
-  'event.domain.name',
-  'event.status',
-  'event.daysLeft',
+interface ConditionField {
+  path: string;
+  /** 字面量类型：决定编辑器把输入转成 number / boolean 还是 string */
+  type: 'string' | 'number' | 'boolean';
+}
+
+const CONDITION_FIELDS: ConditionField[] = [
+  { path: 'event.record.value', type: 'string' },
+  { path: 'event.record.oldValue', type: 'string' },
+  { path: 'event.record.name', type: 'string' },
+  { path: 'event.record.type', type: 'string' },
+  { path: 'event.domain.name', type: 'string' },
+  { path: 'event.status', type: 'string' },
+  { path: 'event.daysLeft', type: 'number' },
 ];
 
 const CONDITION_OPS = ['==', '!=', '>', '>=', '<', '<=', 'in'];
 
+function fieldOf(path: string): ConditionField {
+  return CONDITION_FIELDS.find((field) => field.path === path) ?? CONDITION_FIELDS[0];
+}
+
+/**
+ * 按字段类型产出字面量。
+ * 之前一律产出字符串，导致 `event.daysLeft == 30` 存成 "30"，严格相等恒为假。
+ * `in` 需要一个数组：把逗号分隔的输入拆成 literal 数组。
+ */
+function toLiteral(field: ConditionField, op: string, raw: string): WorkflowDslNode {
+  if (op === 'in') {
+    const items = raw.split(',').map((part) => part.trim()).filter(Boolean);
+    const values = items.map((item) => (field.type === 'number' ? Number(item) : item));
+    return { kind: 'literal', value: values };
+  }
+  if (field.type === 'number') return { kind: 'literal', value: Number(raw) };
+  if (field.type === 'boolean') return { kind: 'literal', value: raw === 'true' };
+  return { kind: 'literal', value: raw };
+}
+
 function toConditionNode(draft: ConditionDraft): WorkflowDslNode | undefined {
   if (!draft.enabled || !draft.field) return undefined;
-  const right: WorkflowDslNode = { kind: 'literal', value: draft.value };
+  const right = toLiteral(fieldOf(draft.field), draft.op, draft.value);
   return {
     kind: 'compare',
     op: draft.op,
@@ -96,13 +130,13 @@ function toConditionNode(draft: ConditionDraft): WorkflowDslNode | undefined {
 }
 
 function fromConditionNode(node: WorkflowDslNode | undefined): ConditionDraft {
-  const empty: ConditionDraft = { enabled: false, field: CONDITION_FIELDS[0], op: '==', value: '' };
+  const empty: ConditionDraft = { enabled: false, field: CONDITION_FIELDS[0].path, op: '==', value: '' };
   if (!node || node.kind !== 'compare') return empty;
   const left = (node.left ?? {}) as { path?: string };
   const right = (node.right ?? {}) as { value?: unknown };
   return {
     enabled: true,
-    field: left.path ?? CONDITION_FIELDS[0],
+    field: left.path ?? CONDITION_FIELDS[0].path,
     op: String(node.op ?? '=='),
     value: String(right.value ?? ''),
   };
@@ -153,7 +187,7 @@ export function Workflows() {
   const [nsStatuses, setNsStatuses] = useState<string[]>([]);
   const [withinDays, setWithinDays] = useState<string>('');
   const [rows, setRows] = useState<ActionRow[]>([{ ...EMPTY_ROW }]);
-  const [condition, setCondition] = useState<ConditionDraft>({ enabled: false, field: CONDITION_FIELDS[0], op: '==', value: '' });
+  const [condition, setCondition] = useState<ConditionDraft>({ enabled: false, field: CONDITION_FIELDS[0].path, op: '==', value: '' });
 
   const [runDomain, setRunDomain] = useState('');
   const [runDomainId, setRunDomainId] = useState<number>(0);
@@ -217,13 +251,16 @@ export function Workflows() {
       invalidate();
     },
     onError: (error: unknown) => {
-      MessagePlugin?.error?.(error instanceof Error ? error.message : String(error));
+      MessagePlugin?.error?.(describeError(error));
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => workflowsApi.remove(id),
     onSuccess: () => invalidate(),
+    onError: (error: unknown) => {
+      MessagePlugin?.error?.(describeError(error));
+    },
   });
 
   const runMutation = useMutation({
@@ -238,7 +275,7 @@ export function Workflows() {
       setRunFor(null);
     },
     onError: (error: unknown) => {
-      MessagePlugin?.error?.(error instanceof Error ? error.message : String(error));
+      MessagePlugin?.error?.(describeError(error));
     },
   });
 
@@ -252,7 +289,7 @@ export function Workflows() {
     setNsStatuses([]);
     setWithinDays('');
     setRows([{ ...EMPTY_ROW }]);
-    setCondition({ enabled: false, field: CONDITION_FIELDS[0], op: '==', value: '' });
+    setCondition({ enabled: false, field: CONDITION_FIELDS[0].path, op: '==', value: '' });
     setDialogOpen(true);
   }
 
@@ -344,7 +381,7 @@ export function Workflows() {
             <Select
               value={triggerType}
               onChange={(value) => setTriggerType(String(value))}
-              options={triggers.map((item) => ({ label: item.label, value: item.value }))}
+              options={triggers.map((item) => ({ label: item.value, value: item.value }))}
             />
           </Form.FormItem>
           {triggerType === 'record.changed' && (
@@ -375,7 +412,7 @@ export function Workflows() {
                 <div className="workflow-condition-row">
                   <Select
                     value={condition.field}
-                    options={CONDITION_FIELDS.map((field) => ({ label: field, value: field }))}
+                    options={CONDITION_FIELDS.map((field) => ({ label: field.path, value: field.path }))}
                     onChange={(value) => setCondition({ ...condition, field: String(value) })}
                   />
                   <Select
