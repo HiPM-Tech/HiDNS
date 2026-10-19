@@ -154,11 +154,17 @@ export async function evaluate(
       return compare(node.op, await evaluate(node.left, ctx, st), await evaluate(node.right, ctx, st));
 
     case 'arith': {
-      const left = Number(await evaluate(node.left, ctx, st));
-      const right = Number(await evaluate(node.right, ctx, st));
-      if (!Number.isFinite(left) || !Number.isFinite(right)) {
+      // 严格数值转换：Number('')=0、Number(null)=0、Number(true)=1 会制造「空值当 0」的静默运算
+      const toStrictNumber = (value: unknown): number => {
+        if (typeof value === 'number' && Number.isFinite(value)) return value;
+        if (typeof value === 'string' && value.trim() !== '') {
+          const parsed = Number(value);
+          if (Number.isFinite(parsed)) return parsed;
+        }
         throw new ExpressionError('INVALID_ARITH', '算术运算需要数值');
-      }
+      };
+      const left = toStrictNumber(await evaluate(node.left, ctx, st));
+      const right = toStrictNumber(await evaluate(node.right, ctx, st));
       switch (node.op) {
         case '+': return left + right;
         case '-': return left - right;

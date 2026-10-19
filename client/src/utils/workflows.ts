@@ -105,9 +105,11 @@ export function fromConditionNode(node: WorkflowDslNode | null | undefined): Con
   // `in` 的右值是标量数组：元素类型 + 文本可逆性都要满足
   const valueTypeOk = Array.isArray(rightNode.value)
     ? node.op === 'in' && rightNode.value.every((item) => matchesFieldType(item) && roundTripSafe(item))
-    : rightNode.value === null
-      ? fieldDef?.type === 'number'
-      : matchesFieldType(rightNode.value);
+    : node.op === 'in'
+      ? false // in 的右值必须是数组，标量会被 toLiteral 改写成 [x]
+      : rightNode.value === null
+        ? fieldDef?.type === 'number'
+        : matchesFieldType(rightNode.value);
   const lossless =
     node.kind === 'compare' &&
     leftNode.kind === 'ref' &&

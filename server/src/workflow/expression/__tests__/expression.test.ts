@@ -102,6 +102,22 @@ describe('DSL 静态校验', () => {
     expect(await evaluate(node('>', '2026-09-01', '2026-08-01') as never, ctx as never)).toBe(true);
   });
 
+  it('算术运算拒绝空值/布尔（不把 null 当 0）', async () => {
+    const { evaluate } = await import('../evaluator');
+    const ctx = { event: {}, vars: {}, call: async () => null };
+    const arith = (l: unknown, r: unknown) => ({
+      kind: 'arith' as const,
+      op: '+',
+      left: { kind: 'literal' as const, value: l },
+      right: { kind: 'literal' as const, value: r },
+    });
+    await expect(evaluate(arith('', 1) as never, ctx as never)).rejects.toThrowError(/算术运算需要数值/);
+    await expect(evaluate(arith(null, 1) as never, ctx as never)).rejects.toThrowError(/算术运算需要数值/);
+    await expect(evaluate(arith(true, 2) as never, ctx as never)).rejects.toThrowError(/算术运算需要数值/);
+    expect(await evaluate(arith('2', 3) as never, ctx as never)).toBe(5);
+    expect(await evaluate(arith(2, 3) as never, ctx as never)).toBe(5);
+  });
+
   it('拒绝未知节点类型', () => {
     const result = validate({ kind: 'eval', code: 'process.exit(1)' });
     expect(result.ok).toBe(false);
