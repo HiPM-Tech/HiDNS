@@ -9,6 +9,7 @@ import { VirtualAdapter } from '../../lib/dns/providers/virtual/adapter';
 import { VirtualStore } from '../../lib/dns/providers/virtual/store';
 import { DnsProviderService } from '../../service/dns-provider-service';
 import { DomainOperations } from '../../db/bal/business-adapter';
+import { setRecordDeps, resetRecordDeps } from '../actions/dns/record-deps';
 
 vi.mock('../../service/dns-provider-service', () => ({
   DnsProviderService: { getAdapterByAccount: vi.fn() },
@@ -118,7 +119,16 @@ beforeEach(() => {
   });
 });
 
+beforeEach(() => {
+  setRecordDeps({
+    resolveDomain: async () => ({ id: DOMAIN_ID, name: DOMAIN_NAME, account_id: 1 }),
+    getAdapter: async () => adapter(),
+    publish: () => undefined,
+  });
+});
+
 afterEach(() => {
+  resetRecordDeps();
   VirtualStore.resetMemoryCache();
 });
 
@@ -192,6 +202,19 @@ describe('虚拟模拟工作流：DDNS 变更 → 多个源站组', () => {
 
     const dual = await adapter().originGroups().get('og-demo-dual');
     expect(dual?.records.map((r) => r.record)).toEqual(['203.0.113.10', '2001:db8::10']);
+  });
+
+  it('工作流也能通过 dns.record.update 改写虚拟域名的解析记录', async () => {
+    const dispatch = makeDispatcher();
+    await dispatch(
+      'dns.record.update',
+      principal,
+      { domain: DOMAIN_NAME, recordId: 'vr-a', value: '203.0.113.77' },
+      { trigger: 'event', triggerType: 'record.changed' },
+    );
+    const record = await adapter().getDomainRecordInfo('vr-a');
+    expect(record?.Value).toBe('203.0.113.77');
+    expect(record?.Type).toBe('A');
   });
 
   it('工作流声明的动作全部在注册表中且对 DSL 可见', () => {
