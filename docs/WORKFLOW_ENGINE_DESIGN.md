@@ -1220,7 +1220,7 @@ interface WorkflowEvent {
 | `routes/records.ts` | 创建 / 更新 / 删除 / 状态变更 / 批量创建 | 删除与状态变更需先回查记录类型（A/AAAA 判定所需） |
 | `service/dns-provider-service.ts` | 创建 / 更新 / 删除 / 状态变更 | 服务层统一出口，覆盖故障转移与 MCP 等非路由调用方 |
 | `workflow/actions/dns/record.ts` | 创建 / 更新 | 标记 `actor.source='workflow'`，由总线抑制以防自激 |
-| `routes/domains.ts`（PUT） | 域名元信息变更 | 仅 `remark` / `is_hidden` / `enabled` 三个字段产生事件；**不含解析值**（§4.0.1） |
+| `routes/domains.ts` | 域名生命周期 | PUT → `updated`（仅 `remark` / `is_hidden` / `enabled` 产生事件）；POST → `created`；DELETE → `deleted`。**均不含解析值**（§4.0.1） |
 | `service/nsMonitorJob.ts` | `ns.changed` | 去重：`status !== previousStatus` 才放行，重复告警不重复触发 |
 | `service/whois/notifier.ts` | `whois.expiring` | 剩余天数 ≤ 阈值即发布，**独立于通知开关**——工作流自行决定处置 |
 

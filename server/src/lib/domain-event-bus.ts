@@ -36,11 +36,14 @@ export interface RecordChangedEvent {
   readonly at: string;
 }
 
-/** 域名元信息变更（备注 / 隐藏 / 启用）。**不含解析值**。 */
+/** 域名生命周期与元信息变更。**不含解析值**。 */
+export type DomainEventAction = 'created' | 'updated' | 'deleted' | 'renewed';
+
 export interface DomainChangedEvent {
   readonly type: 'domain.changed';
+  readonly action: DomainEventAction;
   readonly domain: { readonly id: number; readonly name: string; readonly accountId?: number };
-  /** 发生变化的字段名，如 ['remark'] / ['is_hidden'] / ['enabled'] */
+  /** 发生变化的字段名；仅 action='updated' 时有意义 */
   readonly changedFields: readonly string[];
   readonly actor: { readonly userId?: number; readonly source: ActorSource };
   readonly traceId: string;
@@ -110,8 +113,8 @@ export class DomainEventBus {
   accepts(event: AnyDomainEvent): boolean {
     if (!this.options.allowSelfTrigger && event.actor.source === 'workflow') return false;
     if (event.type === 'domain.changed') {
-      // 域名事件不携带解析值，也不参与深度限制
-      return event.changedFields.length > 0;
+      // 生命周期事件（创建/删除/续费）无需字段；更新必须有明确字段
+      return event.action !== 'updated' || event.changedFields.length > 0;
     }
     if (event.type === 'ns.changed') {
       // 只有状态真的变化才有意义；重复告警不应反复触发工作流
@@ -204,18 +207,22 @@ export const DOMAIN_CHANGED_FIELDS = ['remark', 'is_hidden', 'enabled'] as const
 
 export interface BuildDomainEventInput {
   domain: { id: number; name: string; accountId?: number };
-  changedFields: readonly string[];
+  action?: DomainEventAction;
+  changedFields?: readonly string[];
   actor?: { userId?: number; source: ActorSource };
   traceId?: string;
 }
 
 export function buildDomainEvent(input: BuildDomainEventInput): DomainChangedEvent | null {
-  const fields = input.changedFields.filter((field) =>
+  const action = input.action ?? 'updated';
+  const fields = (input.changedFields ?? []).filter((field) =>
     (DOMAIN_CHANGED_FIELDS as readonly string[]).includes(field),
   );
-  if (!fields.length) return null;
+  // 更新事件必须指出具体字段；生命周期事件不需要
+  if (action === 'updated' && !fields.length) return null;
   return {
     type: 'domain.changed',
+    action,
     domain: input.domain,
     changedFields: fields,
     actor: input.actor ?? { source: 'api' },

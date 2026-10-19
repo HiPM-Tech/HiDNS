@@ -687,6 +687,12 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
       added++;
       addedDomains.push(item.name);
 
+      publishDomainEvent({
+        action: 'created',
+        domain: { id, name: item.name, accountId: account_id },
+        actor: { userId: req.user!.userId, source: 'ui' },
+      });
+
       // 异步获取 WHOIS 信息（不阻塞响应），强制刷新以获取最新的多状态
       syncDomainWhois(id, true).catch(err => {
         log.warn(`Failed to sync WHOIS for ${item.name}:`, { error: err });
@@ -1027,6 +1033,7 @@ router.put('/:id', authMiddleware, requireTokenDomainPermission(), asyncHandler(
   // 主核心事件主线：域名元信息变更（**不含解析值**）。
   // 字段白名单由 buildDomainEvent 再过滤一次，只有 remark / is_hidden / enabled 会产生事件。
   publishDomainEvent({
+    action: 'updated',
     domain: { id, name: access.domain.name, accountId: access.domain.account_id as number | undefined },
     changedFields: [
       ...(remark !== undefined ? ['remark'] : []),
@@ -1098,6 +1105,12 @@ router.delete('/:id', authMiddleware, requireTokenDomainPermission(), asyncHandl
   }
   const deletedDomain = access.domain;
   await DomainOperations.delete(id);
+
+  publishDomainEvent({
+    action: 'deleted',
+    domain: { id, name: String(deletedDomain.name) },
+    actor: { userId: req.user!.userId, source: 'ui' },
+  });
 
   // 缓存失效：增量更新缓存的域名列表
   await submitGroupedCacheUpdate(req.user!.userId, 'domain', { type: 'delete', item: deletedDomain as unknown as Domain });

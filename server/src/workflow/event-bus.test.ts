@@ -28,6 +28,18 @@ describe('域名变更事件', () => {
     expect(buildDomainEvent({ domain: { id: 1, name: 'a.com' }, changedFields: ['record_value'] })).toBeNull();
   });
 
+  it('生命周期事件无需字段（创建/删除）', () => {
+    const created = buildDomainEvent({ action: 'created', domain: { id: 1, name: 'a.com' } });
+    expect(created?.action).toBe('created');
+    expect(created?.changedFields).toEqual([]);
+    const bus = new WorkflowEventBus();
+    expect(bus.publish(created as never)).toBe(true);
+  });
+
+  it('更新事件必须带字段，否则不产生事件', () => {
+    expect(buildDomainEvent({ action: 'updated', domain: { id: 1, name: 'a.com' } })).toBeNull();
+  });
+
   it('域名事件可通过总线', () => {
     const bus = new WorkflowEventBus();
     const built = buildDomainEvent({ domain: { id: 1, name: 'a.com' }, changedFields: ['enabled'] });

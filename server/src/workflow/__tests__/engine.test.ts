@@ -248,6 +248,28 @@ describe('执行引擎', () => {
     expect(dispatched).toBeLessThanOrEqual(4);
   });
 
+  it('域名触发器：字段过滤命中', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const domainWf = wf({
+      id: 'd1',
+      trigger: { type: 'domain.changed', fields: ['remark'] },
+      actions: [{ kind: 'call', action: 'dns.record.list', args: {} }],
+    });
+    const e = engine([domainWf], dispatch);
+    const base = {
+      type: 'domain.changed',
+      action: 'updated',
+      domain: { id: 1, name: 'a.com' },
+      actor: { source: 'ui' },
+      traceId: 't',
+      at: '',
+    };
+    const hit = { ...base, changedFields: ['remark'] } as never;
+    const miss = { ...base, changedFields: ['enabled'] } as never;
+    expect((await e.handleEvent(hit))[0].status).toBe('success');
+    expect(await e.handleEvent(miss)).toEqual([]);
+  });
+
   it('未 start 时不订阅（无模块作用域副作用）', () => {
     engine([wf()]);
     expect(bus.subscriberCount()).toBe(0);
