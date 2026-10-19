@@ -108,7 +108,12 @@ export function validateOutboundUrl(
     return { rejection: { code: 'CREDENTIALS_IN_URL', message: 'URL 不得内嵌凭据' } };
   }
 
-  const host = normalizeHost(parsed.hostname);
+  // URL 的 hostname 对 IPv6 字面量会带方括号（"[::1]"），isIP 对其返回 0，
+  // 若不剥离，下面的私网判定整段是死代码 —— 实测 https://[::1]/ 会被放行。
+  const rawHost = parsed.hostname;
+  const host = normalizeHost(
+    rawHost.startsWith('[') && rawHost.endsWith(']') ? rawHost.slice(1, -1) : rawHost,
+  );
   if (!host) {
     return { rejection: { code: 'INVALID_HOST', message: '主机名为空' } };
   }

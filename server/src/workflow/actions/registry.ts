@@ -31,10 +31,13 @@ export const MODULES: readonly ActionModule[] = [
 
 export const ALL_ACTIONS: readonly ActionDeclaration[] = MODULES.flatMap((m) => m.declarations);
 
-export const HANDLERS: Readonly<Record<string, BrandedActionHandler>> = Object.assign(
-  {},
+// 用无原型对象承载：普通对象会让 lookupHandler('toString') 命中 Object.prototype
+const HANDLER_MAP = Object.assign(
+  Object.create(null) as Record<string, BrandedActionHandler>,
   ...MODULES.map((m) => m.handlers),
 );
+
+export const HANDLERS: Readonly<Record<string, BrandedActionHandler>> = HANDLER_MAP;
 
 const ACTION_INDEX = new Map<string, ActionDeclaration>(ALL_ACTIONS.map((a) => [a.name, a]));
 
@@ -55,5 +58,5 @@ export function lookupActionMeta(name: string): ActionMeta | null {
 }
 
 export function lookupHandler(name: string): BrandedActionHandler | null {
-  return HANDLERS[name] ?? null;
+  return Object.prototype.hasOwnProperty.call(HANDLER_MAP, name) ? HANDLER_MAP[name] : null;
 }

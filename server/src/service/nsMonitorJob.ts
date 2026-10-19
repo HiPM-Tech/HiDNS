@@ -167,8 +167,10 @@ async function checkDomainNs(monitor: {
 
     // 主核心事件主线：NS 状态变化（去重由总线按 status !== previousStatus 再判一次）
     if (monitor.status !== status) {
+      // 注意：ns_monitor_domains 表**没有 domain_id 列**，Number(undefined) 会得到 NaN。
+      // 这里显式给 0，并依赖 domain.name 定位；下游解析必须忽略非正数 id。
       publishNsEvent({
-        domain: { id: Number(monitor.domain_id), name: monitor.domain_name },
+        domain: { id: 0, name: monitor.domain_name },
         status,
         previousStatus: (monitor.status ?? 'ok') as never,
       });

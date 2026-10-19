@@ -66,6 +66,8 @@ export interface EngineDeps {
   listWorkflows(): Promise<WorkflowDefinition[]>;
   resolvePrincipal(workflow: WorkflowDefinition, event: AnyDomainEvent): Promise<Principal>;
   dispatch: Dispatcher;
+  /** 按 id 取工作流（含禁用）；缺省时退回 listWorkflows —— 后者在生产只含启用项 */
+  getWorkflowById?(id: string): Promise<WorkflowDefinition | null>;
   onRun?(record: RunRecord): Promise<void> | void;
   now?(): number;
 }
@@ -251,8 +253,10 @@ export class WorkflowEngine {
    * 设计依据：§4.1 `manual` 触发器。
    */
   async runSingle(workflowId: string, event: AnyDomainEvent): Promise<RunRecord | null> {
-    const workflows = await this.deps.listWorkflows();
-    const workflow = workflows.find((item) => item.id === workflowId);
+    // 手动运行不受 enabled 限制，因此不能只依赖 listEnabledDefinitions 的结果
+    const workflow = this.deps.getWorkflowById
+      ? await this.deps.getWorkflowById(workflowId)
+      : (await this.deps.listWorkflows()).find((item) => item.id === workflowId) ?? null;
     if (!workflow) return null;
 
     if (this.inFlight.has(workflow.id)) return null;

@@ -6,7 +6,7 @@ import { AVAILABLE_SERVICES, type AvailableService } from '../types/token';
 import { WorkflowEngine, type WorkflowDefinition } from './engine';
 import { createDispatcher } from './dispatch';
 import { lookupActionMeta } from './actions/registry';
-import { listEnabledDefinitions, recordRun } from './store';
+import { getStoredById, listEnabledDefinitions, recordRun, storedToDefinition } from './store';
 import type { AuthorizeDeps, Principal } from './auth';
 import { buildRecordEvent, type DomainEvent as WorkflowEvent } from '../lib/domain-event-bus';
 
@@ -106,6 +106,10 @@ export function startWorkflowModule(): void {
 
   engine = new WorkflowEngine({
     listWorkflows: listEnabledDefinitions,
+    getWorkflowById: async (id) => {
+      const stored = await getStoredById(Number(id));
+      return stored ? storedToDefinition(stored) : null;
+    },
     resolvePrincipal: (workflow) => resolvePrincipal(workflow),
     dispatch: dispatcher,
     onRun: async (run) => {

@@ -176,13 +176,15 @@ router.put('/:id', authMiddleware, adminOnly, requireJwtAuth('workflows'), async
     sendError(res, problems.join('; '), 422);
     return;
   }
+  // 必须用**校验过的合并结果**落库：只传 payload 会让 {"actions": null} 这类输入
+  // 通过校验（nullish 回落到旧值）却在落库时被 store 写成 actions: []。
   await updateWorkflow(id, {
-    name: payload.name as string | undefined,
+    name: merged.name as string | undefined,
     enabled: payload.enabled as boolean | undefined,
-    triggerType: payload.triggerType as string | undefined,
-    triggerConfig: payload.triggerConfig as Record<string, unknown> | undefined,
-    condition: payload.condition as ExpressionNode | undefined,
-    actions: payload.actions as ExpressionNode[] | undefined,
+    triggerType: merged.triggerType as string,
+    triggerConfig: merged.triggerConfig as Record<string, unknown>,
+    condition: merged.condition as ExpressionNode | undefined,
+    actions: merged.actions as ExpressionNode[],
   });
   sendSuccess(res);
 }));

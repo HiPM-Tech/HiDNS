@@ -58,7 +58,7 @@ function CascadingSelect({
     enabled: Boolean(param.source) && ready,
   });
 
-  const options = (query.data?.data as { items?: Array<{ value: string; label: string }> } | undefined)?.items ?? [];
+  const options = (query.data?.data?.data as { items?: Array<{ value: string; label: string }> } | undefined)?.items ?? [];
 
   return (
     <Select
@@ -179,10 +179,10 @@ export function Workflows() {
     enabled: Boolean(runsFor),
   });
 
-  const items = (listQuery.data?.data as { items?: WorkflowRecord[] } | undefined)?.items ?? [];
-  const actions = (actionsQuery.data?.data as { items?: WorkflowActionMeta[] } | undefined)?.items ?? [];
-  const triggers = (triggerQuery.data?.data as { items?: Array<{ value: string; label: string }> } | undefined)?.items ?? [];
-  const runs = (runsQuery.data?.data as { runs?: WorkflowRunRecord[] } | undefined)?.runs ?? [];
+  const items = (listQuery.data?.data?.data as { items?: WorkflowRecord[] } | undefined)?.items ?? [];
+  const actions = (actionsQuery.data?.data?.data as { items?: WorkflowActionMeta[] } | undefined)?.items ?? [];
+  const triggers = (triggerQuery.data?.data?.data as { items?: Array<{ value: string; label: string }> } | undefined)?.items ?? [];
+  const runs = (runsQuery.data?.data?.data as { runs?: WorkflowRunRecord[] } | undefined)?.runs ?? [];
 
   const actionMap = useMemo(() => new Map(actions.map((item) => [item.value, item])), [actions]);
 
@@ -499,7 +499,7 @@ export function Workflows() {
       <Dialog visible={Boolean(previewFor)} onClose={() => setPreviewFor(null)} header={t('workflows.preview')} width="560px"
         footer={<Button variant="outline" onClick={() => setPreviewFor(null)}>{t('common.close')}</Button>}>
         {(() => {
-          const event = (sampleQuery.data?.data as { event?: Record<string, unknown> | null } | undefined)?.event ?? null;
+          const event = (sampleQuery.data?.data?.data as { event?: Record<string, unknown> | null } | undefined)?.event ?? null;
           if (!event) return <div>{t('workflows.waitingForEvent')}</div>;
           const domain = (event.domain ?? {}) as { name?: string };
           const record = (event.record ?? {}) as { name?: string; type?: string; value?: string; oldValue?: string };
@@ -528,10 +528,10 @@ export function Workflows() {
               value={runDomain}
               placeholder={t('workflows.pickDomain')}
               loading={domainOptionsQuery.isLoading}
-              options={((domainOptionsQuery.data?.data as { items?: Array<{ value: string; label: string; id: number }> } | undefined)?.items ?? [])
+              options={((domainOptionsQuery.data?.data?.data as { items?: Array<{ value: string; label: string; id: number }> } | undefined)?.items ?? [])
                 .map((item) => ({ label: `${item.label} (#${item.id})`, value: item.value }))}
               onChange={(value) => {
-                const picked = ((domainOptionsQuery.data?.data as { items?: Array<{ value: string; id: number }> } | undefined)?.items ?? [])
+                const picked = ((domainOptionsQuery.data?.data?.data as { items?: Array<{ value: string; id: number }> } | undefined)?.items ?? [])
                   .find((item) => item.value === String(value));
                 setRunDomain(String(value));
                 setRunDomainId(picked?.id ?? 0);
