@@ -115,9 +115,12 @@ export function Workflows() {
   const items = (listQuery.data?.data?.data as { items?: WorkflowRecord[] } | undefined)?.items ?? [];
   const actions = (actionsQuery.data?.data?.data as { items?: WorkflowActionMeta[] } | undefined)?.items ?? [];
   const triggers = (triggerQuery.data?.data?.data as { items?: Array<{ value: string; label: string }> } | undefined)?.items ?? [];
-  const recordTypes = (recordTypesQuery.data?.data?.data as { items?: string[] } | undefined)?.items ?? ['A', 'AAAA'];
-  const domainFields = (domainFieldsQuery.data?.data?.data as { items?: string[] } | undefined)?.items ?? [];
-  const nsStatuses = (nsStatusesQuery.data?.data?.data as { items?: string[] } | undefined)?.items ?? [];
+  // meta 返回的是 { value, label } 对象数组，不是字符串数组
+  const metaItems = (source: { data?: { data?: { items?: Array<{ value?: string; label?: string }> } } } | undefined): string[] =>
+    (source?.data?.data?.items ?? []).map((item) => String(item.value ?? '')).filter(Boolean);
+  const recordTypes = metaItems(recordTypesQuery);
+  const domainFields = metaItems(domainFieldsQuery);
+  const nsStatuses = metaItems(nsStatusesQuery);
   const domainOptions = (domainOptionsQuery.data?.data?.data as { items?: Array<{ value: string; label: string; id: number }> } | undefined)?.items ?? [];
   const runs = (runsQuery.data?.data?.data as { runs?: WorkflowRunRecord[] } | undefined)?.runs ?? [];
 
@@ -266,7 +269,7 @@ export function Workflows() {
           {form.triggerType === 'record.changed' && (
             <Form.FormItem label={t('workflows.recordTypes')}>
               <Checkbox.Group value={form.recordTypes} onChange={(value) => updateField('recordTypes', value as string[])}>
-                {recordTypes.map((type) => <Checkbox key={type} value={type}>{type}</Checkbox>)}
+                {(recordTypes.length ? recordTypes : ['A', 'AAAA']).map((type) => <Checkbox key={type} value={type}>{type}</Checkbox>)}
               </Checkbox.Group>
             </Form.FormItem>
           )}
@@ -446,7 +449,7 @@ export function Workflows() {
           <Form.FormItem label="record.type">
             <Select
               value={runType}
-              options={recordTypes.map((type) => ({ label: type, value: type }))}
+              options={(recordTypes.length ? recordTypes : ['A', 'AAAA']).map((type) => ({ label: type, value: type }))}
               onChange={(value) => setRunType(String(value))}
             />
           </Form.FormItem>
