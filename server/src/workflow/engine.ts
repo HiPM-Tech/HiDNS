@@ -273,17 +273,22 @@ export class WorkflowEngine {
     }
   }
 
-  private async report(records: RunRecord[]): Promise<void> {
+  /** 返回落库失败的条数（手动运行据此决定是否报告成功） */
+  private async report(records: RunRecord[]): Promise<number> {
     // 并行落库：每条独立 try，互不影响；串行会让 N 个工作流的写入延迟叠加
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       records.map(async (record) => {
-        try {
-          await this.deps.onRun?.(record);
-        } catch (error) {
-          log.error('onRun hook failed', { error: (error as Error).message });
-        }
+        await this.deps.onRun?.(record);
       }),
     );
+    let failures = 0;
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        failures += 1;
+        log.error('onRun hook failed', { error: (result.reason as Error)?.message });
+      }
+    }
+    return failures;
   }
 
   async handleEvent(event: AnyDomainEvent): Promise<RunRecord[]> {
@@ -391,7 +396,9 @@ export class WorkflowEngine {
     this.inFlight.add(flightKey);
     // 锁由 executeOne 在底层工作结束后释放
     const record = await this.executeOne(workflow, event, 'manual', undefined, flightKey);
-    await this.report([record]);
+    const failures = await this.report([record]);
+    // 落库失败不得对外报告成功：否则用户看到 success 但运行记录里什么都没有
+    if (failures > 0) throw new Error('运行记录写入失败');
     return record;
   }
 }

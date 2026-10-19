@@ -120,7 +120,13 @@ function headersToObject(headers: Headers): Record<string, string> {
  */
 export async function fetchOutbound(
   rawUrl: string,
-  options: { method?: string; policy?: HttpFetchPolicy; fetcher?: Fetcher } = {},
+  options: {
+    method?: string;
+    policy?: HttpFetchPolicy;
+    fetcher?: Fetcher;
+    /** 运行级 signal：整体超时后必须能让出站 I/O 一起停下 */
+    signal?: AbortSignal;
+  } = {},
 ): Promise<OutboundResult> {
   const policy = options.policy ?? currentPolicy;
   const fetcher = options.fetcher ?? ((url, init) => fetchWithFallback(url, init));
@@ -138,6 +144,10 @@ export async function fetchOutbound(
     }
 
     const controller = new AbortController();
+    // 外部（运行级）signal 与本跳的控制器合并：任一触发即中止
+    const signal = options.signal
+      ? AbortSignal.any([controller.signal, options.signal])
+      : controller.signal;
     // 超时必须覆盖**整个请求生命周期**（含 body 读取），否则慢速响应体可绕过超时
     const timer = setTimeout(() => controller.abort(), policy.timeoutMs);
     try {
@@ -146,7 +156,7 @@ export async function fetchOutbound(
         response = await fetcher(url.toString(), {
           method,
           redirect: 'manual',
-          signal: controller.signal,
+          signal,
         });
       } catch (error) {
         throw new OutboundRejectedError('FETCH_FAILED', (error as Error).message);
@@ -154,6 +164,8 @@ export async function fetchOutbound(
 
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location');
+        // 早退前必须释放连接，否则重定向链会堆积未消费的响应体
+        await response.body?.cancel().catch(() => undefined);
         if (!location) {
           throw new OutboundRejectedError('REDIRECT_WITHOUT_LOCATION', '重定向缺少 Location');
         }
@@ -164,10 +176,22 @@ export async function fetchOutbound(
       // 先按 Content-Length 预检，避免明知超限还整段读入
       const declared = Number(response.headers.get('content-length') ?? '');
       if (Number.isFinite(declared) && declared > policy.maxBytes) {
+        await response.body?.cancel().catch(() => undefined);
         throw new OutboundRejectedError('RESPONSE_TOO_LARGE', `响应体超过 ${policy.maxBytes} 字节`);
       }
 
-      const { text, bytes, truncated } = await readBodyCapped(response, policy.maxBytes, controller);
+      let text: string;
+      let bytes: number;
+      let truncated: boolean;
+      try {
+        ({ text, bytes, truncated } = await readBodyCapped(response, policy.maxBytes, controller));
+      } catch (error) {
+        // 超时打断读取时抛的是原始 AbortError，必须映射成可判定的错误码
+        if ((error as Error).name === 'AbortError') {
+          throw new OutboundRejectedError('TIMEOUT', `出站请求超时（>${policy.timeoutMs}ms）`);
+        }
+        throw error;
+      }
 
       log.debug('outbound fetch ok', { host: url.hostname, status: response.status, bytes });
 
@@ -188,10 +212,10 @@ export async function fetchOutbound(
 }
 
 export const httpOutboundHandlers: Record<string, BrandedActionHandler> = {
-  'http.outbound.fetch': defineAction(async (_ctx, args) => {
+  'http.outbound.fetch': defineAction(async (ctx, args) => {
     const url = String(args.url ?? '');
     const method = typeof args.method === 'string' ? args.method : 'GET';
-    const result = await fetchOutbound(url, { method });
+    const result = await fetchOutbound(url, { method, signal: ctx.signal });
     return { status: result.status, url: result.url, text: result.text, truncated: result.truncated };
   }),
 };
