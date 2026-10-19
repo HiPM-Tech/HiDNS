@@ -327,6 +327,14 @@ export class WorkflowEngine {
 
       // 租户边界：owner 无权访问事件域名时不得执行（否则工作流会越权写他人域名）
       if (this.deps.canAccessDomain && !(await this.deps.canAccessDomain(workflow, event.domain))) {
+        // 必须留痕：工作流侧的可访问集合与 HTTP 层口径不同（不含团队授权与超管旁路），
+        // 静默跳过会让「工作流配了却不触发」无从排查。
+        log.warn('workflow skipped: no domain access', {
+          workflowId: workflow.id,
+          ownerId: workflow.ownerId,
+          domainId: event.domain.id,
+          domainName: event.domain.name,
+        });
         const nowIso = new Date((this.deps.now ?? Date.now)()).toISOString();
         records.push({
           workflowId: workflow.id,
