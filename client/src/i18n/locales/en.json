@@ -20,6 +20,15 @@
             "pickAction": "Pick an action",
             "addAction": "Add action",
             "pickDomain": "Pick a domain",
+            "needParams": "Fill {params} first",
+            "empty": "No workflows yet",
+            "runFailed": "Run failed",
+            "runSkipped": "Not executed (condition or concurrency)",
+            "confirmDelete": "Delete this workflow? Run history will be removed too.",
+            "colTrace": "Trace ID",
+            "colStatus": "Status",
+            "colStarted": "Started",
+            "colError": "Error",
             "nsStatuses": "Watched statuses",
             "withinDays": "Days ahead",
             "condition": "Condition",
@@ -28,6 +37,7 @@
             "waitingForEvent": "No real event yet; preview appears after the first trigger"
         },
         "common": {
+            "retry": "Retry",
             "dashboard": "Dashboard",
             "dnsAccounts": "DNS Accounts",
             "domains": "Domains",

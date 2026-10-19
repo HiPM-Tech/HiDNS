@@ -25,9 +25,19 @@
             "conditionValue": "Valeur",
             "nsStatuses": "Statuts surveillés",
             "withinDays": "Jours d'avance",
-            "pickDomain": "Choisir un domaine"
+            "pickDomain": "Choisir un domaine",
+            "needParams": "Renseignez d'abord {params}",
+            "empty": "Aucun workflow",
+            "runFailed": "Échec de l'exécution",
+            "runSkipped": "Non exécuté (condition ou concurrence)",
+            "confirmDelete": "Supprimer ce workflow ? L’historique sera supprimé aussi.",
+            "colTrace": "ID de trace",
+            "colStatus": "Statut",
+            "colStarted": "Début",
+            "colError": "Erreur"
         },
         "common": {
+            "retry": "Réessayer",
             "dashboard": "Tableau de bord",
             "dnsAccounts": "Comptes DNS",
             "domains": "Domaines",

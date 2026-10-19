@@ -20,6 +20,15 @@
             "pickAction": "选择动作",
             "addAction": "添加动作",
             "pickDomain": "选择域名",
+            "needParams": "需先填写 {params}",
+            "empty": "暂无工作流",
+            "runFailed": "运行失败",
+            "runSkipped": "本次未执行（条件或并发未通过）",
+            "confirmDelete": "确定删除该工作流？运行记录会一并清理。",
+            "colTrace": "追踪 ID",
+            "colStatus": "状态",
+            "colStarted": "开始时间",
+            "colError": "错误",
             "nsStatuses": "监听状态",
             "withinDays": "提前天数",
             "condition": "执行条件",
@@ -206,6 +215,7 @@
             "sourceMcp": "MCP 日志"
         },
         "common": {
+            "retry": "重试",
             "about": "关于",
             "account": "账户",
             "actions": "操作",

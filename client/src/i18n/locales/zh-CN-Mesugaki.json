@@ -25,7 +25,16 @@
             "conditionValue": "條件值",
             "nsStatuses": "監聽狀態",
             "withinDays": "提前天數",
-            "pickDomain": "選擇網域"
+            "pickDomain": "選擇網域",
+            "needParams": "需先填寫 {params}",
+            "empty": "目前沒有工作流",
+            "runFailed": "執行失敗",
+            "runSkipped": "這次沒有執行",
+            "confirmDelete": "確定刪除此工作流？執行紀錄會一併清除。",
+            "colTrace": "追蹤 ID",
+            "colStatus": "狀態",
+            "colStarted": "開始時間",
+            "colError": "錯誤"
         },
         "about": {
             "community": "社区喵~",
@@ -206,6 +215,7 @@
             "sourceMcp": "MCP 日志"
         },
         "common": {
+            "retry": "重試",
             "about": "关于",
             "account": "我的账户",
             "actions": "操作",

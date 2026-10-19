@@ -25,9 +25,19 @@
             "conditionValue": "값",
             "nsStatuses": "감시 상태",
             "withinDays": "사전 일수",
-            "pickDomain": "도메인 선택"
+            "pickDomain": "도메인 선택",
+            "needParams": "{params}을(를) 먼저 입력하세요",
+            "empty": "워크플로가 없습니다",
+            "runFailed": "실행 실패",
+            "runSkipped": "이번에는 실행되지 않았습니다",
+            "confirmDelete": "이 워크플로를 삭제할까요? 실행 기록도 삭제됩니다.",
+            "colTrace": "추적 ID",
+            "colStatus": "상태",
+            "colStarted": "시작 시각",
+            "colError": "오류"
         },
         "common": {
+            "retry": "재시도",
             "dashboard": "대시보드",
             "dnsAccounts": "DNS 계정",
             "domains": "도메인",

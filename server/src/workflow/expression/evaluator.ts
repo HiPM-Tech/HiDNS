@@ -27,11 +27,13 @@ export interface EvalContext {
 export interface EvalState {
   calls: number;
   deadline: number;
+  /** 运行期节点计数：保存期校验可能被绕过（如历史数据），求值器自己也要有上界 */
+  nodes?: number;
 }
 
 /** 运行级求值状态：一次运行内所有根节点共享同一份预算 */
 export function createEvalState(now: () => number = Date.now): EvalState {
-  return { calls: 0, deadline: now() + LIMITS.timeoutMs };
+  return { calls: 0, deadline: now() + LIMITS.timeoutMs, nodes: 0 };
 }
 
 function resolveRef(path: string, ctx: EvalContext): unknown {
@@ -53,6 +55,11 @@ function resolveRef(path: string, ctx: EvalContext): unknown {
 function checkBudget(state: EvalState, now: () => number): void {
   if (now() > state.deadline) {
     throw new ExpressionError('TIMEOUT', '求值超时');
+  }
+  // 运行期节点上限：不依赖保存期校验，避免历史/异常数据把求值器拖进深递归
+  state.nodes = (state.nodes ?? 0) + 1;
+  if (state.nodes > LIMITS.maxNodes) {
+    throw new ExpressionError('TOO_MANY_NODES', '表达式节点过多');
   }
 }
 

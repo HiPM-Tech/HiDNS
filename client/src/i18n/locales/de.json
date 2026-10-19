@@ -25,9 +25,19 @@
             "conditionValue": "Wert",
             "nsStatuses": "Überwachte Status",
             "withinDays": "Tage im Voraus",
-            "pickDomain": "Domain wählen"
+            "pickDomain": "Domain wählen",
+            "needParams": "Zuerst {params} ausfüllen",
+            "empty": "Noch keine Workflows",
+            "runFailed": "Ausführung fehlgeschlagen",
+            "runSkipped": "Nicht ausgeführt (Bedingung oder Nebenläufigkeit)",
+            "confirmDelete": "Diesen Workflow löschen? Die Historie wird mit entfernt.",
+            "colTrace": "Trace-ID",
+            "colStatus": "Status",
+            "colStarted": "Gestartet",
+            "colError": "Fehler"
         },
         "common": {
+            "retry": "Erneut versuchen",
             "dashboard": "Dashboard",
             "dnsAccounts": "DNS-Konten",
             "domains": "Domains",

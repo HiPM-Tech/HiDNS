@@ -25,9 +25,19 @@
             "conditionValue": "Valor",
             "nsStatuses": "Estados monitorados",
             "withinDays": "Dias de antecedência",
-            "pickDomain": "Escolher domínio"
+            "pickDomain": "Escolher domínio",
+            "needParams": "Preencha {params} primeiro",
+            "empty": "Nenhum fluxo",
+            "runFailed": "A execução falhou",
+            "runSkipped": "Não executado (condição ou concorrência)",
+            "confirmDelete": "Excluir este fluxo? O histórico também será removido.",
+            "colTrace": "ID de rastreio",
+            "colStatus": "Status",
+            "colStarted": "Início",
+            "colError": "Erro"
         },
         "common": {
+            "retry": "Tentar novamente",
             "dashboard": "Painel",
             "dnsAccounts": "Contas DNS",
             "domains": "Domínios",

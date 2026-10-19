@@ -25,7 +25,16 @@
             "conditionValue": "Valor",
             "nsStatuses": "Estados vigilados",
             "withinDays": "Días de antelación",
-            "pickDomain": "Elegir dominio"
+            "pickDomain": "Elegir dominio",
+            "needParams": "Rellena primero {params}",
+            "empty": "Sin flujos",
+            "runFailed": "La ejecución falló",
+            "runSkipped": "No se ejecutó (condición o concurrencia)",
+            "confirmDelete": "¿Eliminar este flujo? El historial también se eliminará.",
+            "colTrace": "ID de traza",
+            "colStatus": "Estado",
+            "colStarted": "Inicio",
+            "colError": "Error"
         },
         "about": {
             "community": "Comunidad",
@@ -93,6 +102,7 @@
             "grouped": "Agrupado"
         },
         "common": {
+            "retry": "Reintentar",
             "about": "Acerca de",
             "account": "Cuenta",
             "actions": "Acciones",

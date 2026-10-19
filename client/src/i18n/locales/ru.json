@@ -25,9 +25,19 @@
             "conditionValue": "Значение",
             "nsStatuses": "Отслеживаемые статусы",
             "withinDays": "Дней до истечения",
-            "pickDomain": "Выберите домен"
+            "pickDomain": "Выберите домен",
+            "needParams": "Сначала заполните {params}",
+            "empty": "Сценариев пока нет",
+            "runFailed": "Запуск не удался",
+            "runSkipped": "Не выполнялось (условие или параллельный запуск)",
+            "confirmDelete": "Удалить сценарий? История запусков тоже будет удалена.",
+            "colTrace": "ID трассировки",
+            "colStatus": "Статус",
+            "colStarted": "Начало",
+            "colError": "Ошибка"
         },
         "common": {
+            "retry": "Повторить",
             "dashboard": "Панель управления",
             "dnsAccounts": "DNS-аккаунты",
             "domains": "Домены",

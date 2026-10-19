@@ -94,6 +94,7 @@
     - `FailoverOperations`：故障转移操作
     - `AuditExportOperations`：审计导出操作
     - `TOTPOperations`：TOTP 二次认证操作
+    - `WorkflowOperations`：自动化工作流与运行记录操作（`workflows` / `workflow_runs` 两表，运行记录保留最近 500 条/工作流）
     - `WebAuthnOperations`：WebAuthn 操作
      - `SmtpOperations`：SMTP 配置操作
      - `WhoisOperations`：WHOIS 查询操作
@@ -382,6 +383,7 @@
      - `/api/network`：网络工具。
      - `/api/rdap`：RDAP 查询。
      - `/api/logs`：操作日志（管理员）。
+     - `/api/workflows`：自动化工作流（JWT + 管理员；写操作与手动运行禁止 API Token；**不在初始化豁免清单内**）。
      - `/api/servicemonitor`：服务监控管理。
      - `/api/mcp`：MCP 协议（含 /config、/status、/api-keys、/oauth、/audit-logs、/audit-stats、Streamable HTTP、SSE）。
 3. Swagger 文档
@@ -768,6 +770,7 @@
      - `/teams`：团队管理
      - `/users`：用户管理
      - `/mcp`：MCP 管理
+     - `/workflows`：自动化工作流（仅管理员可见）
      - `/mcp/oauth/consent`：MCP OAuth 授权页
      - `/about`：关于
 

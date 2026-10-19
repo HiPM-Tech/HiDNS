@@ -6,7 +6,21 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.workflows-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--td-error-color-1, #fdecee);
+  color: var(--td-error-color-6, #d54941);
+  font-size: 13px;
 }
 
 .workflow-preview {
@@ -27,4 +41,21 @@
   grid-template-columns: 280px 1fr 80px;
   gap: 8px;
   align-items: center;
+}
+
+/* 窄屏：固定栅格改为单列，避免 760px 对话框在移动端溢出 */
+@media (max-width: 768px) {
+  .workflows-page {
+    padding: 8px;
+  }
+
+  .workflow-condition-row,
+  .workflow-action-row {
+    grid-template-columns: 1fr;
+  }
+
+  .workflows-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }

@@ -25,7 +25,16 @@
             "conditionValue": "値",
             "nsStatuses": "監視ステータス",
             "withinDays": "事前日数",
-            "pickDomain": "ドメインを選択"
+            "pickDomain": "ドメインを選択",
+            "needParams": "先に {params} を入力してください",
+            "empty": "ワークフローがありません",
+            "runFailed": "実行に失敗しました",
+            "runSkipped": "今回は実行されませんでした",
+            "confirmDelete": "このワークフローを削除しますか？実行履歴も削除されます。",
+            "colTrace": "トレース ID",
+            "colStatus": "ステータス",
+            "colStarted": "開始時刻",
+            "colError": "エラー"
         },
         "about": {
             "community": "コミュニティ",
@@ -93,6 +102,7 @@
             "grouped": "グループ化"
         },
         "common": {
+            "retry": "再試行",
             "about": "概要",
             "account": "アカウント",
             "actions": "アクション",

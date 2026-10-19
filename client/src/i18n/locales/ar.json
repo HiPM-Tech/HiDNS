@@ -25,9 +25,19 @@
             "conditionValue": "القيمة",
             "nsStatuses": "الحالات المراقبة",
             "withinDays": "أيام مسبقة",
-            "pickDomain": "اختر نطاقًا"
+            "pickDomain": "اختر نطاقًا",
+            "needParams": "املأ {params} أولاً",
+            "empty": "لا توجد سير عمل",
+            "runFailed": "فشل التشغيل",
+            "runSkipped": "لم يُنفَّذ (شرط أو تشغيل متزامن)",
+            "confirmDelete": "حذف سير العمل؟ ستُحذف سجلات التشغيل أيضًا.",
+            "colTrace": "معرّف التتبع",
+            "colStatus": "الحالة",
+            "colStarted": "البداية",
+            "colError": "خطأ"
         },
         "common": {
+            "retry": "إعادة المحاولة",
             "dashboard": "لوحة التحكم",
             "dnsAccounts": "حسابات DNS",
             "domains": "النطاقات",
