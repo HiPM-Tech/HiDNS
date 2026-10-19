@@ -11,6 +11,7 @@ const principal: Principal = {
   role: 'user',
   services: ['records.write', 'records.read'],
   allowedDomains: '*',
+  allowedWriteDomainIds: [],
 };
 
 function authDeps(overrides: Partial<AuthorizeDeps> = {}): AuthorizeDeps {

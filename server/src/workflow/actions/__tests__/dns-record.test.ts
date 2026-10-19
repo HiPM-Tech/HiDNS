@@ -10,6 +10,7 @@ const principal: Principal = {
   role: 'user',
   services: ['records.read', 'records.write'],
   allowedDomains: ['ok.com'],
+  allowedWriteDomainIds: [7],
 };
 
 const authDeps: AuthorizeDeps = {

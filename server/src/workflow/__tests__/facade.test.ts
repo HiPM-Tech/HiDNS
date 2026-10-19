@@ -3,7 +3,7 @@ import { createFacade, flattenFacadeActions } from '../facade';
 import { ALL_ACTIONS } from '../actions/registry';
 import type { Principal } from '../auth';
 
-const principal: Principal = { kind: 'user', id: 'u1', role: 'admin', services: [], allowedDomains: '*' };
+const principal: Principal = { kind: 'user', id: 'u1', role: 'admin', services: [], allowedDomains: '*', allowedWriteDomainIds: [] };
 
 describe('静态 facade', () => {
   it('A7：facade 覆盖集合与注册表双向一致', () => {

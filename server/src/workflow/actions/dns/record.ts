@@ -99,7 +99,7 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
   }),
 
   'dns.record.create': defineAction(async (ctx, args) => {
-    const domain = await resolveTargetDomain(ctx, args);
+    const domain = await resolveTargetDomain(ctx, args, { write: true });
     const adapter = await adapterFor(domain);
     const name = requireString(args, 'name');
     const type = requireString(args, 'type');
@@ -111,7 +111,7 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
   }),
 
   'dns.record.update': defineAction(async (ctx, args) => {
-    const domain = await resolveTargetDomain(ctx, args);
+    const domain = await resolveTargetDomain(ctx, args, { write: true });
     const adapter = await adapterFor(domain);
     const recordId = requireString(args, 'recordId');
     const previous = await adapter.getDomainRecordInfo(recordId);
@@ -124,7 +124,7 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
   }),
 
   'dns.record.delete': defineAction(async (ctx, args) => {
-    const domain = await resolveTargetDomain(ctx, args);
+    const domain = await resolveTargetDomain(ctx, args, { write: true });
     const adapter = await adapterFor(domain);
     const recordId = requireString(args, 'recordId');
     // 删除事件需要记录类型；读不到就跳过发布而不是伪造
@@ -143,7 +143,7 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
   }),
 
   'dns.record.setStatus': defineAction(async (ctx, args) => {
-    const domain = await resolveTargetDomain(ctx, args);
+    const domain = await resolveTargetDomain(ctx, args, { write: true });
     const adapter = await adapterFor(domain);
     const status = Number(args.status);
     if (status !== 0 && status !== 1) throw new AuthorizationError(400, 'status 只能是 0 或 1');
@@ -163,7 +163,7 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
   }),
 
   'dns.record.batch': defineAction(async (ctx, args) => {
-    const domain = await resolveTargetDomain(ctx, args);
+    const domain = await resolveTargetDomain(ctx, args, { write: true });
     const adapter = await adapterFor(domain);
     const items = Array.isArray(args.records) ? args.records : [];
     if (items.length > MAX_BATCH_SIZE) {

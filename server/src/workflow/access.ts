@@ -51,7 +51,30 @@ export async function getAccessibleDomainIds(userId: number): Promise<number[]> 
   return (await getAccessibleDomains(userId)).ids;
 }
 
+const writeCache = new Map<number, { ids: number[]; at: number }>();
+
+/** 可写域名集合：只读授权（permission='read' 或限定 sub）不在此列 */
+export async function getWritableDomainIds(userId: number): Promise<number[]> {
+  if (!Number.isFinite(userId) || userId <= 0) return [];
+  const now = Date.now();
+  const hit = writeCache.get(userId);
+  if (hit && now - hit.at < TTL_MS) return hit.ids;
+  try {
+    const ids = await DomainOperations.getWritableDomainIds(userId);
+    writeCache.set(userId, { ids, at: now });
+    return ids;
+  } catch (error) {
+    log.error('getWritableDomainIds failed', { userId, error: (error as Error).message });
+    return [];
+  }
+}
+
 export function invalidateAccessCache(userId?: number): void {
-  if (userId === undefined) cache.clear();
-  else cache.delete(userId);
+  if (userId === undefined) {
+    cache.clear();
+    writeCache.clear();
+    return;
+  }
+  cache.delete(userId);
+  writeCache.delete(userId);
 }

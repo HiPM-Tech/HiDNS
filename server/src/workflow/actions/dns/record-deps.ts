@@ -52,8 +52,16 @@ export const MAX_BATCH_SIZE = 50;
  * 资源级二次校验：即使 authorize 已校验过，handler 仍按解析出的真实域名再验一次。
  * 设计依据：§5.6（DSL 不可越权）与 §5.0（禁止隐式身份）
  */
-export function assertDomainAllowed(ctx: ActionContext, domain: ResolvedDomain): void {
-  const ids = ctx.principal.allowedDomainIds;
+export function assertDomainAllowed(
+  ctx: ActionContext,
+  domain: ResolvedDomain,
+  options: { write?: boolean } = {},
+): void {
+  // 写类动作必须命中「可写集合」：只读授权不得被提升为整域写
+  const ids = options.write ? ctx.principal.allowedWriteDomainIds : ctx.principal.allowedDomainIds;
+  if (options.write && !ids) {
+    throw new AuthorizationError(403, '写类动作缺少可写域名集合');
+  }
   if (ids) {
     if (ids.includes(domain.id)) return;
     throw new AuthorizationError(403, `域名权限不足: #${domain.id}`);
@@ -64,7 +72,11 @@ export function assertDomainAllowed(ctx: ActionContext, domain: ResolvedDomain):
   throw new AuthorizationError(403, `域名权限不足: ${domain.name}`);
 }
 
-export async function resolveTargetDomain(ctx: ActionContext, args: Record<string, unknown>): Promise<ResolvedDomain> {
+export async function resolveTargetDomain(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+  options: { write?: boolean } = {},
+): Promise<ResolvedDomain> {
   // 显式 args.domain **优先于** 事件资源：否则「A 记录变动 → 更新 B 域名的记录」
   // 这类跨域名写入会被静默改成操作事件来源域名（§4.0.4 允许的替代路径之一）。
   const explicitName = typeof args.domain === 'string' && args.domain ? args.domain : undefined;
@@ -76,7 +88,7 @@ export async function resolveTargetDomain(ctx: ActionContext, args: Record<strin
   }
   const domain = await deps.resolveDomain(ref);
   if (!domain) throw new AuthorizationError(404, '目标域名不存在或不可见');
-  assertDomainAllowed(ctx, domain);
+  assertDomainAllowed(ctx, domain, options);
   return domain;
 }
 

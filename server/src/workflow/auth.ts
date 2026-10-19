@@ -21,8 +21,10 @@ export interface Principal {
   readonly id: string;
   readonly role: Role;
   readonly services: readonly AvailableService[];
-  /** 允许的域名 ID 集合（首选判定依据） */
+  /** 允许的域名 ID 集合（读操作判定依据） */
   readonly allowedDomainIds?: readonly number[];
+  /** 允许写入的域名 ID 集合（写类动作用它；只读授权不在此列） */
+  readonly allowedWriteDomainIds?: readonly number[];
   /** 允许的域名名称集合；'*' 仅用于显式构造的测试/系统身份，生产执行身份一律给具体集合 */
   readonly allowedDomains: readonly string[] | '*';
   /** 毫秒时间戳；缺省表示不限期 */
@@ -113,14 +115,25 @@ export class AuthorizationError extends Error {
   }
 }
 
-function assertDomainPermission(principal: Principal, resource?: ResourceRef): void {
+function assertDomainPermission(
+  principal: Principal,
+  resource?: ResourceRef,
+  actionClass?: ActionClass,
+): void {
   if (!resource) return;
   if (principal.allowedDomains === '*' && !principal.allowedDomainIds) return;
 
+  // 写类动作必须命中「可写集合」，避免只读授权被提升为整域写
+  const writeClass = actionClass === 'dns.record.write' || actionClass === 'ext.write';
+  const idSet = writeClass ? principal.allowedWriteDomainIds : principal.allowedDomainIds;
+  if (writeClass && !idSet) {
+    throw new AuthorizationError(403, '写类动作缺少可写域名集合');
+  }
+
   // 优先按 ID 判定：事件里的 domain.id 是权威主键，名称可能大小写/IDN 不一致
   // domainId=0 表示「未知主键」（如 ns.changed 表无 domain_id），此时必须落到名称判定
-  if (resource.domainId !== undefined && resource.domainId > 0 && principal.allowedDomainIds) {
-    if (principal.allowedDomainIds.includes(resource.domainId)) return;
+  if (resource.domainId !== undefined && resource.domainId > 0 && idSet) {
+    if (idSet.includes(resource.domainId)) return;
     throw new AuthorizationError(403, `域名权限不足: #${resource.domainId}`);
   }
 
@@ -176,7 +189,7 @@ export async function authorize(
 
   // 4) 资源权限
   try {
-    assertDomainPermission(principal, resource);
+    assertDomainPermission(principal, resource, meta!.actionClass);
   } catch (error) {
     await deny(403, (error as Error).message);
   }

@@ -29,6 +29,7 @@ function principal(overrides: Partial<Principal> = {}): Principal {
     role: 'user',
     services: ['records.write', 'network.fetch'] as AvailableService[],
     allowedDomains: '*',
+    allowedWriteDomainIds: [7],
     ...overrides,
   };
 }

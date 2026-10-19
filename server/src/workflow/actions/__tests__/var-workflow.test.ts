@@ -22,6 +22,7 @@ const principal: Principal = {
   role: 'user',
   services: ['system.read'],
   allowedDomains: '*',
+  allowedWriteDomainIds: [],
 };
 
 describe('var.workflow.get', () => {

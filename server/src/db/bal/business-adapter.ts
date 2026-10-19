@@ -1055,6 +1055,26 @@ export const DomainOperations = {
     );
   },
 
+  /**
+   * 可**写**域名 ID 集合：仅 `permission='write'` 且 `sub` 为空的授权。
+   * 工作流的写类动作必须用这个集合，否则「只读授权」会被提升为整域写。
+   */
+  async getWritableDomainIds(userId: number): Promise<number[]> {
+    const rows = await queryInternal<{ id: number }>(
+      `SELECT d.id
+       FROM domains d
+       JOIN dns_accounts da ON d.account_id = da.id
+       WHERE da.enabled = 1
+         AND (da.created_by = ? OR d.id IN (
+           SELECT domain_id FROM domain_permissions
+           WHERE user_id = ? AND permission = 'write' AND (sub IS NULL OR sub = '')
+         ))`,
+      [userId, userId],
+      { operation: 'Domain.getWritableDomainIds', table: 'domains' }
+    );
+    return rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+  },
+
   /** 获取 NS 监控可用的域名列表（Level 1 - ALL，不过滤 enabled 状态） */
   async getAvailableDomainsForNSMonitor(userId: number, isSuperAdmin: boolean): Promise<QueryResult[]> {
     let builder: DomainQueryBuilder;
