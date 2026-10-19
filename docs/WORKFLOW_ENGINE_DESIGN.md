@@ -216,15 +216,21 @@ facade 必须是**静态文件**（类型可见、可审计、可 IDE 补全）�
 
 #### 节点类型
 
+**实现为封闭的 9 种节点**（`server/src/workflow/expression/nodes.ts` 的 `NODE_KINDS`，与本文早期草案的 `option`/`interpolate`/`binop`/`func` 不同，以实现为准）：
+
 | type | 说明 | 对应标记 |
 |---|---|---|
-| `literal` | 字面量（string/number/bool/null） | — |
-| `ref` | 上下文引用，如 `event.record.value` | `(...)` 预览 |
-| `option` | 宿主提供的候选值；`source` 指定数据源 | `{...}` 或 `[...]` |
-| `interpolate` | 模板插值 `"prefix-{ref}"` | `[...]` 可输入 |
-| `call` | 函数调用（仅白名单函数） | — |
-| `binop` | `==` `!=` `>` `<` `&&` `\|\|` 等 | — |
-| `func` | 纯函数（`len`、`lower`、`ip4`、`json.path` 等） | — |
+| `literal` | 字面量：`string` / `number` / `boolean` / `null`；`in` 的右值额外支持**标量数组** | 表单直接输入 |
+| `ref` | 上下文引用，只允许 `event.*` 与 `vars.*`，段级拒绝 `__proto__`/`constructor`/`prototype` | `(...)` 预览 |
+| `compare` | `==` `!=` `>` `>=` `<` `<=` `in`；`==`/`!=` 为严格相等 | 条件编辑器 |
+| `logic` | `and` / `or` / `not`（`not` 恰 1 个操作数，`and`/`or` 至少 2 个） | 条件编辑器 |
+| `arith` | `+` `-` `*` `/` `%`，操作数必须是有限数字或非空数字字符串 | — |
+| `concat` | 字符串拼接 | — |
+| `cond` | 三元条件 | — |
+| `call` | 动作调用，`action` 必须是字面量且已注册 | `{...}` 选动作 / `[...]` 填参数 |
+| `assign` | 写入运行期变量；key 不得含点号或原型链段 | — |
+
+**关系运算的取值规则**（`evaluator.ts`）：两侧都能安全转数字 → 数值比较；仅两侧都是字符串 → 字典序（ISO 日期可比）；其余（含 `null`/混合类型）一律为 `false`。算术运算对空串/null/布尔直接抛 `INVALID_ARITH`，不把空值当 0。
 
 #### 上下文命名空间（只读，由引擎注入）
 

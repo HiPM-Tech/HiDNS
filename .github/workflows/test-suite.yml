@@ -195,8 +195,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # 注意：不加 `|| true`。此前该步骤永远绿，掩盖了客户端测试为 0 的事实。
       - name: Run unit tests
-        run: pnpm --filter dnsmgr-client run test -- --coverage --passWithNoTests || true
+        run: pnpm --filter dnsmgr-client run test -- --coverage
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
