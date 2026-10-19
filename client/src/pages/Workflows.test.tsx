@@ -3,7 +3,6 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from '../contexts/I18nContext';
 import { Workflows } from './Workflows';
-import { MessagePlugin } from 'tdesign-react';
 
 const listMock = vi.fn();
 const metaMock = vi.fn();
@@ -39,9 +38,6 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // MessagePlugin 需要真实 DOM 渲染器，测试里静音即可
-  vi.spyOn(MessagePlugin, 'success').mockImplementation((() => undefined) as never);
-  vi.spyOn(MessagePlugin, 'error').mockImplementation((() => undefined) as never);
   listMock.mockResolvedValue({
     data: {
       data: {

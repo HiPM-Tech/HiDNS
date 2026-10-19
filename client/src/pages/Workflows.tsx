@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button, Dialog, Form, Input, Select, Switch, Space, Checkbox, Tag, MessagePlugin } from 'tdesign-react';
+import { Button, Dialog, Form, Input, Select, Switch, Space, Checkbox, Tag } from 'tdesign-react';
 import { workflowsApi } from '../api';
 import type { WorkflowRecord, WorkflowActionMeta, WorkflowRunRecord } from '../api';
 import { Table } from '../components/Table';
@@ -8,6 +8,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { CascadingSelect } from '../components/workflows/CascadingSelect';
 import { useI18n } from '../contexts/I18nContext';
 import { useFormSync } from '../hooks/useFormSync';
+import { useToast } from '../hooks/useToast';
 import {
   CONDITION_FIELDS,
   CONDITION_OPS,
@@ -73,6 +74,7 @@ function toFormState(record: WorkflowRecord): Partial<WorkflowForm> {
 
 export function Workflows() {
   const { t } = useI18n();
+  const toast = useToast();
   const queryClient = useQueryClient();
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -163,17 +165,17 @@ export function Workflows() {
       return editing ? workflowsApi.update(editing.id, payload) : workflowsApi.create(payload);
     },
     onSuccess: () => {
-      MessagePlugin?.success?.(t('workflows.saved'));
+      toast.success(t('workflows.saved'));
       setDialogOpen(false);
       invalidate();
     },
-    onError: (error: unknown) => MessagePlugin?.error?.(describeError(error)),
+    onError: (error: unknown) => toast.error(describeError(error)),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => workflowsApi.remove(id),
     onSuccess: () => { setPendingDelete(null); invalidate(); },
-    onError: (error: unknown) => { setPendingDelete(null); MessagePlugin?.error?.(describeError(error)); },
+    onError: (error: unknown) => { setPendingDelete(null); toast.error(describeError(error)); },
   });
 
   const runMutation = useMutation({
@@ -186,17 +188,17 @@ export function Workflows() {
     onSuccess: (response) => {
       const result = (response.data?.data ?? {}) as { status?: string; error?: string };
       if (result.status === 'failed') {
-        MessagePlugin?.error?.(result.error ?? t('workflows.runFailed'));
+        toast.error(result.error ?? t('workflows.runFailed'));
         return;
       }
       if (result.status === 'skipped') {
-        MessagePlugin?.warning?.(t('workflows.runSkipped'));
+        toast.info(t('workflows.runSkipped'));
         return;
       }
-      MessagePlugin?.success?.(t('workflows.runTriggered'));
+      toast.success(t('workflows.runTriggered'));
       setRunFor(null);
     },
-    onError: (error: unknown) => MessagePlugin?.error?.(describeError(error)),
+    onError: (error: unknown) => toast.error(describeError(error)),
   });
 
   function openCreate() {
