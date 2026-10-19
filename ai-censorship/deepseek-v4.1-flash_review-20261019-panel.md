@@ -202,3 +202,20 @@
 |---|---|---|
 | 浏览器交互确认 | **未执行** | 本会话无浏览器自动化工具；需人工打开 `/dash/workflows` 或引入 E2E 框架 |
 | 云端测试（真实 EdgeOne API） | **未执行** | 等待项目负责人下发 API Key |
+### 十、真实浏览器验证（Playwright + Chromium）
+
+权限开放后安装 Playwright 与 Chromium，对生产构建（`client/dist` + 真实服务端）做真实浏览器验证。
+
+| 步骤 | 结果 |
+|---|---|
+| 打开 `/dash/workflows` | ✅ 中文界面渲染，侧边栏高亮「自动化工作流」 |
+| 列表 | ✅ 展示已有工作流、出站白名单条目 |
+| 点「新建工作流」 | ✅ 对话框打开，含「执行条件」区块 |
+| 选动作 + 填参数 + 保存 | ✅ POST 200，列表出现新行，右下角出现「已保存」提示 |
+| 控制台错误 | ✅ 无（修复后） |
+
+截图：`ai-censorship/evidence/workflows-page-20261020.png`
+
+**这次验证抓到一个 jsdom 测试漏掉的真实缺陷**：生产构建里 `MessagePlugin` 调用抛 `Ed is not a function`，导致**保存失败时用户看不到任何提示**。jsdom 用例里因为对 `MessagePlugin` 打了 spy 而被掩盖。已改用项目既有的 `useToast` / `ToastContainer`。
+
+教训：**mock 掉被测依赖会掩盖该依赖的真实行为**——单元测试与浏览器验证不能互相替代。
