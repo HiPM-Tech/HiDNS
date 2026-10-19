@@ -132,6 +132,32 @@ describe('出站请求执行', () => {
     expect(result.text).toBe('hello');
   });
 
+  it('IPv6 私网按网段判定（含 URL 归一化形态）', () => {
+    const rejects = [
+      'https://[::1]/',
+      'https://[::]/',
+      'https://[fe80::1]/',
+      'https://[febf::1]/',
+      'https://[fd00::1]/',
+      'https://[::ffff:a00:1]/',
+      'https://[64:ff9b::a00:1]/',
+      'https://[2002:a00:1::]/',
+    ];
+    for (const url of rejects) {
+      const host = url.slice(9, -2);
+      const result = validateOutboundUrl(url, { ...policy, allowlist: [host] });
+      expect(result.rejection?.code, url).toBe('INTERNAL_ADDRESS');
+    }
+  });
+
+  it('公网 IPv6 放行', () => {
+    const result = validateOutboundUrl('https://[2606:4700::1111]/', {
+      ...policy,
+      allowlist: ['2606:4700::1111'],
+    });
+    expect(result.rejection).toBeUndefined();
+  });
+
   it('默认策略下 setHttpFetchPolicy 生效', async () => {
     setHttpFetchPolicy({ allowlist: ['api.ipify.org'] });
     await expect(fetchOutbound('https://evil.io')).rejects.toMatchObject({ code: 'NOT_ALLOWLISTED' });

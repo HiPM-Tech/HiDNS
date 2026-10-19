@@ -55,15 +55,70 @@ export function isPrivateIPv4(ip: string): boolean {
   });
 }
 
+/** 把 IPv6 文本解析成 16 字节；非法返回 null */
+function ipv6ToBytes(ip: string): number[] | null {
+  let normalized = ip.toLowerCase().split('%')[0];
+  // 先把内嵌点分 IPv4（::ffff:10.0.0.1）换成两组十六进制，再按 ''::'' 展开计数
+  const dotted = /(\d+\.\d+\.\d+\.\d+)$/.exec(normalized);
+  if (dotted) {
+    const parts = dotted[1].split('.').map(Number);
+    if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+    const hex = `${(((parts[0] << 8) | parts[1]) >>> 0).toString(16)}:${(((parts[2] << 8) | parts[3]) >>> 0).toString(16)}`;
+    normalized = normalized.slice(0, normalized.length - dotted[1].length) + hex;
+  }
+  const [head, tail] = normalized.split('::');
+  const headParts = head ? head.split(':').filter(Boolean) : [];
+  const tailParts = tail ? tail.split(':').filter(Boolean) : [];
+  const total = headParts.length + tailParts.length;
+  if (normalized.includes('::') ? total > 7 : total !== 8) return null;
+
+  const groups: string[] = [...headParts];
+  if (normalized.includes('::')) {
+    for (let i = 0; i < 8 - total; i += 1) groups.push('0');
+  }
+  groups.push(...tailParts);
+
+  if (groups.length !== 8) return null;
+
+  const bytes: number[] = [];
+  for (const group of groups) {
+    if (!/^[0-9a-f]{1,4}$/.test(group)) return null;
+    const value = parseInt(group, 16);
+    bytes.push((value >> 8) & 0xff, value & 0xff);
+  }
+  return bytes;
+}
+
+/**
+ * 私网 / 保留 IPv6 判定。
+ * 必须按网段比较：字符串前缀法对 `fe80::/10`（febf 也属内网）、
+ * `::ffff:a00:1`（WHATWG 会把点分归一化成十六进制）全部漏判。
+ */
 export function isPrivateIPv6(ip: string): boolean {
-  const normalized = ip.toLowerCase();
-  if (normalized === '::' || normalized === '::1') return true;
-  if (normalized.startsWith('fe80')) return true;
-  if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
-  // IPv4-mapped：::ffff:10.0.0.1
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(normalized);
-  if (mapped) return isPrivateIPv4(mapped[1]);
-  if (normalized.startsWith('2001:db8')) return true;
+  const bytes = ipv6ToBytes(ip);
+  if (!bytes) return false;
+
+  const isZero = bytes.every((b) => b === 0);
+  if (isZero) return true;
+  const isLoopback = bytes.slice(0, 15).every((b) => b === 0) && bytes[15] === 1;
+  if (isLoopback) return true;
+
+  const first = bytes[0];
+  const second = bytes[1];
+  // fe80::/10
+  if (first === 0xfe && (second & 0xc0) === 0x80) return true;
+  // fc00::/7
+  if ((first & 0xfe) === 0xfc) return true;
+  // 2001:db8::/32（文档段）
+  if (first === 0x20 && second === 0x01 && bytes[2] === 0x0d && bytes[3] === 0xb8) return true;
+  // 2002::/16（6to4）与 64:ff9b::/96（NAT64）
+  if (first === 0x20 && second === 0x02) return true;
+  if (first === 0x00 && second === 0x64 && bytes[2] === 0xff && bytes[3] === 0x9b) return true;
+  // ::ffff:0:0/96（IPv4-mapped）→ 取后 4 字节按 IPv4 判定
+  if (bytes.slice(0, 10).every((b) => b === 0) && bytes[10] === 0xff && bytes[11] === 0xff) {
+    const v4 = `${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`;
+    return isPrivateIPv4(v4);
+  }
   return false;
 }
 
