@@ -47,6 +47,23 @@ describe('带 TTL 的惰性缓存', () => {
     expect(loader).toHaveBeenCalledTimes(2);
   });
 
+  it('失效期间完成的加载不回填（失效代数）', async () => {
+    let resolve!: (value: string[]) => void;
+    const loader = vi.fn(() => new Promise<string[]>((r) => { resolve = r; }));
+    const cache = createCachedLoader(loader, { ttlMs: 60_000, now: () => 0 });
+
+    const pending = cache.get();
+    cache.invalidate();
+    resolve(['stale']);
+    await pending;
+
+    // 下一次必须重新加载，而不是命中失效前的结果
+    const second = cache.get();
+    resolve(['fresh']);
+    expect(await second).toEqual(['fresh']);
+    expect(loader).toHaveBeenCalledTimes(2);
+  });
+
   it('统计命中与未命中', async () => {
     const cache = createCachedLoader(async () => 1, { ttlMs: 60_000, now: () => 0 });
     await cache.get();

@@ -360,6 +360,12 @@ describe('执行引擎', () => {
     expect(runs[0].error).toContain('动作调用超过');
   });
 
+  it('运行记录携带 depth（事件深度 + 1）', async () => {
+    const e = engine([wf({ id: '7' })], vi.fn(async () => 'ok'));
+    const runs = await e.handleEvent(event());
+    expect(runs[0].depth).toBe(1);
+  });
+
   it('未 start 时不订阅（无模块作用域副作用）', () => {
     engine([wf()]);
     expect(bus.subscriberCount()).toBe(0);

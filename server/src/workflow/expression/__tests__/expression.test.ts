@@ -40,6 +40,31 @@ describe('DSL 静态校验', () => {
     expect(result.actions).toEqual(['dns.record.update']);
   });
 
+  it('assign.key 拒绝原型链段与点号', () => {
+    for (const key of ['__proto__', 'constructor', 'prototype', 'a.b']) {
+      const result = validateExpression(
+        { kind: 'assign', key, value: { kind: 'literal', value: 1 } },
+        { knownActions, actionParams: PARAMS },
+      );
+      expect(result.ok).toBe(false);
+    }
+  });
+
+  it('logic.not 只接受一个操作数', () => {
+    const result = validateExpression(
+      {
+        kind: 'logic',
+        op: 'not',
+        args: [
+          { kind: 'literal', value: true },
+          { kind: 'literal', value: false },
+        ],
+      },
+      { knownActions, actionParams: PARAMS },
+    );
+    expect(result.ok).toBe(false);
+  });
+
   it('拒绝未知节点类型', () => {
     const result = validate({ kind: 'eval', code: 'process.exit(1)' });
     expect(result.ok).toBe(false);

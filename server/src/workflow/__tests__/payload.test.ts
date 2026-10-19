@@ -160,6 +160,17 @@ describe('保存期校验', () => {
     ).toContain('不对声明式定义开放');
   });
 
+  it('enabled 必须是布尔值', () => {
+    expect(validatePayload(base({ enabled: 'false' })).join()).toContain('enabled 必须是布尔值');
+    expect(validatePayload(base({ enabled: true })).join()).not.toContain('enabled');
+  });
+
+  it('triggerConfig 必须是对象', () => {
+    expect(validatePayload(base({ triggerType: 'ns.changed', triggerConfig: 'abc' })).join()).toContain(
+      'triggerConfig 必须是对象',
+    );
+  });
+
   it('条件节点同样受校验', () => {
     expect(validatePayload(base({ condition: { kind: 'eval', code: '1' } })).join()).toContain('UNKNOWN_NODE_KIND');
   });
