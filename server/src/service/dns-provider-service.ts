@@ -6,6 +6,7 @@
 
 import { DnsAdapter, DnsRecord, PageResult } from '../lib/dns/DnsInterface';
 import { createAdapter } from '../lib/dns/DnsHelper';
+import { findRecordMeta } from '../lib/dns/record-lookup';
 import {
   hasDomainEventSubscribers,
   publishRecordEvent,
@@ -193,9 +194,7 @@ export class DnsProviderService {
   ): Promise<boolean> {
     const adapter = await this.getAdapter(domainId);
     // 仅在存在订阅者时才回查旧值，避免给热路径增加固定开销
-    const previous = hasDomainEventSubscribers()
-      ? await adapter.getDomainRecordInfo(recordId).catch(() => null)
-      : null;
+    const previous = hasDomainEventSubscribers() ? await findRecordMeta(adapter, recordId) : null;
     const ok = await adapter.updateDomainRecord(
       recordId,
       name,
@@ -227,9 +226,7 @@ export class DnsProviderService {
   static async deleteRecord(recordId: string, domainId: number): Promise<boolean> {
     const adapter = await this.getAdapter(domainId);
     // 删除事件需要记录类型；无订阅者时不回查
-    const previous = hasDomainEventSubscribers()
-      ? await adapter.getDomainRecordInfo(recordId).catch(() => null)
-      : null;
+    const previous = hasDomainEventSubscribers() ? await findRecordMeta(adapter, recordId) : null;
     const ok = await adapter.deleteDomainRecord(recordId);
     if (ok && previous) {
       await this.publishMutation({
@@ -305,9 +302,7 @@ export class DnsProviderService {
    */
   static async setRecordStatus(recordId: string, domainId: number, enabled: boolean): Promise<boolean> {
     const adapter = await this.getAdapter(domainId);
-    const previous = hasDomainEventSubscribers()
-      ? await adapter.getDomainRecordInfo(recordId).catch(() => null)
-      : null;
+    const previous = hasDomainEventSubscribers() ? await findRecordMeta(adapter, recordId) : null;
     const ok = await adapter.setDomainRecordStatus(recordId, enabled ? 1 : 0);
     if (ok && previous) {
       await this.publishMutation({

@@ -13,6 +13,7 @@ import { logAuditOperation } from '../service/audit';
 import { parseInteger, sendError, sendSuccess } from '../utils/http';
 import { DomainOperations, DnsAccountOperations } from '../db/bal/business-adapter';
 import { hasWorkflowSubscribers, publishRecordEvent } from '../workflow/publish';
+import { findRecordMeta } from '../lib/dns/record-lookup';
 import { createLogger } from '../lib/logger';
 import { wsService } from '../service/websocket';
 import { normalizeDomain, isValidDomain } from '../utils/dns';
@@ -760,7 +761,7 @@ router.delete('/:recordId', authMiddleware, requireTokenDomainPermission('domain
     }
     // 删除事件需要记录类型；无订阅者时不回查，避免热路径固定开销
     const previousForEvent = hasWorkflowSubscribers()
-      ? await dnsAdapter.getDomainRecordInfo(recordId).catch(() => null)
+      ? await findRecordMeta(dnsAdapter, recordId)
       : null;
     const success = await dnsAdapter.deleteDomainRecord(recordId);
     if (!success) {
@@ -831,7 +832,7 @@ router.put('/:recordId/status', authMiddleware, requireTokenDomainPermission('do
   try {
     const dnsAdapter = await getAdapterForDomain(access.domain);
     const previousForEvent = hasWorkflowSubscribers()
-      ? await dnsAdapter.getDomainRecordInfo(recordId).catch(() => null)
+      ? await findRecordMeta(dnsAdapter, recordId)
       : null;
     const success = await dnsAdapter.setDomainRecordStatus(recordId, status);
     if (!success) {

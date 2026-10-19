@@ -9,6 +9,9 @@ import type { Principal } from './auth';
 
 const log = createLogger('Workflow').sub('Engine');
 
+/** 单次运行的硬上界（设计 §7.4：整体运行 30s） */
+const RUN_TIMEOUT_MS = 30_000;
+
 export interface RecordChangedTrigger {
   readonly type: 'record.changed';
   readonly recordTypes: ReadonlyArray<'A' | 'AAAA'>;
@@ -137,11 +140,41 @@ export class WorkflowEngine {
     return within === undefined ? true : event.daysLeft <= within;
   }
 
-  /** 单次执行：handleEvent 与手动运行共用同一条路径 */
+  /**
+   * 单次执行：handleEvent 与手动运行共用同一条路径。
+   * 外层 30s 硬超时：挂起的动作若不设上界，会永久占用 inFlight，
+   * 该工作流此后所有事件都会被记成 concurrent-run。
+   */
   private async executeOne(
     workflow: WorkflowDefinition,
     event: AnyDomainEvent,
     trigger: 'event' | 'manual',
+  ): Promise<RunRecord> {
+    const now = this.deps.now ?? Date.now;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error(`运行超时（>${RUN_TIMEOUT_MS}ms）`));
+      }, RUN_TIMEOUT_MS);
+    });
+
+    try {
+      return await Promise.race([
+        this.runWorkflow(workflow, event, trigger, controller.signal),
+        timeout,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private async runWorkflow(
+    workflow: WorkflowDefinition,
+    event: AnyDomainEvent,
+    trigger: 'event' | 'manual',
+    signal: AbortSignal,
   ): Promise<RunRecord> {
     const now = this.deps.now ?? Date.now;
     const traceId = event.traceId;
@@ -159,6 +192,7 @@ export class WorkflowEngine {
           vars,
           traceId: event.traceId,
           depth: eventDepth + 1,
+          signal,
           resource: { domainId: event.domain.id, domainName: event.domain.name },
         });
 
@@ -240,8 +274,10 @@ export class WorkflowEngine {
         continue;
       }
 
-      // 并发保护：同一工作流上一次还没跑完时跳过，避免重复写记录
-      if (this.inFlight.has(workflow.id)) {
+      // 并发保护：只对**同一目标**的重入跳过。
+      // 键里带记录 id —— 否则批量导入 10 条不同记录时，后 9 条会被误丢弃。
+      const flightKey = `${workflow.id}:${event.type === 'record.changed' ? event.record.id : '*'}`;
+      if (this.inFlight.has(flightKey)) {
         const nowIso = new Date((this.deps.now ?? Date.now)()).toISOString();
         records.push({
           workflowId: workflow.id,
@@ -255,11 +291,11 @@ export class WorkflowEngine {
         continue;
       }
 
-      this.inFlight.add(workflow.id);
+      this.inFlight.add(flightKey);
       try {
         records.push(await this.executeOne(workflow, event, 'event'));
       } finally {
-        this.inFlight.delete(workflow.id);
+        this.inFlight.delete(flightKey);
       }
     }
 
@@ -279,13 +315,14 @@ export class WorkflowEngine {
       : (await this.deps.listWorkflows()).find((item) => item.id === workflowId) ?? null;
     if (!workflow) return null;
 
-    if (this.inFlight.has(workflow.id)) return null;
-    this.inFlight.add(workflow.id);
+    const flightKey = `${workflow.id}:${event.type === 'record.changed' ? event.record.id : '*'}`;
+    if (this.inFlight.has(flightKey)) return null;
+    this.inFlight.add(flightKey);
     let record: RunRecord;
     try {
       record = await this.executeOne(workflow, event, 'manual');
     } finally {
-      this.inFlight.delete(workflow.id);
+      this.inFlight.delete(flightKey);
     }
     await this.report([record]);
     return record;

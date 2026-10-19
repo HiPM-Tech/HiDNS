@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { validateToolPermission, logMcpAction, getModuleByToolName } from '../service/mcp-permission';
 import { McpOperations, DomainOperations, RenewableDomainOperations, ServiceMonitorOperations, NSMonitorOperations, RecordOperations, UserPreferencesOperations, AuditExportOperations } from '../db/bal/business-adapter';
 import { DnsProviderService } from '../service/dns-provider-service';
+import { publishDomainEvent } from '../lib/domain-event-bus';
 import { checkWhoisForDomain } from '../service/whois/checker';
 import { resolveNsRecords, validateNsRecords } from '../lib/dns/ns-lookup';
 import { validateRecordValue } from '../lib/dns/record-types';
@@ -1145,6 +1146,21 @@ export function registerTools(server: McpServer): void {
 
         // 调用业务适配器更新域名状态
         await DomainOperations.setEnabled(domainId, enabled ? 1 : 0);
+
+        // 主核心事件主线：MCP 侧启停域名同样要发布（此前完全静默）
+        {
+          const domainRow = (await DomainOperations.getById(domainId)) as unknown as
+            | { id: number; name: string; account_id?: number }
+            | undefined;
+          if (domainRow) {
+            publishDomainEvent({
+              action: 'updated',
+              domain: { id: domainRow.id, name: domainRow.name, accountId: domainRow.account_id },
+              changedFields: ['enabled'],
+              actor: { source: 'api' },
+            });
+          }
+        }
 
         // 追踪 API Key 使用
         if (auth.keyId) {

@@ -64,7 +64,12 @@ export function optionalPositiveNumber(value: unknown, fallback: number): number
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
-function publish(ctx: ActionContext, domain: ResolvedDomain, action: 'created' | 'updated', record: { id: string; name: string; type: string; value?: string; oldValue?: string }): void {
+function publish(
+  ctx: ActionContext,
+  domain: ResolvedDomain,
+  action: 'created' | 'updated' | 'deleted' | 'status_changed',
+  record: { id: string; name: string; type: string; value?: string; oldValue?: string },
+): void {
   emitRecordEvent({
     action,
     // 同一链路可追溯，且深度 +1 供总线做循环丢弃
@@ -121,8 +126,19 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
   'dns.record.delete': defineAction(async (ctx, args) => {
     const domain = await resolveTargetDomain(ctx, args);
     const adapter = await adapterFor(domain);
-    const ok = await adapter.deleteDomainRecord(requireString(args, 'recordId'));
+    const recordId = requireString(args, 'recordId');
+    // 删除事件需要记录类型；读不到就跳过发布而不是伪造
+    const previous = await adapter.getDomainRecordInfo(recordId).catch(() => null);
+    const ok = await adapter.deleteDomainRecord(recordId);
     if (!ok) throw new Error('删除记录失败');
+    if (previous) {
+      publish(ctx, domain, 'deleted', {
+        id: recordId,
+        name: previous.Name,
+        type: previous.Type,
+        value: previous.Value,
+      });
+    }
     return { deleted: true };
   }),
 
@@ -131,9 +147,19 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
     const adapter = await adapterFor(domain);
     const status = Number(args.status);
     if (status !== 0 && status !== 1) throw new AuthorizationError(400, 'status 只能是 0 或 1');
-    const ok = await adapter.setDomainRecordStatus(requireString(args, 'recordId'), status);
+    const recordId = requireString(args, 'recordId');
+    const previous = await adapter.getDomainRecordInfo(recordId).catch(() => null);
+    const ok = await adapter.setDomainRecordStatus(recordId, status);
     if (!ok) throw new Error('修改记录状态失败');
-    return { recordId: args.recordId, status };
+    if (previous) {
+      publish(ctx, domain, 'status_changed', {
+        id: recordId,
+        name: previous.Name,
+        type: previous.Type,
+        value: previous.Value,
+      });
+    }
+    return { recordId, status };
   }),
 
   'dns.record.batch': defineAction(async (ctx, args) => {
@@ -161,6 +187,9 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
           '0',
           optionalPositiveNumber(item.ttl, 600),
         );
+        if (recordId) {
+          publish(ctx, domain, 'created', { id: recordId, name, type, value });
+        }
         results.push({ recordId: recordId ?? undefined, ok: Boolean(recordId) });
       } catch (error) {
         results.push({ ok: false, error: (error as Error).message });

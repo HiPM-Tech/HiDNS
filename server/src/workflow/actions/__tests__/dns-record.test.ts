@@ -149,10 +149,18 @@ describe('dns.record.* 动作', () => {
     expect(adapter.addDomainRecord).toHaveBeenCalledWith('x', 'A', '2.2.2.2', '0', 600);
   });
 
-  it('delete 不发布事件（类型未知，fail-closed）', async () => {
+  it('delete 在删除前读取元数据并发布 deleted 事件', async () => {
     const ctx = await ctxFor('dns.record.delete');
     await dnsRecordHandlers['dns.record.delete'](ctx, { domain: 'ok.com', recordId: 'r1' });
-    expect(publish).not.toHaveBeenCalled();
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'deleted', record: expect.objectContaining({ id: 'r1', type: 'A' }) }),
+    );
+  });
+
+  it('setStatus 发布 status_changed 事件', async () => {
+    const ctx = await ctxFor('dns.record.setStatus');
+    await dnsRecordHandlers['dns.record.setStatus'](ctx, { domain: 'ok.com', recordId: 'r1', status: 1 });
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ action: 'status_changed' }));
   });
 });
 

@@ -5372,16 +5372,12 @@ export const WorkflowOperations = {
     trigger_config: string | null;
     definition: string;
   }): Promise<number> {
-    await executeInternal(
+    // 用 insertInternal 取真实 insertId："INSERT 后再 SELECT 最大 id" 在并发下会拿到同一条
+    return insertInternal(
       'INSERT INTO workflows (name, owner_id, enabled, trigger_type, trigger_config, definition, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
       [data.name, data.owner_id, data.enabled, data.trigger_type, data.trigger_config, data.definition],
       { operation: 'Workflow.create', table: 'workflows' }
     );
-    const row = await getInternal<{ id: number }>('SELECT id FROM workflows WHERE owner_id = ? ORDER BY id DESC LIMIT 1', [data.owner_id], {
-      operation: 'Workflow.create.lastId',
-      table: 'workflows',
-    });
-    return row?.id ?? 0;
   },
 
   async update(id: number, updates: {
@@ -5408,6 +5404,11 @@ export const WorkflowOperations = {
   },
 
   async remove(id: number): Promise<void> {
+    // 先清运行记录：workflow_runs 无外键级联时会产生永不回收的孤儿行
+    await executeInternal('DELETE FROM workflow_runs WHERE workflow_id = ?', [id], {
+      operation: 'Workflow.remove.runs',
+      table: 'workflow_runs',
+    });
     await executeInternal('DELETE FROM workflows WHERE id = ?', [id], {
       operation: 'Workflow.remove',
       table: 'workflows',
