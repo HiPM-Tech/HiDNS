@@ -4,7 +4,8 @@
  * 支持所有注册了续期调度器的 DNS 提供商
  */
 
-import { DnsAccountOperations, RenewableDomainOperations } from '../db/bal/business-adapter';
+import { DnsAccountOperations, DomainOperations, RenewableDomainOperations } from '../db/bal/business-adapter';
+import { publishDomainEvent } from '../lib/domain-event-bus';
 import { renewalRegistry } from './renewalScheduler';
 import { taskManager } from './taskManager';
 import { createLogger } from '../lib/logger';
@@ -122,6 +123,22 @@ export async function executeDomainRenewal(): Promise<void> {
                 newExpiresAt: result.new_expires_at,
                 remainingDays: result.remaining_days,
               });
+
+              // 主核心事件主线：续期成功。事件需要 domains 表的主键，
+              // renewable_domains 的 id 与 domains.id 不是同一实体，不能混用。
+              const renewedName = String(result.domain_name ?? domain.full_domain ?? domain.name ?? '');
+              if (renewedName) {
+                const localRecord = (await DomainOperations.getByName(renewedName)) as unknown as
+                  | { id: number; account_id?: number }
+                  | undefined;
+                if (localRecord) {
+                  publishDomainEvent({
+                    action: 'renewed',
+                    domain: { id: localRecord.id, name: renewedName, accountId: localRecord.account_id },
+                    actor: { source: 'system' },
+                  });
+                }
+              }
 
               // 更新 renewable_domains 表中的 expires_at
               if (result.new_expires_at) {

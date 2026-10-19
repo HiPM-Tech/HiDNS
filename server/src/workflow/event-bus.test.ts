@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { WorkflowEventBus, buildRecordEvent, workflowEventBus } from './event-bus';
-import { buildDomainEvent } from '../lib/domain-event-bus';
+import { buildDomainEvent, DomainEventBus as Bus } from '../lib/domain-event-bus';
 import { domainEventBus } from '../lib/domain-event-bus';
 import type { WorkflowEvent, AnyDomainEvent } from './event-bus';
 
@@ -34,6 +34,12 @@ describe('域名变更事件', () => {
     expect(created?.changedFields).toEqual([]);
     const bus = new WorkflowEventBus();
     expect(bus.publish(created as never)).toBe(true);
+  });
+
+  it('续期事件无需字段', () => {
+    const renewed = buildDomainEvent({ action: 'renewed', domain: { id: 2, name: 'b.com' } });
+    expect(renewed?.action).toBe('renewed');
+    expect(new Bus().publish(renewed as never)).toBe(true);
   });
 
   it('更新事件必须带字段，否则不产生事件', () => {

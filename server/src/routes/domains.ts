@@ -835,6 +835,13 @@ router.post('/sync', authMiddleware, asyncHandler(async (req: Request, res: Resp
           adapter_data: adapterData ?? null,
         });
         added++;
+
+        // 同步发现的新域名同样属于生命周期事件（此前完全静默）
+        publishDomainEvent({
+          action: 'created',
+          domain: { id, name: normalizedName, accountId: account_id },
+          actor: { userId: req.user!.userId, source: 'ui' },
+        });
         log.info(`Domain added during sync: ${normalizedName}`, {
           originalName: d.Domain,
           accountId: account_id,
