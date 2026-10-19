@@ -144,7 +144,7 @@ export const virtualOriginGroupCapability: ProviderExtraCapability = {
       dslVisible: true,
       params: [
         { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'virtualOriginGroups', sourceParams: ['domainId'] },
       ],
     },
     {

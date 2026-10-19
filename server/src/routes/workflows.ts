@@ -22,6 +22,7 @@ import { DnsProviderService } from '../service/dns-provider-service';
 import { getProviderMetaSource } from '../lib/dns/providers/meta-sources';
 
 import '../lib/dns/providers/tencenteo/meta-source';
+import '../lib/dns/providers/virtual/meta-source';
 import { validatePayload, type WorkflowPayload } from '../workflow/validate-payload';
 import {
   WorkflowStoreError,

@@ -23,6 +23,7 @@
   - [模块说明](architecture/modules.md)
   - [模块交互](architecture/module-interaction.md)
   - [DSM 完整分析](architecture/dsm-complete-analysis.md)
+  - [虚拟 DNS 提供商](VIRTUAL_PROVIDER.md)
 
 - 🔄 **流程文档**
   - [用户认证流程](flow/authentication-flow.md)
