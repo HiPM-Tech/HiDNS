@@ -223,7 +223,9 @@ export function Workflows() {
       label: t('workflows.operations'),
       render: (row: WorkflowRecord) => (
         <Space>
-          <Button size="small" variant="text" onClick={() => openEdit(row)}>{t('common.edit')}</Button>
+          {!row.corrupted && (
+            <Button size="small" variant="text" onClick={() => openEdit(row)}>{t('common.edit')}</Button>
+          )}
           <Button size="small" variant="text" onClick={() => setRunsFor(row)}>{t('workflows.runs')}</Button>
           <Button size="small" variant="text" onClick={() => setPreviewFor(row)}>{t('workflows.preview')}</Button>
           <Button size="small" variant="text" onClick={() => { setRunFor(row); setRunDomain(''); setRunDomainId(0); setRunValue(''); setRunOldValue(''); }}>{t('workflows.run')}</Button>
@@ -243,7 +245,7 @@ export function Workflows() {
         </Space>
       </div>
 
-      {allowlist.length === 0 && (
+      {allowlistQuery.isSuccess && allowlist.length === 0 && (
         <div className="workflows-error">
           {t('workflows.emptyAllowlist')}
         </div>

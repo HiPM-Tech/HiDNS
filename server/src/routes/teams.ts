@@ -15,6 +15,24 @@ const log = createLogger('HTTP').sub('Route').sub('Teams');
 const router = Router();
 
 /**
+ * 域名归属校验：非超管必须是自己账号下的域名。
+ * 所有「授予/修改/删除域名权限」的入口都必须调用，否则任意登录用户可对他人域名提权。
+ */
+async function requireDomainOwnership(
+  domainId: number,
+  userId: number,
+  role: number,
+): Promise<'ok' | 'not_found' | 'denied'> {
+  if (isSuper(role)) return 'ok';
+  const domain = (await DomainOperations.getById(domainId)) as unknown as
+    | { id: number; account_id: number }
+    | undefined;
+  if (!domain) return 'not_found';
+  const createdBy = await DnsAccountOperations.getCreatedBy(domain.account_id);
+  return createdBy === userId ? 'ok' : 'denied';
+}
+
+/**
  * @swagger
  * /api/teams:
  *   get:
@@ -650,19 +668,10 @@ router.post('/:id/domain-permissions', authMiddleware, asyncHandler(async (req: 
   }
 
   // 域名归属校验：否则任意登录用户可给自己团队授予他人域名的写权限（P0）
-  if (!isSuper(role)) {
-    const domain = (await DomainOperations.getById(domain_id)) as unknown as
-      | { id: number; account_id: number }
-      | undefined;
-    if (!domain) {
-      sendError(res, 'Domain not found', 404);
-      return;
-    }
-    const createdBy = await DnsAccountOperations.getCreatedBy(domain.account_id);
-    if (createdBy !== userId) {
-      sendError(res, 'Permission denied', 403);
-      return;
-    }
+  const owned = await requireDomainOwnership(domain_id, userId, role);
+  if (owned !== 'ok') {
+    sendError(res, owned === 'not_found' ? 'Domain not found' : 'Permission denied', owned === 'not_found' ? 404 : 403);
+    return;
   }
 
   // Check if already exists
@@ -733,6 +742,18 @@ router.put('/:id/domain-permissions/:permissionId', authMiddleware, asyncHandler
   // Check permission
   const member = await TeamOperations.getMemberWithRole(teamId, userId);
   if (!isSuper(role) && team.created_by !== userId && member?.role !== 'admin') {
+    sendError(res, 'Permission denied', 403);
+    return;
+  }
+
+  // 归属校验：域名主授予 read 后，团队管理员不得自行改成 write（提权）
+  const permRow = await DomainPermissionOperations.getById(permissionId);
+  if (!permRow || permRow.team_id !== teamId) {
+    sendError(res, 'Permission not found', 404);
+    return;
+  }
+  const ownedForPut = await requireDomainOwnership(permRow.domain_id, userId, role);
+  if (ownedForPut !== 'ok') {
     sendError(res, 'Permission denied', 403);
     return;
   }
@@ -913,6 +934,13 @@ router.post('/:id/members/:userId/domain-permissions', authMiddleware, asyncHand
     return;
   }
 
+  // 域名归属校验：与团队级授予同一条规则，否则可绕过（P0）
+  const owned = await requireDomainOwnership(domain_id, userId, role);
+  if (owned !== 'ok') {
+    sendError(res, owned === 'not_found' ? 'Domain not found' : 'Permission denied', owned === 'not_found' ? 404 : 403);
+    return;
+  }
+
   // Check if target user is a team member
   const isMember = await TeamOperations.isMember(teamId, targetUserId);
   if (!isMember) {
@@ -983,6 +1011,18 @@ router.delete('/:id/members/:userId/domain-permissions/:permissionId', authMiddl
   // Check permission
   const member = await TeamOperations.getMemberWithRole(teamId, userId);
   if (!isSuper(role) && team.created_by !== userId && member?.role !== 'admin') {
+    sendError(res, 'Permission denied', 403);
+    return;
+  }
+
+  // 归属校验：否则团队管理员可删除第三方域名主单独授予该成员的授权（横向越权）
+  const permRowForDelete = await DomainPermissionOperations.getById(permissionId);
+  if (!permRowForDelete || permRowForDelete.user_id !== targetUserId) {
+    sendError(res, 'Permission not found', 404);
+    return;
+  }
+  const ownedForDelete = await requireDomainOwnership(permRowForDelete.domain_id, userId, role);
+  if (ownedForDelete !== 'ok') {
     sendError(res, 'Permission denied', 403);
     return;
   }

@@ -87,12 +87,27 @@ export function fromConditionNode(node: WorkflowDslNode | null | undefined): Con
   //   compare + 左值为白名单字段的 ref + 右值为标量 literal
   // 其余（logic/cond/... 根节点、右值是 ref/concat/arith、左路径不在白名单）
   // 一律整节点保留，否则「打开编辑→保存」会把原节点改写成 literal ""。
+  const fieldDef = CONDITION_FIELDS.find((field) => field.path === leftNode.path);
+  // 只判形状不够：重建字面量走 toLiteral，类型由**字段类型**决定。
+  // 原字面量类型与字段类型不一致时（如 string 字段配 boolean 字面量），
+  // 往返会把值改写，因此这里要求类型一致才允许结构化。
+  const matchesFieldType = (value: unknown): boolean => {
+    if (fieldDef?.type === 'number') return typeof value === 'number' && Number.isFinite(value);
+    if (fieldDef?.type === 'boolean') return typeof value === 'boolean';
+    return typeof value === 'string';
+  };
+  // `in` 的右值是标量数组：元素逐个校验，保证 join/split 往返无损
+  const valueTypeOk = Array.isArray(rightNode.value)
+    ? node.op === 'in' && rightNode.value.every((item) => matchesFieldType(item))
+    : rightNode.value === null
+      ? fieldDef?.type === 'number'
+      : matchesFieldType(rightNode.value);
   const lossless =
     node.kind === 'compare' &&
     leftNode.kind === 'ref' &&
-    CONDITION_FIELDS.some((field) => field.path === leftNode.path) &&
+    fieldDef !== undefined &&
     rightNode.kind === 'literal' &&
-    (rightNode.value === null || ['string', 'number', 'boolean'].includes(typeof rightNode.value));
+    valueTypeOk;
 
   if (!lossless) {
     return { ...EMPTY_CONDITION, enabled: true, raw: node };

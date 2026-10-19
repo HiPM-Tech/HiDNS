@@ -76,19 +76,52 @@ function checkBudget(state: EvalState, now: () => number, signal?: AbortSignal):
   }
 }
 
-function compare(op: string, left: unknown, right: unknown): boolean {
-  // 关系运算遇空值一律为假：JS 会把 null 转成 0，导致「30 >= 空」恒真
-  const relational = op === '>' || op === '>=' || op === '<' || op === '<=';
-  if (relational && (left === null || left === undefined || right === null || right === undefined)) {
-    return false;
+/** 仅当两边都能安全转成数字时才做数值比较，否则退回字符串比较（ISO 日期等） */
+function toComparableNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '') return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
   }
+  return null;
+}
+
+function relationalCompare(op: string, left: unknown, right: unknown): boolean {
+  // 空值一律为假：JS 会把 null 转成 0，导致「30 >= 空」恒真
+  if (left === null || left === undefined || right === null || right === undefined) return false;
+  const ln = toComparableNumber(left);
+  const rn = toComparableNumber(right);
+  if (ln !== null && rn !== null) {
+    switch (op) {
+      case '>': return ln > rn;
+      case '>=': return ln >= rn;
+      case '<': return ln < rn;
+      case '<=': return ln <= rn;
+    }
+  }
+  // 非数值（如 ISO 日期字符串）按字典序比较，与 JS 原生语义一致
+  const ls = String(left);
+  const rs = String(right);
+  switch (op) {
+    case '>': return ls > rs;
+    case '>=': return ls >= rs;
+    case '<': return ls < rs;
+    case '<=': return ls <= rs;
+  }
+  return false;
+}
+
+function compare(op: string, left: unknown, right: unknown): boolean {
   switch (op) {
     case '==': return left === right;
     case '!=': return left !== right;
-    case '>': return Number(left) > Number(right);
-    case '>=': return Number(left) >= Number(right);
-    case '<': return Number(left) < Number(right);
-    case '<=': return Number(left) <= Number(right);
+    case '>':
+    case '>=':
+    case '<':
+    case '<=':
+      return relationalCompare(op, left, right);
     case 'in':
       if (Array.isArray(right)) return right.includes(left);
       if (right && typeof right === 'object') return Object.prototype.hasOwnProperty.call(right, String(left));

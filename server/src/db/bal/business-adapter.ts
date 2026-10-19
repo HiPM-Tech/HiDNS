@@ -1796,6 +1796,15 @@ export const DomainPermissionOperations = {
     );
   },
 
+  /** 按 id 取授权行（用于删除/更新前的归属校验） */
+  async getById(id: number): Promise<{ id: number; domain_id: number; team_id: number | null; user_id: number | null } | undefined> {
+    return getInternal<{ id: number; domain_id: number; team_id: number | null; user_id: number | null }>(
+      'SELECT id, domain_id, team_id, user_id FROM domain_permissions WHERE id = ?',
+      [id],
+      { operation: 'DomainPermission.getById', table: 'domain_permissions' }
+    );
+  },
+
   /** 更新权限 */
   async updatePermission(id: number, permission: 'read' | 'write'): Promise<void> {
     return executeInternal(

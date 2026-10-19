@@ -37,6 +37,8 @@ export interface WorkflowRecord {
   /** null 表示显式清空条件（undefined 会被 axios 丢弃，服务端会保留旧值） */
   condition?: WorkflowDslNode | null;
   actions: WorkflowDslNode[];
+  /** 服务端无法解析该行时返回占位项；此类行只能删除，不能编辑 */
+  corrupted?: boolean;
 }
 
 export interface WorkflowRunRecord {

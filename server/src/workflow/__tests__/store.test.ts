@@ -47,11 +47,25 @@ describe('工作流持久化映射', () => {
     expect(recordTrigger(def).recordTypes).toEqual([]);
   });
 
-  it('缺失或损坏的 JSON 不抛错，回退默认值', () => {
-    const broken = rowToStored(row({ definition: '{not json', trigger_config: null }));
-    expect(broken.actions).toEqual([]);
+  it('definition 语法损坏视为损坏数据（fail-closed）', () => {
+    // 截断/半写入是最常见的损坏形态：回落成空定义会变成「每次触发都成功但什么都不做」
+    expect(() => rowToStored(row({ definition: '{not json' }))).toThrowError(/definition 不是合法 JSON/);
+  });
+
+  it('definition 缺失按空定义处理', () => {
+    const empty = rowToStored(row({ definition: '' }));
+    expect(empty.actions).toEqual([]);
+    expect(empty.condition).toBeUndefined();
+  });
+
+  it('trigger_config 缺失回退默认 A/AAAA', () => {
+    const broken = rowToStored(row({ trigger_config: null }));
     expect(broken.triggerConfig).toEqual({});
     expect(recordTrigger(storedToDefinition(broken)).recordTypes).toEqual(['A', 'AAAA']);
+  });
+
+  it('trigger_type 非法视为损坏数据', () => {
+    expect(() => rowToStored(row({ trigger_type: 'schedule' }))).toThrowError(/trigger_type 非法/);
   });
 
   it('disabled 映射为 false', () => {

@@ -42,10 +42,22 @@ function safeParse<T>(raw: string | null | undefined, fallback: T): T {
   }
 }
 
+const KNOWN_TRIGGER_TYPES = new Set(['record.changed', 'domain.changed', 'ns.changed', 'whois.expiring']);
+
 export function rowToStored(row: WorkflowRow): StoredWorkflow {
-  const definition = safeParse<{ condition?: ExpressionNode; actions?: ExpressionNode[] }>(row.definition, {});
-  // trigger_config 同样要校验：null 会让 storedToDefinition 抛原生 TypeError（→500），
-  // 非对象则会被静默兜底成 ['A','AAAA']，把触发面放宽。
+  // definition 解析失败必须视为损坏：回落成 {} 会让该工作流「每次触发都成功但什么都不做」，
+  // 而截断/半写入正是最常见的损坏形态。
+  let definition: { condition?: ExpressionNode; actions?: ExpressionNode[] };
+  try {
+    definition = row.definition ? (JSON.parse(row.definition) as typeof definition) : {};
+  } catch {
+    throw new Error(`definition 不是合法 JSON: ${row.id}`);
+  }
+  // trigger_type 非法同样视为损坏：否则列表显示启用、引擎静默跳过，用户无法察觉。
+  if (typeof row.trigger_type === 'string' && !KNOWN_TRIGGER_TYPES.has(row.trigger_type)) {
+    throw new Error(`trigger_type 非法: ${row.id} (${row.trigger_type})`);
+  }
+  // trigger_config 非对象会被静默兜底成 ['A','AAAA']，把触发面放宽。
   const triggerConfig = safeParse<unknown>(row.trigger_config, {});
   if (typeof triggerConfig !== 'object' || triggerConfig === null || Array.isArray(triggerConfig)) {
     throw new Error(`trigger_config 必须是对象: ${row.id}`);

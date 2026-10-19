@@ -24,6 +24,7 @@ import { getProviderMetaSource } from '../lib/dns/providers/meta-sources';
 import '../lib/dns/providers/tencenteo/meta-source';
 import { validatePayload, type WorkflowPayload } from '../workflow/validate-payload';
 import {
+  WorkflowStoreError,
   createWorkflow,
   getStoredById,
   getWorkflowMetaById,
@@ -46,9 +47,13 @@ async function loadOwnedWorkflow(req: Request, res: Response, id: number) {
   try {
     item = await getStoredById(id);
   } catch (error) {
-    // 数据损坏：明确 422，而不是让 errorHandler 兜成 500
-    sendError(res, (error as Error).message, 422);
-    return null;
+    // 只有**数据损坏**才映射成 422；其它异常（DB 不可用等）必须回落到 500，
+    // 否则 5xx 告警丢失，且会把原始 SQL/表名回显给租户。
+    if (error instanceof WorkflowStoreError) {
+      sendError(res, error.message, 422);
+      return null;
+    }
+    throw error;
   }
   if (!item) {
     sendError(res, '工作流不存在', 404);
