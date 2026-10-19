@@ -22,8 +22,8 @@ describe('保存期校验', () => {
     );
   });
 
-  it('拒绝未知触发器类型', () => {
-    expect(validatePayload(base({ triggerType: 'domain.changed' })).join()).toContain('record.changed');
+  it('拒绝未知触发器类型（domain.changed 已支持，schedule 不设计）', () => {
+    expect(validatePayload(base({ triggerType: 'schedule' })).join()).toContain('record.changed / domain.changed');
   });
 
   it('拒绝空动作列表', () => {
@@ -50,6 +50,52 @@ describe('保存期校验', () => {
         base({ actions: [{ kind: 'call', action: 'dns.record.update', args: { shell: { kind: 'literal', value: 'x' } } }] }),
       ).join(),
     ).toContain('UNKNOWN_ARG');
+  });
+
+  it('域名变动触发只读动作为合法', () => {
+    expect(
+      validatePayload(
+        base({
+          triggerType: 'domain.changed',
+          triggerConfig: { fields: ['remark'] },
+          actions: [{ kind: 'call', action: 'dns.record.list', args: { domain: { kind: 'literal', value: 'a.com' } } }],
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it('§4.0：域名变动触发写动作 → 保存期拒绝', () => {
+    const problems = validatePayload(
+      base({
+        triggerType: 'domain.changed',
+        triggerConfig: { fields: ['remark'] },
+        actions: [{ kind: 'call', action: 'dns.record.update', args: { domain: { kind: 'literal', value: 'a.com' } } }],
+      }),
+    );
+    expect(problems.join()).toContain('域名变动不得触发写动作');
+  });
+
+  it('§4.0：域名变动触发 ext.write 同样被拒', () => {
+    const problems = validatePayload(
+      base({
+        triggerType: 'domain.changed',
+        triggerConfig: { fields: ['remark'] },
+        actions: [{ kind: 'call', action: 'ext.tencenteo.originGroup.replace', args: {} }],
+      }),
+    );
+    expect(problems.join()).toContain('域名变动不得触发写动作');
+  });
+
+  it('域名变动的字段白名单受限', () => {
+    expect(
+      validatePayload(
+        base({
+          triggerType: 'domain.changed',
+          triggerConfig: { fields: ['record_value'] },
+          actions: [{ kind: 'call', action: 'dns.record.list', args: {} }],
+        }),
+      ).join(),
+    ).toContain('remark / is_hidden / enabled');
   });
 
   it('条件节点同样受校验', () => {

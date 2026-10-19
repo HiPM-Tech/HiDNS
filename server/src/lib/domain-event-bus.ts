@@ -36,8 +36,20 @@ export interface RecordChangedEvent {
   readonly at: string;
 }
 
+/** 域名元信息变更（备注 / 隐藏 / 启用）。**不含解析值**。 */
+export interface DomainChangedEvent {
+  readonly type: 'domain.changed';
+  readonly domain: { readonly id: number; readonly name: string; readonly accountId?: number };
+  /** 发生变化的字段名，如 ['remark'] / ['is_hidden'] / ['enabled'] */
+  readonly changedFields: readonly string[];
+  readonly actor: { readonly userId?: number; readonly source: ActorSource };
+  readonly traceId: string;
+  readonly at: string;
+}
+
 export type DomainEvent = RecordChangedEvent;
-export type EventListener = (event: DomainEvent) => void | Promise<void>;
+export type AnyDomainEvent = RecordChangedEvent | DomainChangedEvent;
+export type EventListener = (event: AnyDomainEvent) => void | Promise<void>;
 
 export interface BusOptions {
   allowSelfTrigger: boolean;
@@ -67,19 +79,23 @@ export class DomainEventBus {
     return this.listeners.size;
   }
 
-  accepts(event: DomainEvent): boolean {
+  accepts(event: AnyDomainEvent): boolean {
+    if (!this.options.allowSelfTrigger && event.actor.source === 'workflow') return false;
+    if (event.type === 'domain.changed') {
+      // 域名事件不携带解析值，也不参与深度限制
+      return event.changedFields.length > 0;
+    }
     if (!ALLOWED_RECORD_TYPES.has(event.record.type)) return false;
     if (event.depth > this.options.maxDepth) return false;
-    if (!this.options.allowSelfTrigger && event.actor.source === 'workflow') return false;
     return true;
   }
 
-  publish(event: DomainEvent): boolean {
+  publish(event: AnyDomainEvent): boolean {
     if (!this.accepts(event)) {
       this.dropped += 1;
       if (this.dropped === 1 || this.dropped - this.droppedLogged >= 100) {
         this.droppedLogged = this.dropped;
-        log.debug('event dropped', { type: event.record.type, dropped: this.dropped });
+        log.debug('event dropped', { type: event.type, dropped: this.dropped });
       }
       return false;
     }
@@ -148,6 +164,31 @@ export function hasDomainEventSubscribers(): boolean {
   return domainEventBus.subscriberCount() > 0;
 }
 
+/** 域名事件允许携带的字段（其余字段变更与解析语义无关，不产生事件） */
+export const DOMAIN_CHANGED_FIELDS = ['remark', 'is_hidden', 'enabled'] as const;
+
+export interface BuildDomainEventInput {
+  domain: { id: number; name: string; accountId?: number };
+  changedFields: readonly string[];
+  actor?: { userId?: number; source: ActorSource };
+  traceId?: string;
+}
+
+export function buildDomainEvent(input: BuildDomainEventInput): DomainChangedEvent | null {
+  const fields = input.changedFields.filter((field) =>
+    (DOMAIN_CHANGED_FIELDS as readonly string[]).includes(field),
+  );
+  if (!fields.length) return null;
+  return {
+    type: 'domain.changed',
+    domain: input.domain,
+    changedFields: fields,
+    actor: input.actor ?? { source: 'api' },
+    traceId: input.traceId ?? randomUUID(),
+    at: new Date().toISOString(),
+  };
+}
+
 /**
  * 发布入口：无订阅者时**零成本**（不构造事件、不额外查询）；失败绝不影响业务。
  */
@@ -158,5 +199,15 @@ export function publishRecordEvent(input: PublishRecordInput): void {
     if (event) domainEventBus.publish(event);
   } catch {
     // 事件发布属于旁路，失败不得影响主流程
+  }
+}
+
+export function publishDomainEvent(input: BuildDomainEventInput): void {
+  try {
+    if (!hasDomainEventSubscribers()) return;
+    const event = buildDomainEvent(input);
+    if (event) domainEventBus.publish(event);
+  } catch {
+    // 同上
   }
 }

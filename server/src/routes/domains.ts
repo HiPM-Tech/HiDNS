@@ -11,6 +11,7 @@ import { ROLE_ADMIN, isSuper, normalizeRole } from '../utils/roles';
 import { logAuditOperation } from '../service/audit';
 import { parseInteger, sendError, sendSuccess, sendServerError } from '../utils/http';
 import { createLogger } from '../lib/logger';
+import { publishDomainEvent } from '../lib/domain-event-bus';
 import { DomainOperations, DnsAccountOperations, DomainPermissionOperations, TeamOperations, RenewableDomainOperations, UserPreferencesOperations, NSMonitorOperations, SystemCacheOperations, WhoisOperations } from '../db/bal/business-adapter';
 import { syncDomainWhois } from '../service/whois';
 import { getRootDomain, queryWhois, groupDomains } from '../service/whois';
@@ -1022,6 +1023,18 @@ router.put('/:id', authMiddleware, requireTokenDomainPermission(), asyncHandler(
   }
 
   await logAuditOperation(req.user!.userId, 'update_domain', access.domain.name, { remark, is_hidden, enabled }, req);
+
+  // 主核心事件主线：域名元信息变更（**不含解析值**）。
+  // 字段白名单由 buildDomainEvent 再过滤一次，只有 remark / is_hidden / enabled 会产生事件。
+  publishDomainEvent({
+    domain: { id, name: access.domain.name, accountId: access.domain.account_id as number | undefined },
+    changedFields: [
+      ...(remark !== undefined ? ['remark'] : []),
+      ...(is_hidden !== undefined ? ['is_hidden'] : []),
+      ...(enabled !== undefined ? ['enabled'] : []),
+    ],
+    actor: { userId: req.user!.userId, source: 'ui' },
+  });
 
   // 获取更新后的域名信息（包含到期时间）
   const updatedDomain = await DomainOperations.getById(id) as unknown as Domain | undefined;

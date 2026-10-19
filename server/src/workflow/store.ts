@@ -1,5 +1,5 @@
 import { WorkflowOperations, type WorkflowRow } from '../db/bal/business-adapter';
-import type { WorkflowDefinition } from './engine';
+import type { WorkflowDefinition, WorkflowTrigger } from './engine';
 import type { ExpressionNode } from './expression/nodes';
 
 /**
@@ -56,12 +56,21 @@ export function storedToDefinition(stored: StoredWorkflow): WorkflowDefinition {
   const recordTypes: ReadonlyArray<'A' | 'AAAA'> = Array.isArray(rawTypes)
     ? (rawTypes as unknown[]).filter((t): t is 'A' | 'AAAA' => t === 'A' || t === 'AAAA')
     : ['A', 'AAAA'];
+  const rawFields = stored.triggerConfig.fields;
+  const trigger: WorkflowTrigger =
+    stored.triggerType === 'domain.changed'
+      ? {
+          type: 'domain.changed',
+          fields: Array.isArray(rawFields) ? (rawFields as unknown[]).map(String) : undefined,
+        }
+      : { type: 'record.changed', recordTypes };
+
   return {
     id: String(stored.id),
     name: stored.name,
     enabled: stored.enabled,
     ownerId: stored.ownerId,
-    trigger: { type: 'record.changed', recordTypes },
+    trigger,
     condition: stored.condition,
     actions: stored.actions,
   };

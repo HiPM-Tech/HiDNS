@@ -1134,7 +1134,7 @@ v1 只有收敛写动作，这直接决定了一条部署约束：
 
 | 层 | 措施 |
 |---|---|
-| 保存校验 | 若 `trigger.type ∈ {domain.changed, domain.created, domain.deleted, domain.renewed}` 且动作含任何**写能力**（`dns.record.write` 或 `ext.write`）→ **拒绝保存**，返回 422 并说明原因 |
+| 保存校验（**已实现**） | `workflow/validate-payload.ts`：若 `trigger.type ∈ {domain.changed, …}` 且引用动作含任何**写能力**（`dns.record.write` / `ext.write`）→ **拒绝保存**，返回 422 并列出具体动作名 |
 | 执行前裁决 | `CapabilityBroker` 在每次记录写动作前校验 `(triggerType, action)` 组合，命中即拒绝（防绕过校验直接改库） |
 | 前端 | 选择「域名变动」触发器后，动作面板**隐藏**记录写动作；选择记录写动作时，触发器下拉中禁用域名变动类 |
 | 审计 | 若被拒，记录 `workflow.violation` 审计事件并告警 |
@@ -1220,6 +1220,7 @@ interface WorkflowEvent {
 | `routes/records.ts` | 创建 / 更新 / 删除 / 状态变更 / 批量创建 | 删除与状态变更需先回查记录类型（A/AAAA 判定所需） |
 | `service/dns-provider-service.ts` | 创建 / 更新 / 删除 / 状态变更 | 服务层统一出口，覆盖故障转移与 MCP 等非路由调用方 |
 | `workflow/actions/dns/record.ts` | 创建 / 更新 | 标记 `actor.source='workflow'`，由总线抑制以防自激 |
+| `routes/domains.ts`（PUT） | 域名元信息变更 | 仅 `remark` / `is_hidden` / `enabled` 三个字段产生事件；**不含解析值**（§4.0.1） |
 
 **两条硬约束**：
 

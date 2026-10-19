@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { WorkflowEventBus, buildRecordEvent, workflowEventBus } from './event-bus';
+import { buildDomainEvent } from '../lib/domain-event-bus';
 import { domainEventBus } from '../lib/domain-event-bus';
-import type { WorkflowEvent } from './event-bus';
+import type { WorkflowEvent, AnyDomainEvent } from './event-bus';
 
 const domain = { id: 1, name: 'example.com' };
 
@@ -13,6 +14,26 @@ function event(overrides: Partial<WorkflowEvent> = {}): WorkflowEvent {
   }) as WorkflowEvent;
   return { ...base, ...overrides };
 }
+
+describe('域名变更事件', () => {
+  it('只保留 remark / is_hidden / enabled', () => {
+    const built = buildDomainEvent({
+      domain: { id: 1, name: 'a.com' },
+      changedFields: ['remark', 'record_value', 'unknown'],
+    });
+    expect(built?.changedFields).toEqual(['remark']);
+  });
+
+  it('无有效字段时不产生事件', () => {
+    expect(buildDomainEvent({ domain: { id: 1, name: 'a.com' }, changedFields: ['record_value'] })).toBeNull();
+  });
+
+  it('域名事件可通过总线', () => {
+    const bus = new WorkflowEventBus();
+    const built = buildDomainEvent({ domain: { id: 1, name: 'a.com' }, changedFields: ['enabled'] });
+    expect(bus.publish(built as never)).toBe(true);
+  });
+});
 
 describe('事件总线过滤', () => {
   let bus: WorkflowEventBus;
@@ -46,7 +67,7 @@ describe('事件总线过滤', () => {
   });
 
   it('订阅者异常不影响其它订阅者', async () => {
-    const received: WorkflowEvent[] = [];
+    const received: AnyDomainEvent[] = [];
     bus.subscribe(() => {
       throw new Error('boom');
     });
@@ -58,7 +79,7 @@ describe('事件总线过滤', () => {
   });
 
   it('异步订阅者 reject 不影响发布', async () => {
-    const received: WorkflowEvent[] = [];
+    const received: AnyDomainEvent[] = [];
     bus.subscribe(async () => {
       throw new Error('async boom');
     });
@@ -71,7 +92,7 @@ describe('事件总线过滤', () => {
   });
 
   it('退订后不再收到事件', () => {
-    const received: WorkflowEvent[] = [];
+    const received: AnyDomainEvent[] = [];
     const off = bus.subscribe((e) => {
       received.push(e);
     });

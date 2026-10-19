@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { rowToStored, storedToDefinition } from '../store';
+import type { RecordChangedTrigger } from '../engine';
+
+function recordTrigger(def: { trigger: { type: string } }): RecordChangedTrigger {
+  return def.trigger as RecordChangedTrigger;
+}
 import type { WorkflowRow } from '../../db/bal/business-adapter';
 
 function row(overrides: Partial<WorkflowRow> = {}): WorkflowRow {
@@ -31,7 +36,7 @@ describe('工作流持久化映射', () => {
   it('存储对象 → 引擎定义', () => {
     const def = storedToDefinition(rowToStored(row()));
     expect(def.id).toBe('7');
-    expect(def.trigger.recordTypes).toEqual(['A']);
+    expect(recordTrigger(def).recordTypes).toEqual(['A']);
     expect(def.actions).toHaveLength(1);
   });
 
@@ -39,14 +44,14 @@ describe('工作流持久化映射', () => {
     const def = storedToDefinition(
       rowToStored(row({ trigger_config: JSON.stringify({ recordTypes: ['CNAME', 'TXT'] }) })),
     );
-    expect(def.trigger.recordTypes).toEqual([]);
+    expect(recordTrigger(def).recordTypes).toEqual([]);
   });
 
   it('缺失或损坏的 JSON 不抛错，回退默认值', () => {
     const broken = rowToStored(row({ definition: '{not json', trigger_config: null }));
     expect(broken.actions).toEqual([]);
     expect(broken.triggerConfig).toEqual({});
-    expect(storedToDefinition(broken).trigger.recordTypes).toEqual(['A', 'AAAA']);
+    expect(recordTrigger(storedToDefinition(broken)).recordTypes).toEqual(['A', 'AAAA']);
   });
 
   it('disabled 映射为 false', () => {

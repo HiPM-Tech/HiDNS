@@ -13,6 +13,8 @@ export {
 
 export type {
   DomainEvent as WorkflowEvent,
+  AnyDomainEvent,
+  DomainChangedEvent,
   RecordChangedEvent,
   RecordType,
   ActorSource,

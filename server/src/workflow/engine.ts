@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createLogger } from '../lib/logger';
 import { workflowEventBus, type WorkflowEvent } from './event-bus';
+import type { AnyDomainEvent } from '../lib/domain-event-bus';
 import type { ExpressionNode } from './expression/nodes';
 import { evaluate } from './expression/evaluator';
 import type { Dispatcher } from './dispatch';
@@ -8,10 +9,18 @@ import type { Principal } from './auth';
 
 const log = createLogger('Workflow').sub('Engine');
 
-export interface WorkflowTrigger {
+export interface RecordChangedTrigger {
   readonly type: 'record.changed';
   readonly recordTypes: ReadonlyArray<'A' | 'AAAA'>;
 }
+
+export interface DomainChangedTrigger {
+  readonly type: 'domain.changed';
+  /** 关心的字段；缺省表示任意字段变更都触发 */
+  readonly fields?: readonly string[];
+}
+
+export type WorkflowTrigger = RecordChangedTrigger | DomainChangedTrigger;
 
 export interface WorkflowDefinition {
   readonly id: string;
@@ -37,7 +46,7 @@ export interface RunRecord {
 
 export interface EngineDeps {
   listWorkflows(): Promise<WorkflowDefinition[]>;
-  resolvePrincipal(workflow: WorkflowDefinition, event: WorkflowEvent): Promise<Principal>;
+  resolvePrincipal(workflow: WorkflowDefinition, event: AnyDomainEvent): Promise<Principal>;
   dispatch: Dispatcher;
   onRun?(record: RunRecord): Promise<void> | void;
   now?(): number;
@@ -75,16 +84,26 @@ export class WorkflowEngine {
     this.unsubscribe = null;
   }
 
-  private matches(workflow: WorkflowDefinition, event: WorkflowEvent): boolean {
+  private matches(workflow: WorkflowDefinition, event: AnyDomainEvent): boolean {
     if (!workflow.enabled) return false;
     if (workflow.trigger.type !== event.type) return false;
-    return workflow.trigger.recordTypes.includes(event.record.type);
+
+    if (event.type === 'record.changed') {
+      return workflow.trigger.type === 'record.changed'
+        ? workflow.trigger.recordTypes.includes(event.record.type)
+        : false;
+    }
+
+    if (workflow.trigger.type !== 'domain.changed') return false;
+    const wanted = workflow.trigger.fields;
+    if (!wanted || wanted.length === 0) return true;
+    return event.changedFields.some((field) => wanted.includes(field));
   }
 
   /** 单次执行：handleEvent 与手动运行共用同一条路径 */
   private async executeOne(
     workflow: WorkflowDefinition,
-    event: WorkflowEvent,
+    event: AnyDomainEvent,
     trigger: 'event' | 'manual',
   ): Promise<RunRecord> {
     const now = this.deps.now ?? Date.now;
@@ -152,7 +171,7 @@ export class WorkflowEngine {
     }
   }
 
-  async handleEvent(event: WorkflowEvent): Promise<RunRecord[]> {
+  async handleEvent(event: AnyDomainEvent): Promise<RunRecord[]> {
     const workflows = await this.deps.listWorkflows();
     const records: RunRecord[] = [];
 
@@ -170,7 +189,7 @@ export class WorkflowEngine {
    * 但仍走同一条 executeOne（鉴权、限额、审计完全一致）。
    * 设计依据：§4.1 `manual` 触发器。
    */
-  async runSingle(workflowId: string, event: WorkflowEvent): Promise<RunRecord | null> {
+  async runSingle(workflowId: string, event: AnyDomainEvent): Promise<RunRecord | null> {
     const workflows = await this.deps.listWorkflows();
     const workflow = workflows.find((item) => item.id === workflowId);
     if (!workflow) return null;
