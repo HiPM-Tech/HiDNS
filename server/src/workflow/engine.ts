@@ -3,7 +3,7 @@ import { createLogger } from '../lib/logger';
 import { workflowEventBus, type WorkflowEvent } from './event-bus';
 import type { AnyDomainEvent } from '../lib/domain-event-bus';
 import type { ExpressionNode } from './expression/nodes';
-import { evaluate } from './expression/evaluator';
+import { evaluate, createEvalState } from './expression/evaluator';
 import type { Dispatcher } from './dispatch';
 import type { Principal } from './auth';
 
@@ -162,10 +162,13 @@ export class WorkflowEngine {
           resource: { domainId: event.domain.id, domainName: event.domain.name },
         });
 
-      const evalCtx = { event: event as unknown as Record<string, unknown>, vars, call };
+      // 限额必须是**运行级**：condition 与全部 action 共享同一份 calls/deadline，
+      // 否则每个根节点各拿一份预算，单次运行上限被放大为「根数 × 50」。
+      const evalState = createEvalState(now);
+      const evalCtx = { event: event as unknown as Record<string, unknown>, vars, call, now };
 
       if (workflow.condition) {
-        const passed = await evaluate(workflow.condition, evalCtx);
+        const passed = await evaluate(workflow.condition, evalCtx, evalState);
         if (!passed) {
           return {
             workflowId: workflow.id,
@@ -179,7 +182,7 @@ export class WorkflowEngine {
       }
 
       for (const action of workflow.actions) {
-        await evaluate(action, evalCtx);
+        await evaluate(action, evalCtx, evalState);
       }
 
       return {

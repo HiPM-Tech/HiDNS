@@ -24,9 +24,14 @@ export interface EvalContext {
   readonly now?: () => number;
 }
 
-interface EvalState {
+export interface EvalState {
   calls: number;
   deadline: number;
+}
+
+/** 运行级求值状态：一次运行内所有根节点共享同一份预算 */
+export function createEvalState(now: () => number = Date.now): EvalState {
+  return { calls: 0, deadline: now() + LIMITS.timeoutMs };
 }
 
 function resolveRef(path: string, ctx: EvalContext): unknown {

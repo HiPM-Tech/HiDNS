@@ -345,6 +345,21 @@ describe('执行引擎', () => {
     expect(runs[0].status).toBe('success');
   });
 
+  it('求值预算是运行级：多根合计超限即失败', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const call = { kind: 'call' as const, action: 'dns.record.list', args: {} };
+    // 4 个根，每根 20 次调用，合计 80 > 50
+    const roots = Array.from({ length: 4 }, () => ({
+      kind: 'logic' as const,
+      op: 'and' as const,
+      args: Array.from({ length: 20 }, () => call),
+    }));
+    const e = engine([wf({ id: '7', actions: roots })], dispatch);
+    const runs = await e.handleEvent(event());
+    expect(runs[0].status).toBe('failed');
+    expect(runs[0].error).toContain('动作调用超过');
+  });
+
   it('未 start 时不订阅（无模块作用域副作用）', () => {
     engine([wf()]);
     expect(bus.subscriberCount()).toBe(0);

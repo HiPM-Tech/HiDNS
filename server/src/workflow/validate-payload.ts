@@ -18,6 +18,7 @@ const NS_STATUSES = ['ok', 'mismatch', 'missing', 'poisoned'];
 const WRITE_CLASSES = new Set(['dns.record.write', 'ext.write']);
 
 const ACTION_CLASS_BY_NAME = new Map(ALL_ACTIONS.map((a) => [a.name, a.actionClass]));
+const ACTION_DSL_VISIBLE = new Map(ALL_ACTIONS.map((a) => [a.name, a.dslVisible]));
 
 export interface WorkflowPayload {
   name?: unknown;
@@ -85,6 +86,14 @@ export function validatePayload(payload: WorkflowPayload): string[] {
     const result = validateExpression(root, { knownActions: KNOWN_ACTIONS, actionParams: ACTION_PARAMS });
     for (const issue of result.issues) problems.push(`${issue.code}: ${issue.message}`);
     referencedActions.push(...result.actions);
+  }
+
+  // dslVisible:false 的动作（如 dns.record.delete / batch）不允许被声明式定义表达。
+  // 决策：在**保存期**拒绝，而不是只在运行期拦 —— 手动运行执行的正是这份声明，
+  // 若保存期放过，dslVisible 的语义就形同虚设。
+  const hidden = referencedActions.filter((name) => ACTION_DSL_VISIBLE.get(name) === false);
+  if (hidden.length) {
+    problems.push(`以下动作不对声明式定义开放: ${[...new Set(hidden)].join(', ')}`);
   }
 
   // §4.0 保存期强制：域名变动类触发器不得触发任何写动作。

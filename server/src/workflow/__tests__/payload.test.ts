@@ -142,6 +142,12 @@ describe('保存期校验', () => {
     ).toContain('非负数字');
   });
 
+  it('拒绝引用 dslVisible:false 的动作', () => {
+    expect(
+      validatePayload(base({ actions: [{ kind: 'call', action: 'dns.record.delete', args: { domain: { kind: 'literal', value: 'a.com' } } }] })).join(),
+    ).toContain('不对声明式定义开放');
+  });
+
   it('条件节点同样受校验', () => {
     expect(
       validatePayload(base({ condition: { kind: 'eval', code: '1' } })).join(),
