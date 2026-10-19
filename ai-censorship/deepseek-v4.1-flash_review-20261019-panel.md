@@ -113,3 +113,45 @@
 ### 仍未做的 P2
 
 见本报告第三节 P2 清单（组件化重构、共享 Table、路由解耦提供商、保留策略优化等），均不影响正确性，单独排期。
+---
+
+## 七、二审结果（同一 5 线，基线 089ea74 → 89f5ac3）
+
+五条线**一致判定不通过**：一审的 P0/P1 确认修复，但修复本身引入回归。
+
+### 二审发现与处置
+
+| 编号 | 线 | 问题 | 处置 |
+|---|---|---|---|
+| P0 | 2 | `ext.*` 动作完全无域名级校验（ctx 被丢弃），可跨租户读写他人源站组 | ✅ 包装层补二次校验 |
+| P1 | 1/2 | `ns.changed` 的 `domain.id=0` 被拒成 403，整类触发器不可用 | ✅ 跳过 0 + 补名称名单 |
+| P1 | 2 | `domain_permissions` 的 read/sub 授权被提升为整域写 | ✅ 新增 `getWritableDomainIds`，写类按 actionClass 分档 |
+| P1 | 4 | 超时释放互斥锁但动作仍在跑，同目标可并发重复执行 | ✅ 锁延到底层结束后释放 |
+| P1 | 4 | 超时抛错导致整批运行记录丢失 | ✅ 超时返回 failed 记录 |
+| P1 | 4 | 一条坏 `trigger_type` 让全部工作流停摆 | ✅ 行级容错 |
+| P1 | 3 | `logic.op` 非字符串时判定被静默反转成 or | ✅ op 必须字符串 + 求值器不再兜底 |
+| P1 | 3 | `PUT` 绕过 `enabled` 类型校验、条件无法清空 | ✅ 合并值纳入校验 + 显式 null 清空 |
+| P1 | 5 | 表单重开脏值残留、`in` 必然 422、关闭条件保存无效 | ✅ 强制重算 initial + 数组字面量放行 + hasOwnProperty |
+| P2 | 1/3 | IPv6 前缀法漏判（febf / WHATWG 归一化 / NAT64 / 6to4） | ✅ 改 128bit 网段判定 |
+| P2 | 1 | 冻结不深，`changedFields`/`actor` 可被订阅者篡改 | ✅ 一并冻结 |
+| P2 | 1 | 工作流动作补发的事件被总线按 `source='workflow'` 丢弃 | ⚠️ **按设计不修**：改 system 会打开自激路径，已写入设计文档 §7.2 0-a |
+| P2 | 2 | `invalidateAccessCache` 无调用点、`dns.domain.list` 恒空 | ✅ 接入三处 + 改用 allowedDomainIds |
+| P2 | 3/4 | 出站 signal 未透传、早退不释放 body、超时错误码丢失 | ✅ signal 贯通 + cancel + TIMEOUT 映射 |
+| P2 | 4 | 手动运行假报成功、删除非事务、清理静默、负 limit | ✅ 落库失败即报错 + 同事务 + 留痕 + 夹取区间 |
+
+### 二审后验证
+
+| 项 | 结果 |
+|---|---|
+| `tsc --noEmit`（server / client） | 0 错误 |
+| `vitest run` | **205 passed / 26 skipped**；失败文件 12（既有基线） |
+| `check:actions` | **176 用例全过** |
+| `vite build` | 成功 |
+| `check_i18n_simple.js` | 退出码 0，11 语言 complete |
+
+### 二审未闭环（明确记录）
+
+| 项 | 原因 |
+|---|---|
+| 服务端 `workflow.*` label 键未落地 | 前端已改为渲染动作名与触发器类型，不再泄漏 key；键本身留作未来本地化 |
+| 动作层 `ctx.signal` 覆盖不全 | 已贯通 `http.outbound`；`notify` 仍走自身重试链，未接 signal（需改通知服务） |
