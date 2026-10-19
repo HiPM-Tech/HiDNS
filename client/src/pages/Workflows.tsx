@@ -30,6 +30,48 @@ interface ConditionDraft {
   value: string;
 }
 
+/** 级联下拉：按参数声明的 source 拉取候选（如 originGroups 依赖 domainId） */
+function CascadingSelect({
+  param,
+  args,
+  value,
+  onChange,
+}: {
+  param: { key: string; source?: string; sourceParams?: string[] };
+  args: Record<string, string>;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const params = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const key of param.sourceParams ?? []) {
+      const raw = args[key];
+      if (raw) out[key] = raw;
+    }
+    return out;
+  }, [args, param.sourceParams]);
+
+  const ready = (param.sourceParams ?? []).every((key) => Boolean(args[key]));
+  const query = useQuery({
+    queryKey: ['workflow-meta', param.source, params],
+    queryFn: () => workflowsApi.meta<Array<{ value: string; label: string }>>(param.source!, params),
+    enabled: Boolean(param.source) && ready,
+  });
+
+  const options = (query.data?.data as { items?: Array<{ value: string; label: string }> } | undefined)?.items ?? [];
+
+  return (
+    <Select
+      placeholder={ready ? param.key : `${param.key}（需先填 ${(param.sourceParams ?? []).join(', ')}）`}
+      disabled={!ready}
+      loading={query.isLoading}
+      value={value}
+      options={options.map((item) => ({ label: item.label, value: item.value }))}
+      onChange={(next) => onChange(String(next))}
+    />
+  );
+}
+
 const CONDITION_FIELDS = [
   'event.record.value',
   'event.record.oldValue',
@@ -353,7 +395,18 @@ export function Workflows() {
                         next[index] = { ...row, args: { ...row.args, [param.key]: String(value) } };
                         setRows(next);
                       };
-                      // 参数控件按声明类型渲染：select 给下拉，其余给输入框
+                      // 参数控件按声明渲染：有 source 走级联，其次 select 走枚举，其余输入框
+                      if (param.source) {
+                        return (
+                          <CascadingSelect
+                            key={param.key}
+                            param={param}
+                            args={row.args}
+                            value={row.args[param.key] ?? ''}
+                            onChange={update}
+                          />
+                        );
+                      }
                       if (param.type === 'select' && param.options?.length) {
                         return (
                           <Select

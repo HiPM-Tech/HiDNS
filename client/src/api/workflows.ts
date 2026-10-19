@@ -7,6 +7,10 @@ export interface WorkflowActionParam {
   type: 'text' | 'number' | 'boolean' | 'select';
   required: boolean;
   options?: string[];
+  /** 候选来源，如 'originGroups'；声明后渲染为级联下拉 */
+  source?: string;
+  /** 拉取候选取自同动作的哪些实参，如 ['domainId'] */
+  sourceParams?: string[];
 }
 
 export interface WorkflowActionMeta {
@@ -66,6 +70,6 @@ export const workflowsApi = {
     api.get<ApiResponse<{ event: Record<string, unknown> | null }>>(`/workflows/${id}/sample-event`),
   run: (id: number, body: { domainId: number; domainName: string; record: { name: string; type: string; value?: string; oldValue?: string } }) =>
     api.post<ApiResponse<{ status: string; traceId: string; error?: string }>>(`/workflows/${id}/run`, body),
-  meta: <T = Array<Record<string, unknown>>>(source: string) =>
-    api.get<ApiResponse<{ items: T }>>(`/workflows/meta/${source}`),
+  meta: <T = Array<Record<string, unknown>>>(source: string, params?: Record<string, string | number>) =>
+    api.get<ApiResponse<{ items: T }>>(`/workflows/meta/${source}`, params ? { params } : undefined),
 };

@@ -473,7 +473,7 @@ export interface ProviderExtraAction {
   /** 是否对声明式 DSL 可见（false = 仅内部/API 可达） */
   dslVisible: boolean;
   /** 参数 schema，供表达式层渲染 {...} / [...] / (...) 三类控件 */
-  params: ProviderActionParam[];
+  params: ProviderActionParam[];   // { key, label, type, required, options?, source?, sourceParams? }
 }
 ```
 
@@ -841,7 +841,15 @@ interface ProviderDefinition {
 
 > 用户所述"鉴权套用 dnspod 和 edgeone"指**凭据体系相同**（均为腾讯云 `SecretId/SecretKey` + TC3），而非 DNSPod 也具备源站组能力。
 
-**前端据此渲染**：某厂商未声明 `extraCapabilities` 时，表达式编辑器中**不出现**对应动作；声明了则按 `params` 自动生成控件（`{...}` 下拉 / `[...]` 可输入 / `(...)` 预览），核心与前端都不硬编码任何厂商名。
+**前端据此渲染**：某厂商未声明 `extraCapabilities` 时，表达式编辑器中**不出现**对应动作；声明了则按 `params` 自动生成控件，核心与前端都不硬编码任何厂商名：
+
+| `params` 声明 | 渲染为 |
+|---|---|
+| `source: 'originGroups'` + `sourceParams: ['domainId']` | **级联下拉**：先从同动作实参取 `domainId`，再拉 `/meta/originGroups?domainId=`；依赖未填时禁用并提示 |
+| `type: 'select'` + `options` | 固定枚举下拉（`{...}`） |
+| 其余 | 文本 / 数字输入框（即可输入，对应 `[...]`） |
+
+> 源站组动作的定位键已改为 **`domainId`**：由域名反查 `account_id` 与 `third_id`（Zone）即可，用户不必同时知道 `accountId` 与 `scopeId`。
 
 > **与 `root.ai.md` §适配器 302 的关系**：该条把 `DnsCapabilities` 与 `ProviderCapabilities` 混写、且写了不存在的 `line` 字段。本设计**不往 `DnsCapabilities` 加字段**，而是扩展 `ProviderDefinition`，因此该勘误**不阻塞本设计**；规范仍建议修正（见 §12.1）。
 

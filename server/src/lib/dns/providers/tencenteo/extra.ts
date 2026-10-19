@@ -1,4 +1,5 @@
 import { DnsProviderService } from '../../../../service/dns-provider-service';
+import { DomainOperations } from '../../../../db/bal/business-adapter';
 import { TencenteoAdapter } from './adapter';
 import type { ProviderExtraCapability, ProviderActionHandler } from '../extra-types';
 import {
@@ -10,17 +11,27 @@ import {
   type OriginGroup,
 } from './origin-group';
 
+/**
+ * 由 `domainId` 反查账号与作用域：
+ * - 账号：`domains.account_id`
+ * - 作用域（Zone）：`tencenteo` 早已把它映射在 `domains.third_id` 上
+ * 这样用户只需给一个域名，不必同时知道 accountId 与 scopeId。
+ */
 async function opsFor(args: Record<string, unknown>) {
-  const accountId = Number(args.accountId);
-  const scopeId = String(args.scopeId ?? '');
-  if (!Number.isFinite(accountId) || !scopeId) {
-    throw new OriginGroupError('INVALID_ARGS', '缺少 accountId 或 scopeId');
+  const domainId = Number(args.domainId);
+  if (!Number.isFinite(domainId) || domainId <= 0) {
+    throw new OriginGroupError('INVALID_ARGS', '缺少 domainId');
   }
-  const adapter = await DnsProviderService.getAdapterByAccount(accountId);
+  const domain = (await DomainOperations.getById(domainId)) as unknown as
+    | { id: number; name: string; account_id: number; third_id?: string }
+    | undefined;
+  if (!domain) throw new OriginGroupError('DOMAIN_NOT_FOUND', '域名不存在');
+
+  const adapter = await DnsProviderService.getAdapterByAccount(Number(domain.account_id));
   if (!(adapter instanceof TencenteoAdapter)) {
-    throw new OriginGroupError('PROVIDER_MISMATCH', '该账号不是 EdgeOne 账号');
+      throw new OriginGroupError('PROVIDER_MISMATCH', '该域名的提供商不是 EdgeOne');
   }
-  adapter.setZoneInfo(scopeId, '');
+  adapter.setZoneInfo(String(domain.third_id ?? ''), String(domain.name ?? ''));
   return adapter.originGroups();
 }
 
@@ -99,8 +110,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       service: 'records.read',
       dslVisible: true,
       params: [
-        { key: 'accountId', label: 'workflow.param.account_id', type: 'number', required: true },
-        { key: 'scopeId', label: 'workflow.param.scope_id', type: 'text', required: true },
+        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
       ],
     },
     {
@@ -111,9 +121,8 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       service: 'records.read',
       dslVisible: true,
       params: [
-        { key: 'accountId', label: 'workflow.param.account_id', type: 'number', required: true },
-        { key: 'scopeId', label: 'workflow.param.scope_id', type: 'text', required: true },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true },
+        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'] },
       ],
     },
     {
@@ -124,9 +133,8 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       service: 'records.read',
       dslVisible: true,
       params: [
-        { key: 'accountId', label: 'workflow.param.account_id', type: 'number', required: true },
-        { key: 'scopeId', label: 'workflow.param.scope_id', type: 'text', required: true },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true },
+        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'] },
         { key: 'target', label: 'workflow.param.target', type: 'text', required: true },
       ],
     },
@@ -138,9 +146,8 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       service: 'records.write',
       dslVisible: true,
       params: [
-        { key: 'accountId', label: 'workflow.param.account_id', type: 'number', required: true },
-        { key: 'scopeId', label: 'workflow.param.scope_id', type: 'text', required: true },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true },
+        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'] },
         { key: 'target', label: 'workflow.param.target', type: 'text', required: true },
         { key: 'diffDigest', label: 'workflow.param.diff_digest', type: 'text', required: true },
       ],

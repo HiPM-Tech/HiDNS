@@ -14,6 +14,13 @@ export interface ActionParam {
   type: 'text' | 'number' | 'boolean' | 'select';
   required: boolean;
   options?: string[];
+  /**
+   * 候选来源（`/api/workflows/meta/:source`）。
+   * 声明后前端渲染为下拉，并通过 `sourceParams` 传参拉取候选。
+   */
+  source?: string;
+  /** 拉取候选时需要一并带上的其它参数（取同一条动作的实参值） */
+  sourceParams?: string[];
 }
 
 export interface ActionDeclaration {

@@ -16,6 +16,10 @@ export interface ProviderActionParam {
   type: 'text' | 'number' | 'boolean' | 'select';
   required: boolean;
   options?: string[];
+  /** 候选来源（`/api/workflows/meta/:source`）；声明后前端渲染为下拉 */
+  source?: string;
+  /** 拉取候选时一并带上的其它参数 */
+  sourceParams?: string[];
 }
 
 export interface ProviderExtraAction {

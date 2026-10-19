@@ -367,7 +367,7 @@ HiDNS 全局主核心（types/namespace.ts）
 | 前端编辑器（基础版） | ✅ 已实现 | `client/src/pages/Workflows.tsx` + `client/src/api/workflows.ts`：列表、新建/编辑（名称 / 触发器 / 记录类型 / 字段 / 动作与参数）、运行记录、手动运行。路由 `dash/workflows`，仅管理员 |
 | 前端：`(...)` 实时预览 | ✅ 已实现 | 服务端新增 `GET /:id/sample-event`（取最近一次运行的 `trigger_event` 快照）；前端"预览 (…)"对话框用真实值渲染，无记录时提示"等待触发" |
 | 前端：条件节点编辑（单条件） | ✅ 已实现 | 支持 `字段 运算符 值` 单条件（`compare` + `ref` + `literal`）；**复合条件（and/or）仍需 DSL 手写** |
-| 前端：`{...}` / `[...]` 级联候选 | **部分实现** | 动作与参数来自 `/meta/*`，参数按 `type` 渲染（`select` → 下拉）；`/meta/originGroups?domainId=` 已实现（由域名反查账号与 Zone）；`originServers` 与 UI 侧联动的组选择器仍未接 |
+| 前端：`{...}` / `[...]` 级联候选 | ✅ 已实现 | `ActionParam.source` + `sourceParams` 声明候选来源；前端 `CascadingSelect` 在依赖参数就绪后拉取（如 `originGroups` 依赖 `domainId`）；`originServers`（组内单条源站）仍未声明候选 |
 | 其余 9 种语言的工作流文案 | **未实现** | 已补 `zh-CN` 与 `en`，其余语言回退显示 key |
 | 手动运行端点 `POST /:id/run` | ✅ 已实现 | 由调用方提供合成事件（`domainId` + `domainName` + `record`）；**仅接受 A / AAAA**，与事件主线同一套过滤；以 `manual` 通道派发，鉴权/限额/审计与事件触发完全一致；限流 10 次/分钟 |
 | 运行记录前端展示 | 未实现 | 同上 |
