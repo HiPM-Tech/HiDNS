@@ -1,5 +1,6 @@
 import { WorkflowOperations, type WorkflowRow } from '../db/bal/business-adapter';
 import { createCachedLoader } from './cache';
+import { runPruneScheduler } from './retention';
 import type { WorkflowDefinition, WorkflowTrigger } from './engine';
 import type { ExpressionNode } from './expression/nodes';
 
@@ -195,6 +196,15 @@ export async function recordRun(record: {
     started_at: record.startedAt,
     finished_at: record.finishedAt,
   });
+
+  // 保留策略：每写入 N 次清理一次，失败不影响本次记录
+  if (runPruneScheduler.onInsert(record.workflowId)) {
+    try {
+      await WorkflowOperations.pruneRuns(record.workflowId, runPruneScheduler.keep());
+    } catch {
+      // 清理属于旁路
+    }
+  }
 }
 
 export async function listRuns(workflowId: number, limit = 50) {

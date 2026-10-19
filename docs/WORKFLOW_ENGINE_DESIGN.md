@@ -1582,7 +1582,7 @@ DDNS 类场景极易自激：工作流 A 改了记录 → 触发自身 → 无�
 | 表 | 用途 | 关键字段 |
 |---|---|---|
 | `workflows` | 工作流定义 | `id`、`owner_user_id`、`name`、`enabled`、`trigger_type`、`trigger_config`(json)、`actions`(json)、`sandbox_policy`(json)、`created_at` |
-| `workflow_runs` | 运行记录 | `id`、`workflow_id`、`trigger_event`(json)、`status`、`started_at`、`finished_at`、`error`、`depth`、`trace_id` |
+| `workflow_runs` | 运行记录 | `id`、`workflow_id`、`trigger_event`(json)、`status`、`started_at`、`finished_at`、`error`、`depth`、`trace_id`。**保留最近 500 条/工作流**，每写入 50 次清理一次（`workflow/retention.ts`） |
 | `workflow_run_steps` | 步骤明细 | `run_id`、`seq`、`action`、`input_digest`、`status`、`duration_ms`、`error` |
 | `workflow_secrets`? | — | **不设计**：凭据复用现有 `dns_accounts`，不新增凭据存储 |
 

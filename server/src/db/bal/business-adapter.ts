@@ -5440,6 +5440,32 @@ export const WorkflowOperations = {
     );
   },
 
+  /**
+   * 每个工作流只保留最近 keep 条运行记录。
+   * 分两步（先查保留 id 再按 id 删除）以兼容 SQLite / MySQL / PostgreSQL。
+   */
+  async pruneRuns(workflowId: number, keep: number): Promise<number> {
+    const rows = await queryInternal<{ id: number }>(
+      'SELECT id FROM workflow_runs WHERE workflow_id = ? ORDER BY id DESC LIMIT ?',
+      [workflowId, Math.max(1, keep)],
+      { operation: 'Workflow.pruneRuns.select', table: 'workflow_runs' }
+    );
+    if (!rows.length) return 0;
+    const keepIds = rows.map((row) => row.id);
+    const placeholders = keepIds.map(() => '?').join(',');
+    const before = await queryInternal<{ id: number }>(
+      'SELECT id FROM workflow_runs WHERE workflow_id = ?',
+      [workflowId],
+      { operation: 'Workflow.pruneRuns.count', table: 'workflow_runs' }
+    );
+    await executeInternal(
+      `DELETE FROM workflow_runs WHERE workflow_id = ? AND id NOT IN (${placeholders})`,
+      [workflowId, ...keepIds],
+      { operation: 'Workflow.pruneRuns.delete', table: 'workflow_runs' }
+    );
+    return Math.max(0, before.length - keepIds.length);
+  },
+
   async listRuns(workflowId: number, limit = 50): Promise<WorkflowRunRow[]> {
     return queryInternal<WorkflowRunRow>(
       'SELECT * FROM workflow_runs WHERE workflow_id = ? ORDER BY id DESC LIMIT ?',
