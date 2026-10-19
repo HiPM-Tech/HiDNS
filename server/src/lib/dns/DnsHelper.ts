@@ -17,10 +17,16 @@ export type { ProviderCapabilities, ProviderConfigField, ProviderInfo };
 // All providers now have implementations
 const STUB_TYPES = new Set<string>([]);
 
-const providers = getProviderInfoList();
-
+/**
+ * 惰性求值。
+ *
+ * 这里原本在模块顶层就调用 getProviderInfoList()，而 registry → providers/index →
+ * 提供商 extra → dns-provider-service → 本文件 → registry 构成环。
+ * 顶层调用会在"从 registry 侧进入"时撞上 providerDefinitions 的 TDZ。
+ * 改成调用时求值后，加载顺序不再影响结果；提供商列表很短，这点开销可以忽略。
+ */
 export function getProviders(includeStub = false): ProviderInfo[] {
-  const enriched = providers.map((p) => ({ ...p, isStub: STUB_TYPES.has(p.type) }));
+  const enriched = getProviderInfoList().map((p) => ({ ...p, isStub: STUB_TYPES.has(p.type) }));
   if (includeStub) return enriched;
   return enriched.filter((p) => !p.isStub);
 }

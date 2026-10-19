@@ -11,6 +11,10 @@
  */
 
 import { createHash } from 'node:crypto';
+
+// 虚拟提供商默认不注册（开发工具，生产永久关闭）。演示脚本自己打开开关。
+process.env.HIDNS_ENABLE_VIRTUAL_PROVIDER = '1';
+
 import { VirtualAdapter } from '../src/lib/dns/providers/virtual/adapter';
 import { VirtualStore } from '../src/lib/dns/providers/virtual/store';
 import {

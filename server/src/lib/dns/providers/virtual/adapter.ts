@@ -2,6 +2,7 @@ import type { DnsAdapter, DnsRecord, DomainInfo, PageResult } from '../../DnsInt
 import { OriginGroupClient } from '../tencenteo/origin-group-client';
 import { VirtualStore, type VirtualDnsRecord, type VirtualZone } from './store';
 import { createVirtualTeoCall } from './origin-api';
+import { isVirtualProviderEnabled, virtualProviderDisabledReason } from '../availability';
 
 /**
  * 虚拟 DNS 提供商。
@@ -45,7 +46,7 @@ export class VirtualAdapter implements DnsAdapter {
 
   constructor(config: VirtualAdapterConfig) {
     const killed = envFlag(process.env.HIDNS_DISABLE_VIRTUAL_PROVIDER);
-    this.enabled = !killed && truthy(config.virtual_enabled);
+    this.enabled = !killed && isVirtualProviderEnabled() && truthy(config.virtual_enabled);
     this.tenant = String(config.virtual_tenant ?? 'default') || 'default';
     this.domainName = String(config.domain ?? '');
     this.zoneId = String(config.zoneId ?? '');
@@ -63,6 +64,10 @@ export class VirtualAdapter implements DnsAdapter {
   }
 
   private ensureEnabled(): void {
+    // 第一道：进程级可用性。生产永远过不去，即使账号里写了 virtual_enabled=true
+    if (!isVirtualProviderEnabled()) {
+      throw new Error(virtualProviderDisabledReason());
+    }
     if (!this.enabled) {
       throw new Error('虚拟提供商未启用：账号配置需显式设置 virtual_enabled=true');
     }

@@ -13,6 +13,9 @@ process.env.MOCK_EMAIL_SERVICE = 'true';
 process.env.MOCK_EXTERNAL_API = 'true';
 process.env.DB_TYPE = 'sqlite';
 process.env.DB_PATH = './data/test.db';
+// 虚拟提供商是开发工具，默认不注册；测试需要它，故在此显式打开。
+// 生产环境即使设了这个变量也会被 NODE_ENV 硬关闭。
+process.env.HIDNS_ENABLE_VIRTUAL_PROVIDER = '1';
 
 // MOCK DNS提供商
 vi.mock('../src/lib/dns/providers/cloudflare', () => ({

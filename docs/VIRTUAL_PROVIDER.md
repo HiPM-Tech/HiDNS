@@ -16,9 +16,28 @@
 虚拟提供商把这三件事都去掉：它提供完整的 DNS 提供商契约（站点、解析记录、源站组），
 状态保存在本地，不需要任何凭证，也不会碰到任何真实资源。
 
-## 2. 启用方式（追加参数）
+## 2. 启用方式（开发专用，生产永久关闭）
 
-虚拟提供商**默认关闭**，必须在账号配置里显式追加参数：
+虚拟提供商是**开发工具，不是产品能力**。它有两级开关，必须同时满足：
+
+### 第一级：进程开关（决定它是否存在于这个进程里）
+
+| 环境 | 结果 |
+| --- | --- |
+| `NODE_ENV=production` | **永久关闭**，即使设置了下面的变量也不打开 |
+| `HIDNS_ENABLE_VIRTUAL_PROVIDER=1` | 打开（`1` / `true` / `yes` / `on`） |
+| 未设置 | 关闭 |
+
+未打开时它**根本不注册**，因此：
+
+- `/api/accounts/providers` 不返回它 —— 界面上看不到
+- `createAdapter('virtual')` 抛 `Unknown provider type` —— 建不了账号
+- `ext.virtual.*` 不在动作注册表里 —— 工作流引用不了
+- `virtualOriginGroups` 候选源不注册 —— 参数下拉里没有它
+
+换句话说，生产环境里它和不存在没有区别。
+
+### 第二级：账号参数（进程打开了也要显式启用）
 
 | 配置项 | 必填 | 说明 |
 | --- | --- | --- |
@@ -27,8 +46,16 @@
 | `virtual_state` | 否 | `file`（默认，持久化）或 `memory`（仅进程内） |
 | `virtual_seed` | 否 | `demo`（默认，含演示数据）或 `empty`（空库） |
 
-另有进程级硬开关：设置环境变量 `HIDNS_DISABLE_VIRTUAL_PROVIDER=1` 后，
-即使账号里写了 `virtual_enabled=true` 也一律拒绝。生产环境可用它一键停用。
+另有 `HIDNS_DISABLE_VIRTUAL_PROVIDER=1` 可在开发环境临时一键停用。
+
+### 本地开发怎么开
+
+```bash
+HIDNS_ENABLE_VIRTUAL_PROVIDER=1 pnpm --filter dnsmgr-server dev
+```
+
+测试环境在 `server/tests/setup.ts` 里统一打开，因此 CI 会完整校验虚拟提供商的注册与动作；
+演示脚本 `demo:virtual` 自己设置该变量，无需手动传。
 
 状态文件默认落在 `<server>/data/virtual/<tenant>.json`，
 可用 `HIDNS_VIRTUAL_STATE_DIR` 改目录。
@@ -151,3 +178,6 @@ pnpm --filter dnsmgr-server demo:virtual
 - 候选源注册表只按 `source` 名索引，`ProviderMetaSource.providerType`
   目前未参与索引，因此虚拟提供商使用独立的候选源名 `virtualOriginGroups`
 - 虚拟提供商不模拟厂商的限流、配额与鉴权失败，只模拟正常响应与参数校验错误
+- 静态 facade 里仍保留 `ext.virtual.*` 的绑定项：facade 按设计必须是静态的，
+  不能在运行时条件生成。提供商未注册时这些入口调用会被 dispatch 拒绝（动作不存在），
+  不会产生任何副作用，但 `flattenFacadeActions` 的结果在生产环境下会比注册表多出四项

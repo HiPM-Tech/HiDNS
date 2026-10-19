@@ -11,6 +11,7 @@ import * as Adapters from './index';
 import type { ProviderExtraCapability } from './extra-types';
 import { tencenteoOriginGroupCapability } from './tencenteo/extra';
 import { virtualOriginGroupCapability } from './virtual/extra';
+import { isVirtualProviderEnabled } from './availability';
 
 export interface DnsCapabilities {
   remark: boolean;
@@ -59,7 +60,11 @@ export type ProviderInfo = Omit<ProviderDefinition, 'adapterFactory'>;
 
 // ─── 预设记录类型（可直接用于 recordTypes） — 定义见 record-types.ts ────
 
-export const providerDefinitions: ProviderDefinition[] = [
+/**
+ * 全部提供商定义（含仅开发可用的那些）。
+ * 对外暴露的是下面的 `providerDefinitions`，已按可用性过滤。
+ */
+const allProviderDefinitions: ProviderDefinition[] = [
   {
     type: 'aliyun',
     name: 'provider.aliyun',
@@ -362,7 +367,20 @@ function validateDefinitions(definitions: ProviderDefinition[]): void {
   }
 }
 
-validateDefinitions(providerDefinitions);
+validateDefinitions(allProviderDefinitions);
+
+/**
+ * 对外注册的提供商。
+ *
+ * 虚拟提供商是**开发工具**：未显式开启（或处于生产环境）时，这里根本不注册它。
+ * 摘除后连带生效的有三件事：
+ *   1. `/api/accounts/providers` 不返回它 —— 界面上看不见
+ *   2. `createAdapter('virtual')` 抛 Unknown provider type —— 建不了账号
+ *   3. `ext.virtual.*` 不在动作注册表里 —— 工作流引用不了（ext 的二级前缀取自本列表）
+ */
+export const providerDefinitions: ProviderDefinition[] = allProviderDefinitions.filter(
+  (definition) => definition.type !== 'virtual' || isVirtualProviderEnabled(),
+);
 
 export const providerDefinitionMap = new Map(providerDefinitions.map((definition) => [definition.type, definition]));
 
