@@ -152,6 +152,7 @@ export class WorkflowEngine {
     workflow: WorkflowDefinition,
     event: AnyDomainEvent,
     trigger: 'event' | 'manual',
+    cachedPrincipal?: Principal,
   ): Promise<RunRecord> {
     const now = this.deps.now ?? Date.now;
     const controller = new AbortController();
@@ -165,7 +166,7 @@ export class WorkflowEngine {
 
     try {
       const record = await Promise.race([
-        this.runWorkflow(workflow, event, trigger, controller.signal),
+        this.runWorkflow(workflow, event, trigger, controller.signal, cachedPrincipal),
         timeout,
       ]);
       return {
@@ -182,6 +183,7 @@ export class WorkflowEngine {
     event: AnyDomainEvent,
     trigger: 'event' | 'manual',
     signal: AbortSignal,
+    cachedPrincipal?: Principal,
   ): Promise<RunRecord> {
     const now = this.deps.now ?? Date.now;
     const traceId = event.traceId;
@@ -189,7 +191,7 @@ export class WorkflowEngine {
     const vars: Record<string, unknown> = {};
 
     try {
-      const principal = await this.deps.resolvePrincipal(workflow, event);
+      const principal = cachedPrincipal ?? (await this.deps.resolvePrincipal(workflow, event));
       // 防循环第二层：动作产生的写入事件深度 +1，并由总线按 maxDepth 丢弃
       const eventDepth = event.type === 'record.changed' ? event.depth : 0;
       const call = (action: string, args: Record<string, unknown>) =>
@@ -250,18 +252,22 @@ export class WorkflowEngine {
   }
 
   private async report(records: RunRecord[]): Promise<void> {
-    for (const record of records) {
-      try {
-        await this.deps.onRun?.(record);
-      } catch (error) {
-        log.error('onRun hook failed', { error: (error as Error).message });
-      }
-    }
+    // 并行落库：每条独立 try，互不影响；串行会让 N 个工作流的写入延迟叠加
+    await Promise.allSettled(
+      records.map(async (record) => {
+        try {
+          await this.deps.onRun?.(record);
+        } catch (error) {
+          log.error('onRun hook failed', { error: (error as Error).message });
+        }
+      }),
+    );
   }
 
   async handleEvent(event: AnyDomainEvent): Promise<RunRecord[]> {
     const workflows = await this.deps.listWorkflows();
     const records: RunRecord[] = [];
+    const principalCache = new Map<number, Principal>();
 
     for (const workflow of workflows) {
       if (!this.matches(workflow, event)) continue;
@@ -300,7 +306,13 @@ export class WorkflowEngine {
 
       this.inFlight.add(flightKey);
       try {
-        records.push(await this.executeOne(workflow, event, 'event'));
+        // 同一事件里同一 owner 只解析一次（避免每个工作流各查一次用户表）
+        let principal = principalCache.get(workflow.ownerId ?? 0);
+        if (!principal) {
+          principal = await this.deps.resolvePrincipal(workflow, event);
+          principalCache.set(workflow.ownerId ?? 0, principal);
+        }
+        records.push(await this.executeOne(workflow, event, 'event', principal));
       } finally {
         this.inFlight.delete(flightKey);
       }

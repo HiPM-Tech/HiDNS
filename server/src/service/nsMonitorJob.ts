@@ -115,7 +115,9 @@ async function logNsAlertToAudit(
 /**
  * 检查单个域名的 NS 记录
  */
-async function checkDomainNs(monitor: {
+async function checkDomainNs(
+  publishedDomains: Set<string>,
+  monitor: {
   id: number;
   domain_id: number;
   domain_name: string;
@@ -166,7 +168,8 @@ async function checkDomainNs(monitor: {
     });
 
     // 主核心事件主线：NS 状态变化（去重由总线按 status !== previousStatus 再判一次）
-    if (monitor.status !== status) {
+    if (monitor.status !== status && !publishedDomains.has(monitor.domain_name)) {
+      publishedDomains.add(monitor.domain_name);
       // 注意：ns_monitor_domains 表**没有 domain_id 列**，Number(undefined) 会得到 NaN。
       // 这里显式给 0，并依赖 domain.name 定位；下游解析必须忽略非正数 id。
       publishNsEvent({
@@ -362,6 +365,8 @@ async function runNsMonitorJob(): Promise<void> {
     log.info('Starting NS monitor job');
 
     // 获取所有启用的监测配置
+    // 同一域名可能被多个用户监控：一次任务内只发布一条 ns.changed
+    const publishedDomains = new Set<string>();
     const monitors = await NSMonitorOperations.getAllEnabled() as unknown as Array<{
       id: number;
       domain_id: number;
@@ -392,7 +397,7 @@ async function runNsMonitorJob(): Promise<void> {
           retryDelay: 2000, // 重试间隔2秒
         },
         async () => {
-          await checkDomainNs(monitor);
+          await checkDomainNs(publishedDomains, monitor);
         }
       );
     });

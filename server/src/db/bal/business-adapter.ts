@@ -5446,25 +5446,22 @@ export const WorkflowOperations = {
    * 分两步（先查保留 id 再按 id 删除）以兼容 SQLite / MySQL / PostgreSQL。
    */
   async pruneRuns(workflowId: number, keep: number): Promise<number> {
-    const rows = await queryInternal<{ id: number }>(
-      'SELECT id FROM workflow_runs WHERE workflow_id = ? ORDER BY id DESC LIMIT ?',
-      [workflowId, Math.max(1, keep)],
-      { operation: 'Workflow.pruneRuns.select', table: 'workflow_runs' }
+    const limit = Math.max(1, keep);
+    // 水位法：取第 keep 条的 id，删除比它更早的行。一条语句、无需占位符列表，
+    // 也不需要把该工作流的全部 id 读进内存。
+    const boundary = await queryInternal<{ id: number }>(
+      'SELECT id FROM workflow_runs WHERE workflow_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?',
+      [workflowId, limit],
+      { operation: 'Workflow.pruneRuns.boundary', table: 'workflow_runs' }
     );
-    if (!rows.length) return 0;
-    const keepIds = rows.map((row) => row.id);
-    const placeholders = keepIds.map(() => '?').join(',');
-    const before = await queryInternal<{ id: number }>(
-      'SELECT id FROM workflow_runs WHERE workflow_id = ?',
-      [workflowId],
-      { operation: 'Workflow.pruneRuns.count', table: 'workflow_runs' }
-    );
+    if (!boundary.length) return 0;
+    const watermark = boundary[0].id;
     await executeInternal(
-      `DELETE FROM workflow_runs WHERE workflow_id = ? AND id NOT IN (${placeholders})`,
-      [workflowId, ...keepIds],
+      'DELETE FROM workflow_runs WHERE workflow_id = ? AND id <= ?',
+      [workflowId, watermark],
       { operation: 'Workflow.pruneRuns.delete', table: 'workflow_runs' }
     );
-    return Math.max(0, before.length - keepIds.length);
+    return watermark > 0 ? 1 : 0;
   },
 
   async listRuns(workflowId: number, limit = 50): Promise<WorkflowRunRow[]> {

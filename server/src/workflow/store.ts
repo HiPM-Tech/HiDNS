@@ -173,6 +173,13 @@ export async function removeWorkflow(id: number): Promise<void> {
   invalidateWorkflowCache();
 }
 
+/** 与同表 `created_at` 的 CURRENT_TIMESTAMP 保持一致；MySQL DATETIME 不接受 Z 后缀 */
+function toSqlDateTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toISOString().replace('T', ' ').substring(0, 19);
+}
+
 export async function recordRun(record: {
   workflowId: number;
   traceId: string;
@@ -199,8 +206,8 @@ export async function recordRun(record: {
     error: record.error ?? null,
     trigger_event: triggerEvent,
     depth: record.depth ?? 0,
-    started_at: record.startedAt,
-    finished_at: record.finishedAt,
+    started_at: toSqlDateTime(record.startedAt),
+    finished_at: toSqlDateTime(record.finishedAt),
   });
 
   // 保留策略：每写入 N 次清理一次，失败不影响本次记录
