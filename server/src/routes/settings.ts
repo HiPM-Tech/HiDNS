@@ -10,10 +10,36 @@ import { getOutboundAllowlist, reloadOutboundPolicy } from '../workflow/index';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createLogger } from '../lib/logger';
 import { wsService } from '../service/websocket';
+import { getAdminAudienceUserIds } from './audience';
 import { sendError } from '../utils/http';
 
 const log = createLogger('HTTP').sub('Route').sub('Settings');
 const router = Router();
+
+/**
+ * 设置类事件的定向推送：只推给管理员。
+ *
+ * 为什么需要它：settings 下的写接口都会广播 xxx_updated，payload 带 updatedBy
+ * （改配置的管理员 userId）与时间戳。全局广播等于把「谁在什么时候改了安全策略 /
+ * SMTP / OAuth / 登录限制」告知所有在线用户，而本文件所有读写接口都挂了
+ * adminOnly（GET /settings/* 同样只允许管理员）。
+ *
+ * 前端只有系统设置页（client/src/pages/System.tsx）订阅这些事件，非管理员本来
+ * 拿不到配置内容，收窄后不影响其功能。
+ * 收件人为空时跳过并记 warn，不回退全局广播（fail-closed）。
+ */
+async function pushSettingsEvent(message: { type: string; data: unknown }): Promise<void> {
+  try {
+    const audience = await getAdminAudienceUserIds();
+    if (audience.length === 0) {
+      log.warn('No audience for settings event, skipped', { type: message.type });
+      return;
+    }
+    wsService.broadcastToUsers(audience, message);
+  } catch (error) {
+    log.error('Failed to send settings event', { type: message.type, error });
+  }
+}
 type SecurityConfig = { jwtViewEmailNotify: boolean; showDnsProviderSecrets: boolean };
 const DEFAULT_SECURITY_CONFIG: SecurityConfig = { jwtViewEmailNotify: true, showDnsProviderSecrets: false };
 type OAuthConfig = {
@@ -315,18 +341,14 @@ router.put('/security', authMiddleware, noTokenAuth('system settings'), adminOnl
     await DomainExpiryOperations.saveDays(String(domainExpiryDays));
   }
 
-  // 推送 WebSocket 消息
-  try {
-    wsService.broadcast({
-      type: 'security_config_updated',
-      data: {
-        updatedBy: req.user!.userId,
-        timestamp: new Date().toISOString(),
-      },
-    });
-  } catch (error) {
-    log.error('Failed to broadcast security_config_updated event', { error });
-  }
+  // 推送 WebSocket 消息：只推给管理员
+  await pushSettingsEvent({
+    type: 'security_config_updated',
+    data: {
+      updatedBy: req.user!.userId,
+      timestamp: new Date().toISOString(),
+    },
+  });
 
   res.json({ code: 0, msg: 'success' });
 });
@@ -345,18 +367,14 @@ router.put('/smtp', authMiddleware, noTokenAuth('system settings'), adminOnly, a
     const next = await updateSmtpConfig(req.body || {});
     await logAuditOperation(req.user!.userId, 'update_smtp_config', 'system', { enabled: next.enabled, host: next.host, port: next.port }, req);
 
-    // 推送 WebSocket 消息
-    try {
-      wsService.broadcast({
-        type: 'smtp_updated',
-        data: {
-          updatedBy: req.user!.userId,
-          timestamp: new Date().toISOString(),
-        },
-      });
-    } catch (error) {
-      log.error('Failed to broadcast smtp_updated event', { error });
-    }
+    // 推送 WebSocket 消息：只推给管理员
+    await pushSettingsEvent({
+      type: 'smtp_updated',
+      data: {
+        updatedBy: req.user!.userId,
+        timestamp: new Date().toISOString(),
+      },
+    });
 
     res.json({ code: 0, data: next, msg: 'success' });
   } catch (error) {
@@ -405,18 +423,14 @@ router.put('/oauth', authMiddleware, noTokenAuth('system settings'), adminOnly, 
     const config = await updateOAuthConfig({ ...(req.body || {}), template: 'generic' });
     await logAuditOperation(req.user!.userId, 'update_oauth_config', 'system', { enabled: config.enabled, providerName: config.providerName, issuer: config.issuer }, req);
 
-    // 推送 WebSocket 消息
-    try {
-      wsService.broadcast({
-        type: 'oauth_updated',
-        data: {
-          updatedBy: req.user!.userId,
-          timestamp: new Date().toISOString(),
-        },
-      });
-    } catch (error) {
-      log.error('Failed to broadcast oauth_updated event', { error });
-    }
+    // 推送 WebSocket 消息：只推给管理员
+    await pushSettingsEvent({
+      type: 'oauth_updated',
+      data: {
+        updatedBy: req.user!.userId,
+        timestamp: new Date().toISOString(),
+      },
+    });
 
     res.json({ code: 0, data: config, msg: 'success' });
   } catch (error) {
@@ -438,18 +452,14 @@ router.put('/oauth/logto', authMiddleware, noTokenAuth('system settings'), admin
     const config = await updateLogtoOAuthConfig(req.body || {});
     await logAuditOperation(req.user!.userId, 'update_logto_oauth_config', 'system', { enabled: config.enabled, providerName: config.providerName, logtoDomain: config.logtoDomain }, req);
 
-    // 推送 WebSocket 消息
-    try {
-      wsService.broadcast({
-        type: 'oauth_updated',
-        data: {
-          updatedBy: req.user!.userId,
-          timestamp: new Date().toISOString(),
-        },
-      });
-    } catch (error) {
-      log.error('Failed to broadcast oauth_updated event', { error });
-    }
+    // 推送 WebSocket 消息：只推给管理员
+    await pushSettingsEvent({
+      type: 'oauth_updated',
+      data: {
+        updatedBy: req.user!.userId,
+        timestamp: new Date().toISOString(),
+      },
+    });
 
     res.json({ code: 0, data: config, msg: 'success' });
   } catch (error) {
@@ -555,19 +565,15 @@ router.put('/login-limit', authMiddleware, noTokenAuth('system settings'), admin
 
     const config = await getLoginLimitConfig();
 
-    // 推送 WebSocket 消息
-    try {
-      wsService.broadcast({
-        type: 'config_updated',
-        data: {
-          configType: 'login_limit',
-          updatedBy: req.user!.userId,
-          timestamp: new Date().toISOString(),
-        },
-      });
-    } catch (error) {
-      log.error('Failed to broadcast config_updated event', { error });
-    }
+    // 推送 WebSocket 消息：只推给管理员
+    await pushSettingsEvent({
+      type: 'config_updated',
+      data: {
+        configType: 'login_limit',
+        updatedBy: req.user!.userId,
+        timestamp: new Date().toISOString(),
+      },
+    });
 
     res.json({
       code: 0,

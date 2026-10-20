@@ -8,56 +8,25 @@ import { parseInteger, sendError, sendSuccess } from '../utils/http';
 import { isValidUsername } from '../utils/validation';
 import { UserOperations } from '../db/bal/business-adapter';
 import { wsService } from '../service/websocket';
+import { getAdminAudienceUserIds } from './audience';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('HTTP').sub('Route').sub('Users');
 const router = Router();
 
 /**
- * 能收到用户管理事件的用户集合：admin 及以上、账号未停用。
+ * 用户管理事件的定向推送：收件人 = 全部 admin + 超管。
  *
  * 为什么需要它：user_* 事件原本走 wsService.broadcast，payload 带用户名与角色，
  * 全局广播等于把「系统里有哪些账号、谁是管理员」推给所有在线客户端，
- * 而用户管理在 HTTP 上只有管理员可见。
+ * 而用户管理在 HTTP 上只有管理员可见（GET /users 挂了 adminOnly）。
+ * 特权收件人判定统一由 routes/audience.ts 提供，避免多处口径漂移。
  *
- * 口径直接复刻本文件读接口：GET /users 挂了 adminOnly（= isAdmin，role >= admin），
- * 因此收件人 = 全部 admin + 超管。
- *
- * 已知重复：domains.ts 里「可续期域名」的收件人也是同一套特权判定，两处都因为
- * realtime-audience 只导出了 getSuperAdminUserIds 而各自实现；后续应向该模块补一个
- * getAdminUserIds 后合并。
- */
-async function getUserManagementAudienceUserIds(): Promise<number[]> {
-  const audience = new Set<number>();
-  try {
-    const users = (await UserOperations.getAll()) as unknown as Array<{
-      id?: number;
-      role_level?: number;
-      role?: number;
-      status?: number;
-    }>;
-    for (const user of users) {
-      const id = Number(user.id);
-      if (!Number.isFinite(id) || id <= 0) continue;
-      // 停用账号不参与推送，与登录态口径一致
-      if (Number(user.status) !== 1) continue;
-      const level = Number(user.role_level ?? user.role ?? 0);
-      if (level >= ROLE_ADMIN) audience.add(id);
-    }
-  } catch (error) {
-    // fail-closed：算不出收件人就不推，管理端有列表刷新兜底
-    log.error('Failed to resolve user management audience', { error });
-    return [];
-  }
-  return [...audience];
-}
-
-/**
- * 用户管理事件的定向推送。收件人为空时跳过并记 warn，不回退全局广播。
+ * 收件人为空时跳过并记 warn，不回退全局广播（fail-closed）。
  */
 async function pushUserEvent(message: { type: string; data: unknown }): Promise<void> {
   try {
-    const audience = await getUserManagementAudienceUserIds();
+    const audience = await getAdminAudienceUserIds();
     if (audience.length === 0) {
       log.warn('No audience for user event, skipped', { type: message.type });
       return;

@@ -12,12 +12,13 @@ import { logAuditOperation } from '../service/audit';
 import { parseInteger, sendError, sendSuccess, sendServerError } from '../utils/http';
 import { createLogger } from '../lib/logger';
 import { publishDomainEvent } from '../lib/domain-event-bus';
-import { DomainOperations, DnsAccountOperations, DomainPermissionOperations, TeamOperations, RenewableDomainOperations, UserPreferencesOperations, NSMonitorOperations, SystemCacheOperations, WhoisOperations, UserOperations } from '../db/bal/business-adapter';
+import { DomainOperations, DnsAccountOperations, DomainPermissionOperations, TeamOperations, RenewableDomainOperations, UserPreferencesOperations, NSMonitorOperations, SystemCacheOperations, WhoisOperations } from '../db/bal/business-adapter';
 import { syncDomainWhois } from '../service/whois';
 import { getRootDomain, queryWhois, groupDomains } from '../service/whois';
 import { getCachedGroupedData, setCachedGroupedData, getCacheVersion, bumpCacheVersion, submitGroupedCacheUpdate } from '../service/groupedCacheJob';
 import { wsService } from '../service/websocket';
 import { getDomainAudienceUserIds } from '../service/realtime-audience';
+import { getAdminAudienceUserIds } from './audience';
 import { normalizeDomain, isValidDomain, getDisplayDomain } from '../utils/dns';
 
 
@@ -41,38 +42,6 @@ async function getAccountForManage(accountId: number, userId: number, role: numb
   if (isSuper(role)) return account;
   if (role >= ROLE_ADMIN && account.created_by === userId) return account;
   return null;
-}
-
-/**
- * 能读到「可续期域名」的用户集合。
- *
- * 为什么不用 getDomainAudienceUserIds：可续期域名是 renewable_domains 表的独立记录，
- * 不是 domains 表的行，没有 domainId 可以套域名口径。
- * 口径直接对齐同文件读接口 GET /renewable-domains：该处理器只校验
- * role >= ROLE_ADMIN 且不按归属过滤（返回所有账号下的可续期域名），
- * 因此收件人 = 全部「admin 及以上且账号未停用」的用户。
- *
- * 已知重复：realtime-audience 内部有一份同样的特权用户判定，但那是 service/** 私有实现，
- * 当前写入范围不允许改，后续应把 getAdminUserIds 上提到 realtime-audience 供这里复用。
- */
-async function getRenewableDomainAudienceUserIds(): Promise<number[]> {
-  const audience = new Set<number>();
-  try {
-    const users = (await UserOperations.getAll()) as Array<{ id?: number; role_level?: number; role?: number; status?: number }>;
-    for (const user of users) {
-      const id = Number(user.id);
-      if (!Number.isFinite(id) || id <= 0) continue;
-      // 停用账号不参与推送，与登录态口径一致
-      if (Number(user.status) !== 1) continue;
-      const level = Number(user.role_level ?? user.role ?? 0);
-      if (level >= ROLE_ADMIN) audience.add(id);
-    }
-  } catch (error) {
-    // fail-closed：算不出收件人就不推，续期结果仍由 HTTP 响应与列表刷新兜底
-    log.error('Failed to resolve renewable domain audience', { error });
-    return [];
-  }
-  return [...audience];
 }
 
 type DomainAccess = {
@@ -1470,7 +1439,9 @@ router.post('/:id/renew', authMiddleware, asyncHandler(async (req: Request, res:
     // WebSocket：只推给能读到「可续期域名」的用户（admin 及以上，口径同
     // GET /renewable-domains）。payload 带完整域名与新到期时间，不能全局广播。
     try {
-      const audience = await getRenewableDomainAudienceUserIds();
+      // 可续期域名是 renewable_domains 的独立记录，没有 domainId 可套域名口径，
+      // 收件人按同文件 GET /renewable-domains 的角色口径取全部管理员（routes/audience.ts）
+      const audience = await getAdminAudienceUserIds();
       if (audience.length === 0) {
         log.warn('No audience for domain_renewed event, skipped', { renewableDomainId });
       } else {
