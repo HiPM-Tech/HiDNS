@@ -187,16 +187,18 @@ router.put('/user/prefs', authMiddleware, asyncHandler(async (req: Request, res:
 
   log.info('User preferences updated', { userId, updates });
 
-  // 推送 WebSocket 消息
+  // 推送 WebSocket 消息：偏好设置是「用户私有」数据
+  // （读接口 GET /ns-monitor/user/prefs 只查自己的 user_id），因此只推给本人，
+  // 多端登录时其余标签页仍能同步，别的用户不该收到。
   try {
-    wsService.broadcast({
+    wsService.broadcastToUsers([userId], {
       type: 'ns_monitor_prefs_updated',
       data: {
         userId,
       },
     });
   } catch (error) {
-    log.error('Failed to broadcast ns_monitor_prefs_updated event', { error });
+    log.error('Failed to send ns_monitor_prefs_updated event', { error });
   }
 
   res.json({ success: true, msg: 'Preferences updated successfully' });
@@ -385,9 +387,10 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
   // 获取完整的监测配置数据用于 WebSocket 推送
   const newMonitor = await NSMonitorOperations.getById(id, userId);
 
-  // 推送 WebSocket 消息
+  // 推送 WebSocket 消息：NS 监测配置按用户隔离（读接口 GET /:id 走
+  // NSMonitorOperations.getById(id, userId)，非本人查不到），收件人只有创建者本人。
   try {
-    wsService.broadcast({
+    wsService.broadcastToUsers([userId], {
       type: 'ns_monitor_created',
       data: {
         monitorId: id,
@@ -397,7 +400,7 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
       },
     });
   } catch (error) {
-    log.error('Failed to broadcast ns_monitor_created event', { error });
+    log.error('Failed to send ns_monitor_created event', { error });
   }
 
   res.json({
@@ -443,9 +446,9 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
   // 获取更新后的完整监测配置数据用于 WebSocket 推送
   const updatedMonitor = await NSMonitorOperations.getById(parseInt(id), userId);
 
-  // 推送 WebSocket 消息
+  // 推送 WebSocket 消息：同上，监测配置只对本人可见，只推给配置所属用户。
   try {
-    wsService.broadcast({
+    wsService.broadcastToUsers([userId], {
       type: 'ns_monitor_updated',
       data: {
         monitorId: parseInt(id),
@@ -454,7 +457,7 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
       },
     });
   } catch (error) {
-    log.error('Failed to broadcast ns_monitor_updated event', { error });
+    log.error('Failed to send ns_monitor_updated event', { error });
   }
 
   res.json({ success: true });
@@ -483,9 +486,10 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req: Request, res: Res
 
   log.info('Monitor deleted', { monitorId: id, userId });
 
-  // 推送 WebSocket 消息
+  // 推送 WebSocket 消息：同上，只推给配置所属用户；全局广播会把
+  // 「某用户正在监测哪些域名」暴露给所有在线客户端。
   try {
-    wsService.broadcast({
+    wsService.broadcastToUsers([userId], {
       type: 'ns_monitor_deleted',
       data: {
         monitorId: parseInt(id),
@@ -493,7 +497,7 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req: Request, res: Res
       },
     });
   } catch (error) {
-    log.error('Failed to broadcast ns_monitor_deleted event', { error });
+    log.error('Failed to send ns_monitor_deleted event', { error });
   }
 
   res.json({ success: true });
