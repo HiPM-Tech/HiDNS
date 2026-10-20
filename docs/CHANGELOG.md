@@ -1,5 +1,46 @@
 # 更新日志
 
+## [2.2.0] - 2026-10-20（未发布）
+
+### ✨ 新功能
+- **EdgeOne 源站组能力**: 新增 `ext.tencenteo.originGroup.{list,get,plan,replace}` 四个动作，可在工作流里列出、读取、预演并整组替换 EdgeOne 站点的源站组；`replace` 标记为高危（`risk: high`），需显式确认引用关系与数据丢失
+- **复用 DNSPod 凭据调用 EdgeOne**: 腾讯云 DNSPod 与 EdgeOne 共用同一对 `SecretId`/`SecretKey`，已配置 DNSPod 账号的用户不必再登记 EdgeOne 账号即可管理源站组
+- **跨提供商凭据复用需双向声明**: 新增 `providers/credential-sharing.ts`——导出方声明「我允许谁复用」，消费方声明「我要复用谁的」，两边同时命中才放行；单边声明一律拒绝，注入一个提供商无法单点拿到别人的密钥
+- **虚拟 DNS 提供商（开发专用）**: 新增 `providers/virtual/`，提供不依赖真实凭据的解析与源站组模拟，用于在交不出真实域名凭据的环境里跑通工作流；受两级开关控制（`NODE_ENV=production` 硬关闭；否则需显式 `HIDNS_ENABLE_VIRTUAL_PROVIDER=1`）
+- **DNS 模块子功能 `account-context`**: 域名 → 账号 → 适配器的解析与账号读写权限判定集中到 `lib/dns/account-context.ts`，提供商实现不再直接依赖业务适配层（BAL）
+- **编辑器候选源**: 工作流可按域名列出可用的 EdgeOne 站点与被引用的源站组（`edgeoneZones` / `originGroups`）
+
+### 🐛 Bug 修复
+- **源站组授权早于解析，可被用来探测他人域名（严重）**: 授权钩子原先「先解析凭据与站点、后判权」，未授权者可把 `domainId` 填成他人域名，靠错误串差异枚举域名归属，并读到他人的 ZoneId（错误串会落进 `workflow_runs.error` 并返回给工作流 owner）。现改为「先鉴权、再解析」，且「完全无权」与「域名不存在」统一返回 `NOT_FOUND`
+- **写类判定失败开放**: 授权钩子对未知 `actionClass` 会落成「读」，且注释与代码相反；现只有显式 `ext.read` 才按读，其余一律按写
+- **`zoneId` 被静默忽略**: EdgeOne 账号下传入不同的 `zoneId` 原先被无声丢弃，账号类型变更后旧工作流会在无提示的情况下改打到另一个站点；现报 `ZONE_ID_IGNORED`
+- **站点类型默认 mainland**: 复用 DNSPod 凭据调用 EdgeOne 时，国内站与国际站是不同调用域名，原先默认取其一；现必须显式声明 `siteType`
+- **事务不归还连接池连接（严重，数据库层，影响所有模块）**: `ConnectionManager.transaction()` 只发 COMMIT/ROLLBACK，从不归还池化连接；PostgreSQL / MySQL 下每次事务泄漏一个连接，池耗尽后所有查询挂起、`disconnect()` 的 `pool.end()` 永不返回。现已补 `Transaction.done()` 并在 `finally` 中调用，附 4 条回归测试
+
+### 🧹 优化
+- **提供商层不再直接依赖 BAL**: 新增架构守卫 `providers/__tests__/layer-dependency.test.ts`，解析 import 目标（静态 / 副作用 / 动态 / `require`，先剥注释），命中 `db/bal` 或 `service/dns-provider-service` 即失败
+- **源站组同步按地址族**: `origin-group-sync.ts` 只替换对应地址族的记录，A 与 AAAA 可一次写完，族内多条 v4/v6 按旧值精确匹配
+- **站点可见性核验缓存**: 站点可见性结果缓存 60 秒，避免每个源站组动作都打一次 `DescribeZones`
+- **读与写的准入分开**: 账号权限改为三态（`none` / `read` / `write`），「有读无写」返回可区分的 `WRITE_FORBIDDEN` 而不是笼统的「域名不存在」
+
+### ⚠️ 行为变更（升级前请确认）
+- **EdgeOne 源站组授权口径变更**: 从「对该域名有写权限」改为「对该 EdgeOne 站点有权限」——按账号归属（超管 / 账号创建者 / 账号所属团队成员）+ 站点是否在该账号凭据的可见范围内判定。源站组不是域名资源，一个站点可能没有在 HiDNS 登记过域名
+- **写操作收紧**: `ext.tencenteo.originGroup.replace` 要求「超管」或「账号创建者且 role >= admin」；**团队成员只读**。此前由团队成员 owner 的、含 `replace` 的工作流升级后会被拒绝，需账号创建者接管
+- **账号停用后源站组操作一律拒绝**（含超管），与域名解析的判定保持一致
+- **`siteType` 与 `zoneId` 必须显式声明**: 复用 DNSPod 凭据的工作流若只写了域名，升级后需补 `siteType`（必需）与 `zoneId`（必需）；`edgeoneZones` 候选源可用于获取 `zoneId`
+- **虚拟提供商在生产环境不可用**: `NODE_ENV=production` 时既不注册、也不出现在提供商列表中
+
+### 📝 文件变更
+- 新增 `server/src/lib/dns/account-context.ts` - 域名/账号解析与账号读写权限判定
+- 新增 `server/src/lib/dns/origin-group-core.ts`、`server/src/lib/dns/origin-group-sync.ts` - 源站组 DTO 与按地址族同步
+- 新增 `server/src/lib/dns/providers/credential-sharing.ts`、`server/src/lib/dns/providers/availability.ts` - 凭据双向声明、虚拟提供商开关
+- 新增 `server/src/lib/dns/providers/tencenteo/origin-group-context.ts`、`origin-group-authorize.ts`、`origin-group-client.ts`、`meta-source.ts`、`extra.ts` - 源站组解析、站点级授权、裸原语与能力声明
+- 新增 `server/src/lib/dns/providers/virtual/`（`adapter` / `extra` / `meta-source` / `origin-api` / `store` / `index`）- 虚拟提供商
+- `server/src/lib/dns/providers/registry.ts` - 能力挂载、虚拟提供商过滤、凭据声明启动期校验
+- `server/src/lib/dns/providers/extra-types.ts` - 能力授权钩子、候选源可选前置参数
+- `server/src/workflow/actions/modules/ext.ts` - 授权钩子接入与缺省回退
+- `server/src/db/dal/connection.ts`、`server/src/db/dal/types.ts`、`server/src/db/dl/postgresql.ts`、`server/src/db/dl/mysql.ts` - 事务连接归还
+- `docs/architecture/dns-core.md`、`docs/VIRTUAL_PROVIDER.md` - 架构口径与虚拟提供商说明
 ## [2.1.5] - 2026-10-13
 
 ### 🐛 Bug 修复
