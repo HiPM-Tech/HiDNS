@@ -1,5 +1,4 @@
 import { AccountContextError, accountAccessLevel, resolveDomainAccount } from '../../account-context';
-import { WRITE_ACTION_CLASSES, type ActionClass } from '../../../../types/namespace';
 import type { ExtraAuthorizePrincipal } from '../extra-types';
 import { OriginGroupError } from '../../origin-group-core';
 import { listTeoZones, teoOpsForDomain } from './origin-group-context';
@@ -16,8 +15,9 @@ import { listTeoZones, teoOpsForDomain } from './origin-group-context';
  * 若先解析后鉴权，未授权者就能靠错误串差异探测他人域名是否存在、挂在哪个账号下，
  * 甚至读到他人的 ZoneId。因此这里只先取「域名 → 账号」这一层做判权，通过后才解析。
  *
- * 读与写的准入不同（见 canAccessAccount）：写要求账号创建者且 role >= admin，
- * 团队成员只读 —— 否则被拉进团队的人可以整组覆盖该账号密钥可见的全部站点。
+ * 读与写的准入不同（见 accountAccessLevel 的三态 none/read/write）：
+ * 写要求「超管」或「账号创建者且 role >= admin」，团队成员只读 ——
+ * 否则被拉进团队的人可以整组覆盖该账号密钥可见的全部站点。
  */
 
 const ZONE_CACHE_TTL_MS = 60_000;

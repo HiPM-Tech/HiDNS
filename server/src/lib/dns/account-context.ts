@@ -105,13 +105,13 @@ export async function resolveAccountContext(domainId: number): Promise<AccountCo
   return { ...ref, ...account, adapter };
 }
 
-export type AccessMode = 'read' | 'write';
 
 /**
  * 用户能否以指定模式使用某个账号（数据访问层，供能力层调用）。
  *
  * 放在这里而不是提供商目录：它要读账号行（BAL），而提供商不得直接依赖 BAL。
- * 授权**策略**留在提供商的能力层，**数据**在这里。
+ * 判定实现只此一处（避免各提供商各写一份）；能力层决定**何时、以何种模式**调用它
+ * —— 站点归属核验、读写分流都在 `providers/tencenteo/origin-group-authorize.ts`。
  *
  * 返回三态而不是布尔：调用方需要区分「完全无权（可伪装成不存在）」与
  * 「有读权限但写权限不足（应当明确告知）」，否则一次过度模糊会让
