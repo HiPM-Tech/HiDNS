@@ -2,10 +2,10 @@ name: Commit Checks
 
 on:
   push:
-    branches-ignore:
-      - main
-      - master
-      - develop
+    # 不再排除 main：此前 main 被 ignore，导致推 main 时**提交信息校验与 trufflehog
+    # 密钥扫描全部跳过**——而这些恰恰是发布前最该跑的两项。
+    branches:
+      - '**'
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -26,7 +26,15 @@ jobs:
 
       - name: Check Commit Messages
         run: |
-          COMMITS=$(git log --format=%s origin/${{ github.event.before }}..${{ github.event.after }} 2>/dev/null || git log --format=%s -n 10)
+          # push 事件下没有 origin/<sha> 这种引用，原来的写法恒失败、永远回落到「最近 10 条」。
+          # 直接用 SHA 区间；新建分支时 before 是全 0，退回最近 10 条。
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.after }}"
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            COMMITS=$(git log --format=%s "$BEFORE..$AFTER" 2>/dev/null || git log --format=%s -n 10)
+          else
+            COMMITS=$(git log --format=%s -n 10)
+          fi
 
           echo "检查提交信息..."
           echo "$COMMITS"
@@ -43,11 +51,16 @@ jobs:
               continue
             fi
 
+            # Merge / Revert 由 GitHub 或 git 生成，不套用提交信息规范
+            if [[ "$commit" == Merge\ * || "$commit" == Revert\ * ]]; then
+              echo "  ↷ 跳过（合并/回滚提交）"
+              continue
+            fi
+
             if [[ ! "$commit" =~ ^(feat|fix|docs|style|refactor|test|chore|ci|build|perf|revert)(\(.+\))?!?:\s.+ ]]; then
-              echo "  ⚠️ 建议使用 conventional commits 格式"
-              echo "     例如: feat: 添加新功能"
-              echo "          fix: 修复bug"
-              echo "          docs: 更新文档"
+              echo "  ❌ 不符合提交信息规范（root.ai.md §882）"
+              echo "     例如: feat: 添加新功能 / fix(dns): 修复解析超时"
+              FAILED=1
             else
               echo "  ✅ 格式正确"
             fi
@@ -67,7 +80,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -92,8 +105,8 @@ jobs:
 
       - name: Lint Check
         run: |
-          pnpm --filter dnsmgr-server run lint || echo "⚠️ Server lint issues"
-          pnpm --filter dnsmgr-client run lint || echo "⚠️ Client lint issues"
+          pnpm --filter dnsmgr-server run lint
+          pnpm --filter dnsmgr-client run lint
 
       - name: Type Check
         run: |

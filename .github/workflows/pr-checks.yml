@@ -116,7 +116,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -139,9 +139,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # 不得 || echo：加容错后该 job 永远绿，等于没有依赖安全门禁。
+      # 若某次因历史漏洞阻塞，应先修依赖，或显式改成 continue-on-error 并注明原因。
       - name: Check Dependencies Audit
-        run: |
-          pnpm audit --audit-level=high || echo "⚠️ 发现安全漏洞，请检查"
+        run: pnpm audit --audit-level=high
 
   auto-comment:
     name: Auto Comment

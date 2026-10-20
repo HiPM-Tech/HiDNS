@@ -1,13 +1,10 @@
 name: Nightly Docker Build
 
+# 名为 nightly 就只按计划跑：此前它挂在 push/pull_request 上，
+# 每次推 main 都会构建并向 GHCR 推 ci-* 镜像，既费额度也与名字不符。
 on:
-  push:
-    branches:
-      - main
-
-  pull_request:
-    branches:
-      - main
+  schedule:
+    - cron: '0 18 * * *'  # 每天 UTC 18:00
 
   workflow_dispatch:
     inputs:

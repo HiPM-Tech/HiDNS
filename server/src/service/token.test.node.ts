@@ -28,7 +28,7 @@ describe('Token Service', () => {
     it('should generate a token with correct prefix (hidns_)', () => {
       const token = generateToken();
       assert.ok(token.startsWith('hidns_'), 'Token should start with hidns_');
-      assert.strictEqual(token.length, 71, 'Token should be 71 characters long (7 prefix + 64 hex chars)');
+      assert.strictEqual(token.length, 70, 'Token should be 70 characters long (6 prefix + 64 hex chars)');
     });
 
     it('should accept legacy token prefix (dnsmgr_) for verification', async () => {

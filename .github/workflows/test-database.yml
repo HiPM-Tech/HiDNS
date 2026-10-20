@@ -55,7 +55,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -115,7 +115,9 @@ jobs:
           echo "MOCK_EMAIL_SERVICE=true" >> .env
           echo "MOCK_EXTERNAL_API=true" >> .env
 
-          pnpm test || echo "Tests completed with some failures"
+          # 不得加 || echo：加了之后该 step 的 outcome 恒为 success，
+          # 下面的「Check Critical Tests」就永远看不到真实失败。
+          pnpm test
         env:
           CI: true
 
@@ -139,7 +141,6 @@ jobs:
 
       - name: Test Database Migrations
         id: test-migrations
-        continue-on-error: true
         run: |
           cd server
           pnpm run db:migrate:test
@@ -148,7 +149,6 @@ jobs:
 
       - name: Test Concurrent Connections
         id: test-concurrent
-        continue-on-error: true
         run: |
           cd server
           pnpm run test:concurrent

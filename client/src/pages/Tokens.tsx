@@ -409,7 +409,7 @@ export function Tokens() {
   );
 
   const renderTokenForm = (mode: 'create' | 'edit') => (
-    <Form layout="vertical" colon={false} requiredMark={false} className="page-shell token-form" onSubmit={({ e }: any) => { e?.preventDefault(); mode === 'create' ? handleCreate() : handleUpdate(); }}>
+    <Form layout="vertical" colon={false} requiredMark={false} className="page-shell token-form" onSubmit={({ e }: any) => { e?.preventDefault(); if (mode === 'create') { handleCreate(); } else { handleUpdate(); } }}>
       {tokenField(t('tokens.tokenName'),
         <Input
           name={mode === 'create' ? 'token-create-name' : `token-edit-name-${editingToken?.id ?? 'draft'}`}

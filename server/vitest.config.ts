@@ -19,27 +19,20 @@ export default defineConfig({
     },
     testTimeout: 30000,
     hookTimeout: 30000,
-    // 这些文件长期失败，导致 `pnpm test` 恒为非 0、真实回归淹没在噪声里。排除以恢复门禁信号。
-    // 两类原因（待修，修好后逐条从本列表删除）：
-    //   1) src/** 的 8 个文件用 node:test 编写，被 vitest 收集后报 "No test suite found"；
-    //   2) tests/ 下 4 个文件虽是 vitest 写法，但已腐化：
-    //      proxy-config 引用了迁移前的 /src/db/business-adapter；其余缺 schema（no such table）。
-    // 注意：本列表只是让门禁可信，不代表这些用例没问题。
+    // node:test 写的用例统一命名为 *.test.node.ts，由 `pnpm run test:node` 用 tsx 跑，
+    // 不再被 vitest 收集（vitest 默认只认 *.test.ts / *.spec.ts）。
+    //
+    // 下面 4 个是**已知腐化**的 vitest 用例（待修，修好后逐条删除）：
+    //   proxy-config 引用了迁移前的 /src/db/business-adapter；其余缺 schema（no such table）。
+    // 注意：本列表只是让门禁可信，不代表这些用例没问题，需单独排期修复。
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/*.test.node.ts',
       'tests/db-migration.test.ts',
       'tests/proxy-config.test.ts',
       'tests/ns-monitor.test.ts',
       'tests/domain-filter.test.ts',
-      'src/utils/domain-edge-cases.test.ts',
-      'src/utils/domain.test.ts',
-      'src/utils/http.test.ts',
-      'src/utils/roles.test.ts',
-      'src/utils/response.test.ts',
-      'src/lib/dns/providerAlias.test.ts',
-      'src/service/token.test.ts',
-      'src/db/bal/business-adapter.test.ts',
     ],
   },
   resolve: {

@@ -65,9 +65,54 @@ env:
 
 jobs:
   # ============================================================================
+  # 阶段 0: 发布前门禁
+  # 此前 release.yml 完全没有测试步骤：打 tag 后直接构建发布，等于绕过所有门禁。
+  # 这里把与 CI 同口径的检查前置，任一失败即终止发布。
+  # ============================================================================
+  gate:
+    name: Release Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: |
+          pnpm --filter dnsmgr-server run lint
+          pnpm --filter dnsmgr-client run lint
+
+      - name: Type check & build
+        run: |
+          pnpm --filter dnsmgr-server run build
+          pnpm --filter dnsmgr-client run build
+
+      - name: Action namespace gate
+        run: pnpm --filter dnsmgr-server run check:actions
+
+      - name: Unit tests (vitest)
+        run: pnpm --filter dnsmgr-server run test
+
+      - name: Unit tests (node:test)
+        run: pnpm --filter dnsmgr-server run test:node
+
+  # ============================================================================
   # 阶段 1: 准备版本信息
   # ============================================================================
   prepare:
+    needs: gate
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.get_version.outputs.version }}

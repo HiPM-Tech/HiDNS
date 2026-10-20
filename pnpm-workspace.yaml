@@ -1,6 +1,7 @@
 packages:
   - 'server'
   - 'client'
+  - 'e2e'
 allowBuilds:
   '@scarf/scarf': true
   esbuild: true
