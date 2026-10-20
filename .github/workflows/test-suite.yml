@@ -314,7 +314,9 @@ jobs:
           BASE_URL: http://127.0.0.1:3001
           E2E_USERNAME: testuser
           E2E_PASSWORD: testpassword123
-        run: pnpm --filter dnsmgr-e2e run test -- --project=api --project=chromium
+        # 用 exec 而不是 run -- ...：pnpm run 会把 --project 参数吞掉，
+        # 结果 playwright 跑了全部项目，firefox/webkit 未安装浏览器直接红。
+        run: pnpm --filter dnsmgr-e2e exec playwright test --project=api --project=chromium
 
       - name: Dump server log on failure
         if: failure()
