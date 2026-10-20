@@ -282,9 +282,12 @@ jobs:
         run: pnpm --filter dnsmgr-e2e exec playwright install --with-deps chromium
 
       # E2E 需要「已初始化 + 有可登录账号」的库：空库会进入初始化向导，登录用例只能 skip。
+      # 服务端要同时构建：UI 用例访问的是服务端托管的 SPA，没有 client/dist 时
+      # /dash 拿不到页面，dashboard 断言会全红（本地能过是因为 client/dist 已存在）。
       - name: Prepare server (build + seeded database)
         run: |
           pnpm --filter dnsmgr-server run build
+          pnpm --filter dnsmgr-client run build
           cd server
           mkdir -p data
           cat > data/.env <<EOF
