@@ -3,6 +3,7 @@ import { DnsAccountOperations, DomainOperations } from '../../../../db/bal/busin
 import { TencenteoAdapter } from './adapter';
 import type { OriginGroupClient } from './origin-group-client';
 import { OriginGroupError } from './origin-group';
+import { mayReuseCredentials } from '../credential-sharing';
 
 /**
  * 由域名解析出可用的 EdgeOne 源站组客户端。
@@ -120,10 +121,19 @@ async function buildReusedAdapter(
   const account = (await DnsAccountOperations.getById(accountId)) as unknown as
     | { type?: string; config?: unknown }
     | undefined;
-  if (!account || String(account.type ?? '') !== 'dnspod') {
+  if (!account) {
+    throw new OriginGroupError('PROVIDER_MISMATCH', '该域名的提供商不是 EdgeOne，也没有找到可复用凭据的账号');
+  }
+
+  // 凭据复用必须**双向声明**：导出方允许谁用、消费方要用谁的，两边都命中才放行。
+  // 只由本文件单方面判断"可以吃 dnspod 的凭据"是不安全的——那样任何提供商实现
+  // 只要写死同样一句，就能拿到别的提供商的 SecretId / SecretKey。
+  const accountType = String(account.type ?? '');
+  if (!mayReuseCredentials('tencenteo', accountType)) {
     throw new OriginGroupError(
-      'PROVIDER_MISMATCH',
-      '该域名的提供商不是 EdgeOne，也不是可复用腾讯云鉴权的 DNSPod 账号',
+      'CREDENTIAL_REUSE_NOT_DECLARED',
+      `不允许复用「${accountType || '(未知)'}」提供商的凭据调用 EdgeOne：` +
+        '跨提供商凭据复用需要两端相互声明（导出方允许 + 消费方申请），当前声明不成立',
     );
   }
 

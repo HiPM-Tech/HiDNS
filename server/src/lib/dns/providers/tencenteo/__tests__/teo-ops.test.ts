@@ -214,14 +214,16 @@ describe('站点候选（edgeoneZones）', () => {
 });
 
 describe('其它情况', () => {
-  it('既不是 EdgeOne 也不是 DNSPod 时报 PROVIDER_MISMATCH', async () => {
+  it('凭据复用未双向声明时拒绝（cloudflare 未声明允许 EdgeOne 复用）', async () => {
     asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue({ check: async () => true });
     asMock(DnsAccountOperations.getById).mockResolvedValue({
       id: ACCOUNT_ID,
       type: 'cloudflare',
       config: JSON.stringify({ api_token: 'x' }),
     });
-    await expect(teoOpsForDomain(DOMAIN_ID)).rejects.toMatchObject({ code: 'PROVIDER_MISMATCH' });
+    await expect(teoOpsForDomain(DOMAIN_ID)).rejects.toMatchObject({
+      code: 'CREDENTIAL_REUSE_NOT_DECLARED',
+    });
   });
 
   it('域名不存在时报 DOMAIN_NOT_FOUND', async () => {

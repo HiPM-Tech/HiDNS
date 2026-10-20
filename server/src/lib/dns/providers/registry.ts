@@ -12,6 +12,7 @@ import type { ProviderExtraCapability } from './extra-types';
 import { tencenteoOriginGroupCapability } from './tencenteo/extra';
 import { virtualOriginGroupCapability } from './virtual/extra';
 import { isVirtualProviderEnabled } from './availability';
+import { findSharingInconsistencies, listSharingParticipants } from './credential-sharing';
 
 export interface DnsCapabilities {
   remark: boolean;
@@ -367,7 +368,25 @@ function validateDefinitions(definitions: ProviderDefinition[]): void {
   }
 }
 
+/**
+ * 跨提供商凭据复用必须两端相互声明。
+ * 声明不一致（只有一边、或引用了不存在的提供商）时**启动即失败**，
+ * 不允许带着半截授权跑起来 —— 那等于给恶意提供商留了注入面。
+ */
+function validateCredentialSharing(definitions: ProviderDefinition[]): void {
+  const types = new Set(definitions.map((definition) => definition.type));
+  const problems = findSharingInconsistencies();
+  const { importers, sources } = listSharingParticipants();
+  for (const type of new Set([...importers, ...sources])) {
+    if (!types.has(type)) problems.push(`凭据复用声明引用了不存在的提供商: ${type}`);
+  }
+  if (problems.length > 0) {
+    throw new Error('跨提供商凭据复用声明不一致:\n  ' + problems.join('\n  '));
+  }
+}
+
 validateDefinitions(allProviderDefinitions);
+validateCredentialSharing(allProviderDefinitions);
 
 /**
  * 对外注册的提供商。

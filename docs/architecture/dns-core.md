@@ -421,6 +421,28 @@ providers/
 实现位置：`providers/tencenteo/teo-ops.ts` 的 `teoOpsForDomain(domainId)`，
 能力层（`ext.tencenteo.originGroup.*`）与编辑器候选源（`originGroups`）共用这一份解析。
 
+### 凭据复用必须两端相互声明
+
+复用别人的凭据是**跨提供商的授权**，不能由消费方单方面决定。否则任何提供商实现
+（包括第三方注入的）只要写一句"我可以复用 X 的凭据"，就能拿到 X 的 SecretId / SecretKey。
+
+因此声明分成两侧，两边都命中才放行（`providers/credential-sharing.ts`）：
+
+| 侧 | 含义 | 当前条目 |
+| --- | --- | --- |
+| `CREDENTIAL_EXPORTS` | 导出方声明「允许谁复用我的凭据」 | `dnspod: ['tencenteo']` |
+| `CREDENTIAL_IMPORTS` | 消费方声明「我要复用谁的凭据」 | `tencenteo: ['dnspod']` |
+
+判定是 `imports[consumer].includes(source) && exports[source].includes(consumer)`。
+只有一边声明 = 不放行，错误码 `CREDENTIAL_REUSE_NOT_DECLARED`。
+
+注册表在模块加载时校验这张表（`validateCredentialSharing`）：
+
+- 任一单边条目 → **启动即失败**
+- 声明里出现不存在的提供商类型 → 启动即失败
+
+这样注入一个恶意提供商，必须同时改到别人的声明文件才能生效，单点注入无法成立。
+
 ### 两条解析路径
 
 | 账号类型 | ZoneId 来源 | 站点类型来源 | 凭据来源标记 |
