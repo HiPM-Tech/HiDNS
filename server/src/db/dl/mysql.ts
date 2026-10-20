@@ -125,6 +125,8 @@ export class MySQLDriver extends BaseDriver {
     await connection.beginTransaction();
 
     return {
+      // 归还连接到池。漏掉这一步会让事务永久占用一个连接。
+      done: () => connection.release(),
       query: async <T = unknown>(sql: string, params?: unknown[]): Promise<T[]> => {
         const [rows] = await connection.execute(sql, params);
         return rows as T[];

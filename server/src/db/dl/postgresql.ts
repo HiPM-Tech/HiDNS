@@ -151,6 +151,8 @@ export class PostgreSQLDriver extends BaseDriver {
     await client.query('BEGIN');
 
     return {
+      // 归还连接到池。漏掉这一步会让事务永久占用一个 client。
+      done: () => client.release(),
       query: async <T = unknown>(sql: string, params?: unknown[]): Promise<T[]> => {
         const pgSql = this.convertPlaceholders(sql, params);
         const result = await client.query(pgSql, params);

@@ -18,3 +18,14 @@ export function autoIdColumn(type: DatabaseType): string {
 export function dropTableSql(name: string): string {
   return `DROP TABLE IF EXISTS ${name}`;
 }
+
+/** 标识符引用：MySQL/SQLite 用反引号，PostgreSQL 用双引号。`key` 在 MySQL 里是保留字。 */
+export function quoteIdent(type: DatabaseType, name: string): string {
+  return type === 'postgresql' ? `"${name}"` : `\`${name}\``;
+}
+
+/** DATETIME 列的写入值：toISOString() 带 T 和 Z，MySQL 会报 Incorrect datetime value。 */
+export function sqlNow(): string {
+  return new Date().toISOString().slice(0, 19).replace('T', ' ');
+}
+

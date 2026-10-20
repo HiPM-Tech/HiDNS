@@ -16,6 +16,7 @@ loadEnv();
 import bcrypt from 'bcryptjs';
 import { connect, getConnection, disconnect } from '../src/db/connection';
 import { log } from './_logger-compat';
+import { quoteIdent, sqlNow } from './_ddl-compat';
 
 const TEST_USERNAME = 'testuser';
 const TEST_DOMAIN = 'test-example.com';
@@ -26,7 +27,8 @@ async function testSeed() {
   try {
     await connect();
     const conn = getConnection();
-    const now = new Date().toISOString();
+    const now = sqlNow();
+    const keyCol = quoteIdent(conn.type, 'key');
 
     // 幂等：清掉上一轮种子（按依赖顺序）
     const existingUser = await conn.get('SELECT id FROM users WHERE username = ?', [TEST_USERNAME]) as
@@ -88,15 +90,10 @@ async function testSeed() {
 
     log.info('TestSeed', 'Creating test settings');
     // 幂等：system_settings.key 是 UNIQUE，重跑前先清掉上一轮的键
-    await conn.run("DELETE FROM system_settings WHERE key IN ('test_setting', 'test_data_ids')");
-    await conn.run(
-      'INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)',
-      ['test_setting', JSON.stringify({ test: true, timestamp: Date.now() }), now],
-    );
-    await conn.run(
-      'INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)',
-      ['test_data_ids', JSON.stringify({ userId, accountId, domainId }), now],
-    );
+    await conn.run(`DELETE FROM system_settings WHERE ${keyCol} IN ('test_setting', 'test_data_ids')`);
+    const insertSetting = `INSERT INTO system_settings (${keyCol}, value, updated_at) VALUES (?, ?, ?)`;
+    await conn.run(insertSetting, ['test_setting', JSON.stringify({ test: true, timestamp: Date.now() }), now]);
+    await conn.run(insertSetting, ['test_data_ids', JSON.stringify({ userId, accountId, domainId }), now]);
     log.info('TestSeed', '✓ Created test settings');
 
     log.info('TestSeed', 'All test data seeded successfully!');

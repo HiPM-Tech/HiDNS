@@ -337,8 +337,17 @@ export class ConnectionManager {
       await trx.execute('COMMIT');
       return result;
     } catch (error) {
-      await trx.execute('ROLLBACK');
+      // 回滚失败不应掩盖原始错误
+      try {
+        await trx.execute('ROLLBACK');
+      } catch {
+        /* ignore */
+      }
       throw error;
+    } finally {
+      // 连接池驱动必须归还连接：否则每次事务泄漏一个 client，
+      // 池耗尽后所有查询挂起、disconnect() 里的 pool.end() 也永不返回。
+      await trx.done?.();
     }
   }
 

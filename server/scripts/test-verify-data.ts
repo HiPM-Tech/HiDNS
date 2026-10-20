@@ -13,6 +13,7 @@ loadEnv();
 
 import { connect, getConnection, disconnect } from '../src/db/connection';
 import { log } from './_logger-compat';
+import { quoteIdent, sqlNow } from './_ddl-compat';
 
 async function testVerifyData() {
   log.info('TestVerify', 'Verifying test data persistence');
@@ -20,9 +21,11 @@ async function testVerifyData() {
   try {
     await connect();
     const conn = getConnection();
+    // key 在 MySQL 里是保留字，必须按方言引用
+    const keyCol = quoteIdent(conn.type, 'key');
 
     const settingsResult = await conn.get(
-      "SELECT value FROM system_settings WHERE key = 'test_data_ids'",
+      `SELECT value FROM system_settings WHERE ${keyCol} = 'test_data_ids'`,
     ) as { value?: string } | undefined;
 
     if (!settingsResult) {
@@ -67,7 +70,7 @@ async function testVerifyData() {
     log.info('TestVerify', `✓ Found ${recordCount} DNS records`);
 
     const testSetting = await conn.get(
-      "SELECT value FROM system_settings WHERE key = 'test_setting'",
+      `SELECT value FROM system_settings WHERE ${keyCol} = 'test_setting'`,
     ) as { value?: string } | undefined;
     if (!testSetting) {
       throw new Error('Test setting not found');
@@ -79,13 +82,13 @@ async function testVerifyData() {
     log.info('TestVerify', '✓ Test setting verified');
 
     // 写回一次，验证写路径同样持久化
-    const updatedAt = new Date().toISOString();
-    await conn.run('UPDATE system_settings SET value = ?, updated_at = ? WHERE key = ?', [
+    const updatedAt = sqlNow();
+    await conn.run(`UPDATE system_settings SET value = ?, updated_at = ? WHERE ${keyCol} = ?`, [
       JSON.stringify({ test: true, verified: true, timestamp: Date.now() }),
       updatedAt,
       'test_setting',
     ]);
-    const reread = await conn.get("SELECT value FROM system_settings WHERE key = 'test_setting'") as { value?: string };
+    const reread = await conn.get(`SELECT value FROM system_settings WHERE ${keyCol} = 'test_setting'`) as { value?: string };
     if (!JSON.parse(String(reread.value ?? '{}')).verified) {
       throw new Error('Write-back to system_settings was not persisted');
     }

@@ -24,6 +24,11 @@ export type RawConnection = MySQLPool | PostgreSQLPool | DatabaseSync;
 
 /** 事务接口 */
 export interface Transaction {
+  /**
+   * 归还底层连接。连接池驱动（postgresql / mysql）必须实现：
+   * 不归还会让连接被永久占住，池耗尽后所有查询挂起、close() 也永不返回。
+   */
+  done?: () => void | Promise<void>;
   query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>;
   get<T = unknown>(sql: string, params?: unknown[]): Promise<T | undefined>;
   execute(sql: string, params?: unknown[]): Promise<void>;
