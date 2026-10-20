@@ -127,3 +127,61 @@
 ---
 
 评审线分工：layering（分层与依赖方向）/ authz（鉴权模型与绕过面）/ boundary（数据边界、副作用与失败关闭）/ maint（可维护性、重复实现与文档一致性）。四条线独立产出，本文件为汇总，未对任何单条结论做取舍。
+
+---
+
+## 七、评审轮 1：DNS 适配器组件改造（efa7bad）
+
+**评审对象**：`efa7bad`（源站组读写授权分流 / 适配器层清理 / 守卫重写 / 文档口径修正）
+**评审方式**：三条独立评审线并行（授权正确性、root.ai.md 规范符合性、清理项回归风险），各自只读通读后独立出结论。
+
+### 统一结论：**有条件通过**（3/3 一致）
+
+| 评审线 | 结论 | 硬条件 |
+| --- | --- | --- |
+| A 授权正确性 | 有条件通过 | 授权顺序 + 写判定收口 |
+| B 规范符合性 | 有条件通过 | §310 实现位置需显式决策 |
+| C 清理项回归 | 有条件通过 | 授权顺序（跨租户读取原语） |
+
+三条线一致确认：**P0 本体已修对**。读写分流与 `routes/accounts.ts` 的 `canReadAccount`/`canManageAccount` 逐格等价（(role × 归属 × 动作类) 14 格全核对），团队成员整组覆盖的洞已堵上，且有单测 + 端到端双层覆盖。
+
+### 未通过的硬条件（2 条）
+
+**H1 · 授权晚于解析，`ZONE_ID_IGNORED` 回显他人 `third_id`（P1，两条线独立命中）**
+
+`origin-group-authorize.ts` 先 `teoOpsForDomain` 后 `canAccessAccount`。任何持 `records.read` 的用户把 `args.domainId` 填成他人域名即可触发解析；本轮新增的 `ZONE_ID_IGNORED` 消息把 `domain.thirdId` 插进错误串，而错误串经 `engine.ts:288` 落进 `workflow_runs.error`、由 `listRuns` 原样返回给 owner —— 形成确定性的跨租户读取原语（他人的 EdgeOne ZoneId / DNSPod 远端域名 ID，HTTP 层从不返回）。既有面还有：靠 `DOMAIN_NOT_FOUND`/`PROVIDER_MISMATCH`/`ZONE_ID_REQUIRED` 的差异枚举任意 domainId。
+
+修法：先 `resolveDomainAccount` 取 accountId → 鉴权 → 再 `teoOpsForDomain`；`ZONE_ID_IGNORED` 文案去掉 `${domain.thirdId}`；`DOMAIN_NOT_FOUND` 与「无权」合并为同一 404。
+
+**H2 · §310「实现留在提供商目录内」被违反（P1，规范线）**
+
+`cd539ad` 把 `teo-ops.ts` / `authorize.ts` 从 `providers/tencenteo/` 迁到 `lib/dns/`（R082/R092），且 `origin-group-broker.ts` 反向 `import { TencenteoAdapter } from './providers/tencenteo/adapter'`。root.ai.md §310 要求实现留在提供商目录内；规范线论证「回迁成本很低」（两者只依赖 `../../account-context`，守卫允许该间接依赖），因此不构成规范冲突。
+
+二选一：**回迁** `providers/tencenteo/` 并去掉反向 import；或在 `root.ai.md` §310 明文记录例外。不接受只在 docs 里解释。
+
+### 建议同批处理（不阻塞）
+
+| # | 问题 | 出处 |
+| --- | --- | --- |
+| 1 | `mode` 硬编码 `'ext.write'`，未知 actionClass 默认 read（放行方向）；应改用 `WRITE_ACTION_CLASSES`，未知类抛错 | A / B / C |
+| 2 | `isAtLeast('super_admin', ROLE_ADMIN)` 恒 false（`normalizeRole` 不认 workflow 词表），当前靠短路侥幸 | A |
+| 3 | 同一个「写源站组」在 tencenteo（有 authorize）与 virtual（无，走 allowedWriteDomainIds）口径不同 | A |
+| 4 | 未校验 `dns_accounts.enabled = 0`，禁用账号的源站组仍可读写 | A |
+| 5 | `docs/dns-core.md:421`、`:607` 指向已删除文件；`:438-441` 与 `:450-451` 自相矛盾（用「依赖方向」论证「实现位置」） | B / C |
+| 6 | `validateModules` 只校验动作名，`capability.name` 的格式与唯一性完全未校验 | B |
+| 7 | `normalizeProviderType` 是死防御（别名账号在 `resolveAdapter` 更早处已失败）；别名表实际决定凭据复用边界，但其测试被 vitest 排除 | C |
+| 8 | `ZONE_ID_IGNORED` 让编辑器正常路径硬失败（zoneId 对 EdgeOne 账号无意义却渲染下拉） | C |
+| 9 | 守卫绕过面：`@/` 别名、副作用 import、反例不足（缺「含禁止关键字但不是路径前缀」的负例） | B / C |
+| 10 | `parseAccountConfig` 的 `export` 已无外部使用者 | C |
+| 11 | virtual 与 broker 对 `ACCOUNT_NOT_FOUND` 映射不一致 | C |
+
+### 经核实无问题（三条线合计，去重）
+
+- 错误码变化无调用方受影响：全仓无 `instanceof OriginGroupError`、无按 `error.code` 分支
+- 删掉的 `parseAccountConfig` 无残留引用；`OriginGroupError` 单一来源已落实，`instanceof` 跨文件成立
+- 别名不会造成假放行：值为 `dnspod` 的别名只有 `dnspod`/`tencentcloud`，空类型也拒绝
+- `PRINCIPAL_KIND_UNSUPPORTED` 不误伤现有路径（`resolvePrincipal` 恒返回 user）
+- 鉴权前不发起任何上游网络请求；本轮泄漏面纯在错误通道
+- 守卫在门禁内、非空转（扫到 104 个文件）；类型导入与 `export * from` 已覆盖；`db/bal-extra` 不会误判
+- 规范侧：requestJson 强制成立（含新增 listZones）、extra.ts 声明机制成立、「保护由能力层承担」的调用面成立、动作名唯一性有 CI 执行点
+
