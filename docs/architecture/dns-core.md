@@ -556,3 +556,39 @@ export type ProviderAuthorize = (
 第 2 步对 EdgeOne 账号天然成立（zoneId 取自该域名的 `third_id`，本就是该账号下的站点）；
 复用 DNSPod 凭据时必须核验，否则用户可以传任意 `zoneId` 让系统去操作别人的站点。
 核验结果按 `账号:站点类型:站点` 缓存 60 秒，避免每个动作都打一次 `DescribeZones`。
+
+### 实时推送：广播必须按收件人定向
+
+`wsService.broadcast` 是全局广播。任何携带域名标识（名称、到期时间、解析值、监控归属）
+的 payload 一旦走全局广播，就等于推给所有在线客户端 —— 跨用户外泄。
+
+收件人口径必须与 HTTP 读权限完全一致，基准是 `routes/domains.ts` 的 `resolveDomainAccess`：
+
+| 顺序 | 规则 |
+| --- | --- |
+| A | 账号不存在或 `enabled = 0` → **全员拒绝，含超管** |
+| B | 超管（`role_level >= 3`）→ 放行 |
+| C | 账号创建者且 `role >= admin` → 放行 |
+| D | `domain_permissions` 有规则时，按用户行与团队授权成员判定 |
+| E | 没有规则 → 拒绝（残留权限行不生效） |
+
+实现落在 `service/realtime-audience.ts`：`getDomainAudienceUserIds(domainId)` 按上表产出收件人集合，
+`wsService.broadcastToUsers` 负责去重与投递。特权用户名单 60 秒缓存，避免每次事件全表扫用户。
+
+口径漂移的两个方向都要防：**多算**是外泄，**少算**是用户看得到却收不到实时更新。
+
+### 工作流触发的域名边界
+
+引擎在匹配到工作流之后、执行动作之前，用 `canAccessEventDomain` 判定工作流 owner
+是否有权访问事件域名：
+
+```ts
+if (domain.id > 0) return access.ids.includes(domain.id);   // id 是权威主键，未命中直接拒绝
+return Boolean(domain.name) && access.names.includes(domain.name); // 仅 id=0 时按名称兜底
+```
+
+**id > 0 时不得回落到名称比较** —— 同一个 zone 挂到两个账号（同名域名）时，
+名称回落会让工作流在他人域名上触发。
+
+被跳过的运行记录会落成 `skipped / no-domain-access`，但其 `triggerEvent` **落库前必须脱敏**：
+`listRuns` 是 `SELECT *`，原样保存会让 owner 从 `/runs` 读到他人域名名与解析值。
