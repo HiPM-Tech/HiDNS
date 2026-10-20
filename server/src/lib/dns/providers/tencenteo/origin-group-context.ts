@@ -1,9 +1,9 @@
-import { AccountContextError, resolveAccount, resolveAdapter, resolveDomainAccount } from './account-context';
-import { TencenteoAdapter } from './providers/tencenteo/adapter';
-import type { OriginGroupClient } from './providers/tencenteo/origin-group-client';
-import { OriginGroupError } from './origin-group-core';
-import { mayReuseCredentials } from './providers/credential-sharing';
-import { normalizeProviderType } from './providerAlias';
+import { AccountContextError, resolveAccount, resolveAdapter, resolveDomainAccount } from '../../account-context';
+import { TencenteoAdapter } from './adapter';
+import type { OriginGroupClient } from './origin-group-client';
+import { OriginGroupError } from '../../origin-group-core';
+import { mayReuseCredentials } from '../credential-sharing';
+import { normalizeProviderType } from '../../providerAlias';
 
 /**
  * 由域名解析出可用的 EdgeOne 源站组客户端。
@@ -168,7 +168,9 @@ export async function teoOpsForDomain(domainId: number, options: TeoOpsOptions =
     if (explicitZone && explicitZone !== domain.thirdId) {
       throw new OriginGroupError(
         'ZONE_ID_IGNORED',
-        `该域名属于 EdgeOne 账号，ZoneId 由账号决定（${domain.thirdId}），传入的 ${explicitZone} 不会生效；请移除 zoneId 参数`,
+        // 不回显 domain.thirdId：错误串会落进 workflow_runs.error 并返回给 owner，
+        // 等于把他人站点的 ZoneId 送出去。
+        '该域名属于 EdgeOne 账号，ZoneId 由账号配置决定，传入的 zoneId 不会生效；请移除该参数',
       );
     }
     adapter.setZoneInfo(domain.thirdId, domain.domainName);
@@ -216,7 +218,10 @@ export async function listTeoZones(
   const adapter = await resolveAdapter(domain.accountId);
 
   if (adapter instanceof TencenteoAdapter) {
-    return adapter.listZones();
+    // EdgeOne 账号的 ZoneId 由域名自身决定，没有「选站点」这回事。
+    // 只返回本域名的站点：否则编辑器会列出该凭据可见的全部站点，
+    // 用户选中别的站点后只能在执行期撞 ZONE_ID_IGNORED。
+    return [{ zoneId: domain.thirdId, zoneName: domain.domainName }];
   }
 
   const account = await requireAccount(domain.accountId);

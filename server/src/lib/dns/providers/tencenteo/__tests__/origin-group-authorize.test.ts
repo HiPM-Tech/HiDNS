@@ -2,26 +2,26 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { requestJsonMock } = vi.hoisted(() => ({ requestJsonMock: vi.fn() }));
 
-vi.mock('../providers/http', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../providers/http')>();
+vi.mock('../../http', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../http')>();
   return { ...actual, requestJson: requestJsonMock };
 });
 
-vi.mock('../../../service/dns-provider-service', () => ({
+vi.mock('../../../../../service/dns-provider-service', () => ({
   DnsProviderService: { getAdapterByAccount: vi.fn() },
 }));
 
-vi.mock('../../../db/bal/business-adapter', () => ({
+vi.mock('../../../../../db/bal/business-adapter', () => ({
   DomainOperations: { getById: vi.fn() },
   DnsAccountOperations: { getById: vi.fn() },
   TeamOperations: { isMember: vi.fn() },
 }));
 
 import { authorizeTencenteoOriginGroup, resetZoneAuthorizationCache } from '../origin-group-authorize';
-import { TencenteoAdapter } from '../providers/tencenteo/adapter';
-import { DnspodAdapter } from '../providers/dnspod/adapter';
-import { DnsProviderService } from '../../../service/dns-provider-service';
-import { DnsAccountOperations, DomainOperations, TeamOperations } from '../../../db/bal/business-adapter';
+import { TencenteoAdapter } from '../adapter';
+import { DnspodAdapter } from '../../dnspod/adapter';
+import { DnsProviderService } from '../../../../../service/dns-provider-service';
+import { DnsAccountOperations, DomainOperations, TeamOperations } from '../../../../../db/bal/business-adapter';
 
 const DOMAIN_ID = 7;
 const ACCOUNT_ID = 3;
@@ -92,7 +92,7 @@ describe('身份与账号归属', () => {
     asMock(DnsAccountOperations.getById).mockResolvedValue({ id: ACCOUNT_ID, created_by: 999, team_id: null });
     await expect(
       authorizeTencenteoOriginGroup(principal(), { domainId: DOMAIN_ID }, 'ext.read'),
-    ).rejects.toMatchObject({ code: 'ACCOUNT_FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('账号所有者放行', async () => {
@@ -119,7 +119,7 @@ describe('身份与账号归属', () => {
     asMock(TeamOperations.isMember).mockResolvedValue(false);
     await expect(
       authorizeTencenteoOriginGroup(principal(), { domainId: DOMAIN_ID }, 'ext.read'),
-    ).rejects.toMatchObject({ code: 'ACCOUNT_FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('超管跳过账号归属判定', async () => {
@@ -179,7 +179,7 @@ describe('读与写的准入必须分开（评审 P0）', () => {
     await expect(authorizeTencenteoOriginGroup(principal(), args, 'ext.read')).resolves.toBeUndefined();
     // 写拒绝：否则被拉进团队的人可以整组覆盖该账号可见的所有站点
     await expect(authorizeTencenteoOriginGroup(principal(), args, 'ext.write')).rejects.toMatchObject({
-      code: 'ACCOUNT_FORBIDDEN',
+      code: 'NOT_FOUND',
     });
   });
 
@@ -190,7 +190,7 @@ describe('读与写的准入必须分开（评审 P0）', () => {
     await expect(authorizeTencenteoOriginGroup(principal(), args, 'ext.read')).resolves.toBeUndefined();
     await expect(
       authorizeTencenteoOriginGroup(principal({ role: 'user' }), args, 'ext.write'),
-    ).rejects.toMatchObject({ code: 'ACCOUNT_FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('创建者且 admin 可以写', async () => {

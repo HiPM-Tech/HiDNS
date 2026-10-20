@@ -382,7 +382,7 @@ describe('写入闸门（能力层）', () => {
         collapse: true,
         diffDigest: 'x',
       }),
-    ).rejects.toMatchObject({ code: 'ACCOUNT_FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('被引用的组拒绝整组覆盖，且报出引用方', async () => {

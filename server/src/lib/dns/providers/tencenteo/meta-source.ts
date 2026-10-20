@@ -1,6 +1,6 @@
 import { registerProviderMetaSource } from '../meta-sources';
 import type { ProviderMetaContext, ProviderMetaItem } from '../meta-sources';
-import { listTeoZones, teoOpsForDomain } from '../../origin-group-broker';
+import { listTeoZones, teoOpsForDomain } from './origin-group-context';
 
 /**
  * EdgeOne 站点的候选值。

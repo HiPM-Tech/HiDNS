@@ -418,7 +418,7 @@ providers/
 `SecretId` / `SecretKey`，只是调用不同域名。因此已经配置了 DNSPod 账号的用户，
 不必再登记一个 EdgeOne 账号才能管理源站组。
 
-实现位置：`providers/tencenteo/teo-ops.ts` 的 `teoOpsForDomain(domainId)`，
+实现位置：`providers/tencenteo/origin-group-context.ts` 的 `teoOpsForDomain(domainId)`，
 能力层（`ext.tencenteo.originGroup.*`）与编辑器候选源（`originGroups`）共用这一份解析。
 
 ### 依赖方向：提供商不得**直接**依赖 BAL 与服务层
@@ -435,20 +435,23 @@ providers/
 | `resolveAccount(accountId)` | 账号行 → 类型 + 解析后的配置 |
 | `resolveAccountContext(domainId)` | 上面两者 + 适配器实例 |
 
-**这条规则约束的是直接依赖，不是传递依赖。** 提供商经 `lib/dns/account-context` 间接
-拿到账号与适配器是**刻意允许**的：root.ai.md §276 要求「扩展能力的实现留在提供商目录内」，
-把实现整体搬出 `providers/**` 反而违反规范。真正的约束目标是「凭据读取只有一处」。
+这里有两个**互相独立**的命题，不要用其中一个去论证另一个：
 
-依赖关系因此是：
+**命题一：依赖方向。** 提供商不得**直接** import BAL / `service/dns-provider-service`。
+约束的是直接依赖、不是传递依赖：提供商经 `lib/dns/account-context` 间接拿到账号与
+适配器是刻意允许的。真正的目标是「凭据读取只有一处」，而不是「提供商不碰数据库」。
 
 ```
 providers/**  →  lib/dns/account-context.ts  →  db/bal（BAL）/ service
-        ↘  lib/dns/origin-group-broker.ts  ↗
 ```
 
-即：providers 依赖 lib/dns，lib/dns 依赖 BAL/service；**不存在 providers 直接依赖 BAL**。
-凭据复用的判定（`origin-group-broker.ts`）与站点级授权（`origin-group-authorize.ts`）
-也在 `lib/dns/`，提供商目录里只剩适配器、能力声明与裸原语。
+**命题二：实现位置。** root.ai.md §310 要求「扩展能力的实现留在提供商目录内，对外只暴露
+裸原语，保护由能力层承担」。因此凭据/站点解析（`origin-group-context.ts`）与站点级授权
+（`origin-group-authorize.ts`）都在 `providers/tencenteo/` 内；`lib/dns/` 只保留
+数据访问（`account-context.ts`，读账号行与构造适配器）。
+
+授权的**策略**在能力层，**数据**在 account-context —— 这样既满足 §310，又不让提供商
+直接依赖 BAL。
 
 守卫：`providers/__tests__/layer-dependency.test.ts` 解析每个提供商文件的 import 目标
 （静态 / 动态 / require，先剥注释），归一化路径后比对前缀，命中 `src/db/bal` 或
@@ -604,13 +607,17 @@ export type ProviderAuthorize = (
 ) => Promise<void>;
 ```
 
-未声明钩子的提供商行为完全不变。EdgeOne 源站组（`providers/tencenteo/authorize.ts`）
-的判定分两步，任一步无法确定即拒绝：
+未声明钩子的提供商行为完全不变。EdgeOne 源站组（`providers/tencenteo/origin-group-authorize.ts`）
+**先鉴权、再解析**，判定分两步，任一步无法确定即拒绝：
 
-| 步骤 | 判定 |
-| --- | --- |
-| 1. 账号归属 | 用户能否访问提供凭据的 DNS 账号：超管 / 账号所有者 / 账号所属团队成员 |
-| 2. 站点归属 | 该站点是否在此账号凭据的可见范围内 |
+| 步骤 | 读（`ext.read`） | 写（`ext.write`） |
+| --- | --- | --- |
+| 1. 账号归属 | 超管 / 账号所有者 / 账号所属团队成员 | 超管 /（账号所有者 且 role ≥ admin）；团队成员只读 |
+| 2. 站点归属 | 该站点是否在此账号凭据的可见范围内 | 同左 |
+
+顺序不可颠倒：先只解析到「域名 → 账号」这一层判权，通过后才解析凭据与站点。
+否则未授权者能靠错误串差异探测他人域名是否存在、挂在哪个账号下，甚至读到他人的 ZoneId。
+无权与「域名不存在」返回**同一个** `NOT_FOUND`，避免用 domainId 枚举。
 
 第 2 步对 EdgeOne 账号天然成立（zoneId 取自该域名的 `third_id`，本就是该账号下的站点）；
 复用 DNSPod 凭据时必须核验，否则用户可以传任意 `zoneId` 让系统去操作别人的站点。

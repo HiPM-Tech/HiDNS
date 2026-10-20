@@ -8,8 +8,8 @@ import {
   type CollapseTarget,
   type OriginGroup,
 } from './origin-group';
-import { teoOpsForDomain, type TeoOps } from '../../origin-group-broker';
-import { authorizeTencenteoOriginGroup } from '../../origin-group-authorize';
+import { teoOpsForDomain, type TeoOps } from './origin-group-context';
+import { authorizeTencenteoOriginGroup } from './origin-group-authorize';
 
 /**
  * EdgeOne 源站组能力。

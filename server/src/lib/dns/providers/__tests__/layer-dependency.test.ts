@@ -44,6 +44,8 @@ export function importSpecifiers(source: string): string[] {
   const out: string[] = [];
   const patterns = [
     /\bfrom\s+['"]([^'"]+)['"]/g,
+    // 副作用导入：import 'xxx'（没有 from）
+    /^\s*import\s+['"]([^'"]+)['"]/gm,
     /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
     /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
   ];
@@ -53,10 +55,14 @@ export function importSpecifiers(source: string): string[] {
   return out;
 }
 
-/** 该说明符（相对 file 解析后）是否落在禁止目录 */
+/** 该说明符是否落在禁止目录。相对路径按 file 解析；`@/x` 按 src 解析（vitest 已配该别名） */
 export function isForbiddenSpecifier(spec: string, file: string): boolean {
-  if (!spec.startsWith('.')) return false;
-  const rel = relative(SRC_DIR, resolve(dirname(file), spec));
+  let target: string;
+  if (spec.startsWith('@/')) target = resolve(SRC_DIR, spec.slice(2));
+  else if (spec.startsWith('.')) target = resolve(dirname(file), spec);
+  else return false;
+  const rel = relative(SRC_DIR, target);
+  // 用 sep 边界比较，避免 db/bal-extra 被当成 db/bal
   return FORBIDDEN_DIRS.some((dir) => rel === dir || rel.startsWith(dir + sep));
 }
 
@@ -94,6 +100,17 @@ describe('守卫自身的判别力', () => {
     expect(importSpecifiers('const x = require("../../service/dns-provider-service")')).toEqual([
       '../../service/dns-provider-service',
     ]);
+  });
+
+  it('副作用 import 与 @/ 别名也能抓到', () => {
+    expect(importSpecifiers("import '../../db/bal/register';")).toEqual(['../../db/bal/register']);
+    expect(isForbiddenSpecifier('@/db/bal/business-adapter', file)).toBe(true);
+  });
+
+  it('相似前缀不会被误判', () => {
+    // 旧版用子串匹配时，这两个都会被当成违规
+    expect(isForbiddenSpecifier('../../../..//db/balance-helper', file)).toBe(false);
+    expect(isForbiddenSpecifier('../../dns/bal', file)).toBe(false);
   });
 });
 

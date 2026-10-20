@@ -1,5 +1,5 @@
 import { DnsProviderService } from '../../service/dns-provider-service';
-import { DnsAccountOperations, DomainOperations } from '../../db/bal/business-adapter';
+import { DnsAccountOperations, DomainOperations, TeamOperations } from '../../db/bal/business-adapter';
 import type { DnsAdapter } from './DnsInterface';
 
 /**
@@ -40,7 +40,7 @@ export interface AccountContext {
 }
 
 /** 账号配置在库里是 JSON 字符串；损坏时按空对象处理，不阻塞调用方 */
-export function parseAccountConfig(raw: unknown): Record<string, string> {
+function parseAccountConfig(raw: unknown): Record<string, string> {
   if (typeof raw === 'string') {
     try {
       const parsed = JSON.parse(raw) as unknown;
@@ -103,4 +103,44 @@ export async function resolveAccountContext(domainId: number): Promise<AccountCo
   const account = await resolveAccount(ref.accountId);
   const adapter = await DnsProviderService.getAdapterByAccount(ref.accountId);
   return { ...ref, ...account, adapter };
+}
+
+export type AccessMode = 'read' | 'write';
+
+/**
+ * 用户能否以指定模式使用某个账号（数据访问层，供能力层调用）。
+ *
+ * 放在这里而不是提供商目录：它要读账号行（BAL），而提供商不得直接依赖 BAL。
+ * 授权**策略**留在提供商的能力层，**数据**在这里。
+ *
+ * 读 = 超管 / 账号创建者 / 账号所属团队成员
+ * 写 = 超管 /（账号创建者 且 角色为 admin 或 super_admin）
+ *      —— 与 routes/accounts.ts 的 canManageAccount 同口径；团队成员只读。
+ *
+ * role 传入的是 workflow 的角色词表（'user' | 'admin' | 'super_admin'），
+ * **不要**喂给 utils/roles 的数值词表（normalizeRole 不认 'super_admin'）。
+ */
+export async function canAccessAccount(params: {
+  accountId: number;
+  userId: number;
+  role: string;
+  mode: AccessMode;
+}): Promise<boolean> {
+  const { accountId, userId, role, mode } = params;
+  if (role === 'super_admin') return true;
+
+  const account = (await DnsAccountOperations.getById(accountId)) as unknown as
+    | { created_by?: number; team_id?: number | null; enabled?: number | boolean }
+    | undefined;
+  if (!account) return false;
+  // 账号被停用时一律拒绝：与 routes/domains.ts 的 resolveDomainAccess 和
+  // getUserAccessibleDomains 的 enabled = 1 过滤保持一致。
+  if (Number(account.enabled) === 0) return false;
+
+  if (Number(account.created_by) === userId) {
+    return mode === 'read' ? true : role === 'admin' || role === 'super_admin';
+  }
+
+  // 团队成员只读：否则被拉进团队的人可以整组覆盖该账号可见的全部站点。
+  return mode === 'read' && Boolean(account.team_id) && TeamOperations.isMember(Number(account.team_id), userId);
 }
