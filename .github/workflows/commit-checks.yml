@@ -57,7 +57,9 @@ jobs:
               continue
             fi
 
-            if [[ ! "$commit" =~ ^(feat|fix|docs|style|refactor|test|chore|ci|build|perf|revert)(\(.+\))?!?:\s.+ ]]; then
+            # 注意用 [[:space:]] 而不是 \s：正则内联在 [[ ]] 里时，shell 会吃掉反斜杠，
+            # 变成字面量 s，导致所有提交都被判不合规（已在 CI 上踩过）。
+            if [[ ! "$commit" =~ ^(feat|fix|docs|style|refactor|test|chore|ci|build|perf|revert)(\(.+\))?!?:[[:space:]].+ ]]; then
               echo "  ❌ 不符合提交信息规范（root.ai.md §882）"
               echo "     例如: feat: 添加新功能 / fix(dns): 修复解析超时"
               FAILED=1

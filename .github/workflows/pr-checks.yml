@@ -49,7 +49,8 @@ jobs:
             exit 1
           fi
 
-          if [[ ! "$TITLE" =~ ^(feat|fix|docs|style|refactor|test|chore|ci|build|perf):\s.+ ]]; then
+          # [[:space:]] 而非 \s：内联正则里的反斜杠会被 shell 吃掉，见 commit-checks 的同款修复
+          if [[ ! "$TITLE" =~ ^(feat|fix|docs|style|refactor|test|chore|ci|build|perf):[[:space:]].+ ]]; then
             echo "⚠️ PR标题建议使用 conventional commits 格式:"
             echo "   例如: feat: 添加新功能, fix: 修复bug"
           fi
