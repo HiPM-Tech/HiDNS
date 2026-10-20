@@ -14,6 +14,9 @@ vi.mock('../../../service/dns-provider-service', () => ({
 
 vi.mock('../../../db/bal/business-adapter', () => ({
   DomainOperations: { getById: vi.fn() },
+  // 站点级授权要判定「用户能否访问提供凭据的账号」
+  DnsAccountOperations: { getById: vi.fn() },
+  TeamOperations: { isMember: vi.fn() },
 }));
 
 vi.mock('../../../lib/dns/providers/tencenteo/adapter', () => {
@@ -47,7 +50,7 @@ import {
 import { OriginGroupClient } from '../../../lib/dns/providers/tencenteo/origin-group-client';
 import { ALL_ACTIONS, HANDLERS } from '../registry';
 import { DnsProviderService } from '../../../service/dns-provider-service';
-import { DomainOperations } from '../../../db/bal/business-adapter';
+import { DnsAccountOperations, DomainOperations, TeamOperations } from '../../../db/bal/business-adapter';
 import { TencenteoAdapter } from '../../../lib/dns/providers/tencenteo/adapter';
 
 function group(records: OriginGroup['records'], references: OriginGroup['references'] = []): OriginGroup {
@@ -349,6 +352,37 @@ describe('写入闸门（能力层）', () => {
       account_id: 1,
       third_id: 'zone-1',
     });
+  });
+
+  it('授权钩子确实接在注册表路径上：无权访问该账号时拒绝，且不触达 API', async () => {
+    stubAdapter({ ...RAW_GROUP, References: [] });
+    (DnsAccountOperations.getById as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({
+      id: 1,
+      created_by: 999,
+      team_id: null,
+    });
+    (TeamOperations.isMember as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue(false);
+
+    const outsider = {
+      principal: {
+        kind: 'user',
+        id: '42',
+        role: 'admin',
+        allowedDomainIds: [7],
+        allowedWriteDomainIds: [7],
+        allowedDomains: ['example.com'],
+      },
+    } as never;
+
+    await expect(
+      replaceHandler(outsider, {
+        domainId: 7,
+        groupId: 'og-prod',
+        target: '198.51.100.9',
+        collapse: true,
+        diffDigest: 'x',
+      }),
+    ).rejects.toMatchObject({ code: 'ACCOUNT_FORBIDDEN' });
   });
 
   it('被引用的组拒绝整组覆盖，且报出引用方', async () => {
