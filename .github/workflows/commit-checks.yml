@@ -164,13 +164,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 不传 base/head：原来 base 是分支名、head 是 HEAD，push 到 main 时两者指向同一提交，
+      # trufflehog 直接报「BASE and HEAD commits are the same」并失败。
+      # 不传则扫描 path 下的全部内容，既避开该边界，也能覆盖整个仓库。
       - name: Scan for Secrets
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
-          extra_args: --debug --only-verified
+          extra_args: --only-verified
 
       - name: Check for Sensitive Patterns
         run: |
