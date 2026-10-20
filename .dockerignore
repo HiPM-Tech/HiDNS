@@ -1,6 +1,9 @@
 # Dependencies
 node_modules
 **/node_modules
+# pnpm 的内容寻址仓库（实测 498MB，镜像里完全不需要）
+.pnpm-store/
+**/.pnpm-store/
 
 # Example/template directories (not for production)
 _example
@@ -35,6 +38,10 @@ yarn-error.log*
 # Testing
 coverage
 .nyc_output
+# E2E 测试工程（不进镜像）
+e2e/
+e2e/test-results/
+e2e/playwright-report/
 
 # OS
 .DS_Store
