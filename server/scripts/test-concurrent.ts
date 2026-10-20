@@ -11,6 +11,7 @@ loadEnv();
 
 import { connect, getConnection, disconnect } from '../src/db/connection';
 import { log } from './_logger-compat';
+import { autoIdColumn, dropTableSql } from './_ddl-compat';
 
 async function testConcurrentConnections() {
   log.info('TestConcurrent', 'Starting concurrent connection test');
@@ -51,10 +52,11 @@ async function testConcurrentConnections() {
     // 测试2: 并发写入
     log.info('TestConcurrent', `Test 2: Running ${concurrentCount} concurrent writes`);
 
-    // 创建测试表
+    // 创建测试表。先删掉上一轮残留：脚本按行数做断言，残留会让计数翻倍。
+    await conn.execute(dropTableSql('concurrent_test'));
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS concurrent_test (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ${autoIdColumn(conn.type)},
         thread_id INTEGER,
         sequence INTEGER,
         data TEXT,
@@ -105,7 +107,8 @@ async function testConcurrentConnections() {
     log.info('TestConcurrent', 'Test 3: Verifying data integrity');
     const count = await conn.get('SELECT COUNT(*) as count FROM concurrent_test');
     const expectedCount = concurrentCount * operationsPerConnection;
-    const actualCount = (count as any).count;
+    // PostgreSQL/MySQL 的 COUNT(*) 走 bigint/decimal，驱动返回的是字符串，必须转数字再比
+    const actualCount = Number((count as any).count);
 
     log.info('TestConcurrent', `Expected ${expectedCount} records, found ${actualCount}`);
 
@@ -119,7 +122,8 @@ async function testConcurrentConnections() {
     );
 
     for (const tc of threadCounts as any[]) {
-      if (tc.count !== operationsPerConnection) {
+      // 同上：COUNT 在 pg/mysql 上是字符串
+      if (Number(tc.count) !== operationsPerConnection) {
         throw new Error(`Thread ${tc.thread_id} has ${tc.count} records, expected ${operationsPerConnection}`);
       }
     }

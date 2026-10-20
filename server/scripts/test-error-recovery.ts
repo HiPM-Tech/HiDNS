@@ -11,6 +11,7 @@ loadEnv();
 
 import { connect, getConnection, disconnect, transaction } from '../src/db/connection';
 import { log } from './_logger-compat';
+import { autoIdColumn } from './_ddl-compat';
 
 async function testErrorRecovery() {
   log.info('TestErrorRecovery', 'Starting error recovery test');
@@ -25,7 +26,7 @@ async function testErrorRecovery() {
     // 创建测试表
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS error_test (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ${autoIdColumn(conn.type)},
         value TEXT UNIQUE
       )
     `);
