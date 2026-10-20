@@ -525,3 +525,34 @@ EdgeOne 与 DNSPod 是**两个方向不同的解析平台**，但共用腾讯云
 守卫不靠"界面上藏起来"：路由级 `adminOnly` 是硬约束，知道 URL 也进不去。
 这条不变量由 `server/src/routes/__tests__/workflows-admin-guard.test.ts` 直接检查
 Express 路由表来保证——新增路由漏挂守卫会立刻失败。
+
+### 源站组按站点授权，不按域名授权
+
+`ext.*` 动作缺省的授权是 `assertExtDomainAllowed(principal, args.domainId, actionClass)`，
+即"你有没有这个**域名**的权限"。这对源站组是错的：源站组属于 EdgeOne 的**站点**，
+不是域名。用域名权限约束它，两个方向都会出错：
+
+- **越权**：有域名写权限 ≠ 有该站点权限
+- **误伤**：没有该域名写权限 ≠ 不能管理这个站点（站点可能根本没在 HiDNS 登记域名）
+
+因此 `ProviderExtraCapability` 增加了 `authorize` 钩子，能力声明后即取代缺省的域名校验：
+
+```ts
+export type ProviderAuthorize = (
+  principal: ExtraAuthorizePrincipal,
+  args: Record<string, unknown>,
+  actionClass: ActionClass,
+) => Promise<void>;
+```
+
+未声明钩子的提供商行为完全不变。EdgeOne 源站组（`providers/tencenteo/authorize.ts`）
+的判定分两步，任一步无法确定即拒绝：
+
+| 步骤 | 判定 |
+| --- | --- |
+| 1. 账号归属 | 用户能否访问提供凭据的 DNS 账号：超管 / 账号所有者 / 账号所属团队成员 |
+| 2. 站点归属 | 该站点是否在此账号凭据的可见范围内 |
+
+第 2 步对 EdgeOne 账号天然成立（zoneId 取自该域名的 `third_id`，本就是该账号下的站点）；
+复用 DNSPod 凭据时必须核验，否则用户可以传任意 `zoneId` 让系统去操作别人的站点。
+核验结果按 `账号:站点类型:站点` 缓存 60 秒，避免每个动作都打一次 `DescribeZones`。
