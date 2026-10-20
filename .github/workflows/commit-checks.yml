@@ -97,11 +97,16 @@ jobs:
 
       - name: Type Check
         run: |
-          pnpm --filter dnsmgr-server run build --noEmit 2>/dev/null || pnpm --filter dnsmgr-server run build
+          # 只做类型检查，不要用 build：build 会真的产出 dist，且 --noEmit 会被追加到脚本末尾
+          # （变成 node scripts/copy-icons.js --noEmit），既没做检查也不干净。
+          pnpm --filter dnsmgr-server exec tsc --noEmit
+          pnpm --filter dnsmgr-client exec tsc -b
 
       - name: Quick Unit Test
         run: |
-          pnpm --filter dnsmgr-server run test -- --testNamePattern="Database|Auth" --passWithNoTests || echo "⚠️ Some tests failed"
+          # 原来的 --testNamePattern="Database|Auth" 在本仓库匹配不到任何用例（测试名是中文），
+          # vitest 会把 453 个用例全部 skip 后以 0 退出，等于没测。这里直接跑全量单测。
+          pnpm --filter dnsmgr-server run test
 
   file-check:
     name: File Check
