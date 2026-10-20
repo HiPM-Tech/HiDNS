@@ -100,7 +100,7 @@ jobs:
       - name: Type check
         run: |
           pnpm --filter dnsmgr-server run build
-          pnpm --filter client run build
+          pnpm --filter dnsmgr-client run build
 
       # 动作命名空间与唯一性门禁。**不得**附加 || echo / || true 等容错，
       # 否则该校验形同虚设（历史教训：Test Suite 曾经吞掉退出码）。

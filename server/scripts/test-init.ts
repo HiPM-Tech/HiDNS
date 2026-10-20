@@ -6,9 +6,15 @@
  * 3. 删除.env后重新初始化
  */
 
+import { loadEnv } from '../src/config/env';
+
+// 必须先加载 .env，再碰任何数据库配置：否则 DB_TYPE/DB_PATH 全部走默认值，
+// CI 的 sqlite/postgresql/mysql 矩阵会全部退化成同一个 sqlite 默认库。
+loadEnv();
+
 import { connect, getConnection, disconnect, isDbInitialized } from '../src/db/connection';
-import { initializeDSM } from '../src/db/init-dsm';
-import { log } from '../src/lib/logger';
+import { initializeDSM } from '../src/db/dsm/init-dsm';
+import { log } from './_logger-compat';
 
 async function testInit() {
   log.info('TestInit', 'Starting database initialization test');

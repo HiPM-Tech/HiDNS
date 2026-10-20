@@ -3,8 +3,14 @@
  * 验证数据库在错误情况下的恢复能力
  */
 
+import { loadEnv } from '../src/config/env';
+
+// 必须先加载 .env，再碰任何数据库配置：否则 DB_TYPE/DB_PATH 全部走默认值，
+// CI 的 sqlite/postgresql/mysql 矩阵会全部退化成同一个 sqlite 默认库。
+loadEnv();
+
 import { connect, getConnection, disconnect, transaction } from '../src/db/connection';
-import { log } from '../src/lib/logger';
+import { log } from './_logger-compat';
 
 async function testErrorRecovery() {
   log.info('TestErrorRecovery', 'Starting error recovery test');
@@ -24,6 +30,8 @@ async function testErrorRecovery() {
       )
     `);
 
+    // 清掉上一轮残留（脚本必须可重复执行；value 是 UNIQUE，残留会让插入直接失败）
+    await conn.run('DELETE FROM error_test');
     // 插入初始数据
     await conn.run("INSERT INTO error_test (value) VALUES ('initial')");
 
@@ -69,7 +77,9 @@ async function testErrorRecovery() {
     await disconnect();
     await connect();
 
-    const afterReconnect = await conn.query('SELECT COUNT(*) as count FROM error_test');
+    // 重连后必须重新取连接句柄：旧的 conn 指向已关闭的驱动实例
+    const reconnected = getConnection();
+    const afterReconnect = await reconnected.query('SELECT COUNT(*) as count FROM error_test');
     log.info('TestErrorRecovery', `Records after reconnect: ${(afterReconnect[0] as any).count}`);
     log.info('TestErrorRecovery', '✓ Connection recovery successful');
 
@@ -80,7 +90,7 @@ async function testErrorRecovery() {
       setTimeout(() => reject(new Error('Query timeout')), 100);
     });
 
-    const queryPromise = conn.query('SELECT 1');
+    const queryPromise = reconnected.query('SELECT 1');
 
     try {
       await Promise.race([queryPromise, timeoutPromise]);
@@ -89,14 +99,14 @@ async function testErrorRecovery() {
     }
 
     // 验证数据库仍然可用
-    const afterTimeout = await conn.query('SELECT 2 as test');
+    const afterTimeout = await reconnected.query('SELECT 2 as test');
     if ((afterTimeout[0] as any).test !== 2) {
       throw new Error('Database not functional after timeout');
     }
     log.info('TestErrorRecovery', '✓ Timeout recovery successful');
 
     // 清理测试数据
-    await conn.execute('DROP TABLE IF EXISTS error_test');
+    await reconnected.execute('DROP TABLE IF EXISTS error_test');
     log.info('TestErrorRecovery', '✓ Test data cleaned up');
 
     log.info('TestErrorRecovery', 'All error recovery tests passed!');

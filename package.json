@@ -9,7 +9,7 @@
     },
     "scripts": {
         "dev": "concurrently \"pnpm --filter dnsmgr-server dev\" \"pnpm --filter dnsmgr-client dev\"",
-        "build": "pnpm --filter dnsmgr-server build && pnpm --filter client build",
+        "build": "pnpm --filter dnsmgr-server build && pnpm --filter dnsmgr-client build",
         "start": "pnpm --filter dnsmgr-server start"
     },
     "devDependencies": {

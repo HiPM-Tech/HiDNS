@@ -2,8 +2,14 @@
  * 数据库迁移脚本（测试用）
  */
 
+import { loadEnv } from '../src/config/env';
+
+// 必须先加载 .env，再碰任何数据库配置：否则 DB_TYPE/DB_PATH 全部走默认值，
+// CI 的 sqlite/postgresql/mysql 矩阵会全部退化成同一个 sqlite 默认库。
+loadEnv();
+
 import { connect, getConnection, disconnect } from '../src/db/connection';
-import { log } from '../src/lib/logger';
+import { log } from './_logger-compat';
 
 const migrations = [
   {
