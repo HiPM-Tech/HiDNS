@@ -11,7 +11,7 @@ import { getAccessibleDomains, getWritableDomainIds } from './access';
 import { SettingsOperations } from '../db/bal/business-adapter';
 import { setHttpFetchPolicy, getHttpFetchPolicy } from './actions/http/outbound';
 import type { AuthorizeDeps, Principal } from './auth';
-import { buildRecordEvent, type DomainEvent as WorkflowEvent } from '../lib/domain-event-bus';
+import { buildRecordEvent, type AnyDomainEvent, type DomainEvent as WorkflowEvent } from '../lib/domain-event-bus';
 
 const log = createLogger('Workflow');
 
@@ -102,6 +102,56 @@ export async function resolvePrincipal(workflow: WorkflowDefinition): Promise<Pr
   };
 }
 
+/**
+ * 租户边界：工作流 owner 是否有权访问事件所属域名。
+ *
+ * 主键优先、名称兜底，与 `workflow/auth.ts` 的 `assertDomainPermission` 保持同一口径：
+ * - `domain.id > 0` 时它就是权威主键，未命中必须直接拒绝。此前 id 未命中会回落到
+ *   名称比较，而同一个 zone 挂到两个账号（同名域名）时会因此放行到他人域名；
+ * - 只有 `domain.id = 0` 才表示主键缺失（ns.changed 的 ns_monitor_domains 表无
+ *   domain_id 列），此时只能按名称判定。
+ *
+ * 已知口径差异（本次不扩大）：这里用 `getAccessibleDomains`，即「账号 created_by +
+ * domain_permissions 直接授权」，不含团队授权与超管旁路，因此比 HTTP 层
+ * （routes/domains.ts 的 resolveDomainAccess）更窄。方向是 fail-closed：表现为工作流
+ * 在该域名上不触发，引擎会记 warn 并落 skipped/no-domain-access。扩大口径会同步扩大
+ * 工作流的可写域名范围，属独立的产品/安全决策，需另行评审。
+ */
+export async function canAccessEventDomain(
+  workflow: { ownerId?: number },
+  domain: { id: number; name: string },
+): Promise<boolean> {
+  if (!workflow.ownerId) return false;
+  const access = await getAccessibleDomains(workflow.ownerId);
+  if (domain.id > 0) return access.ids.includes(domain.id);
+  return Boolean(domain.name) && access.names.includes(domain.name);
+}
+
+/**
+ * 运行记录里的触发事件快照。
+ *
+ * `no-domain-access` 的跳过记录对应的是**他人域名**的事件：原样落库会让工作流 owner
+ * 通过 `GET /api/workflows/:id/runs` 读到无权访问的域名名与解析值（`listRuns` 是
+ * `SELECT *`，trigger_event 会原样返回）。因此这类记录只保留定位问题所需的骨架。
+ */
+export function toStoredTriggerEvent(run: {
+  status: string;
+  error?: string;
+  traceId: string;
+  event?: AnyDomainEvent;
+}): unknown {
+  if (!run.event) return undefined;
+  if (run.status === 'skipped' && run.error === 'no-domain-access') {
+    return {
+      type: run.event.type,
+      traceId: run.traceId,
+      at: run.event.at,
+      redacted: 'no-domain-access',
+    };
+  }
+  return run.event;
+}
+
 let engine: WorkflowEngine | null = null;
 
 /**
@@ -167,13 +217,7 @@ export function startWorkflowModule(): void {
       const stored = await getStoredById(Number(id));
       return stored ? storedToDefinition(stored) : null;
     },
-    canAccessDomain: async (workflow, domain) => {
-      if (!workflow.ownerId) return false;
-      const access = await getAccessibleDomains(workflow.ownerId);
-      // 事件里的 domain.id 可能为 0（如 ns.changed 表无 domain_id），此时按名称判定
-      if (domain.id > 0 && access.ids.includes(domain.id)) return true;
-      return Boolean(domain.name) && access.names.includes(domain.name);
-    },
+    canAccessDomain: canAccessEventDomain,
     resolvePrincipal: (workflow) => resolvePrincipal(workflow),
     dispatch: dispatcher,
     onRun: async (run) => {
@@ -186,7 +230,7 @@ export function startWorkflowModule(): void {
         error: run.error,
         startedAt: run.startedAt,
         finishedAt: run.finishedAt,
-        triggerEvent: run.event,
+        triggerEvent: toStoredTriggerEvent(run),
         depth: run.depth,
       });
     },

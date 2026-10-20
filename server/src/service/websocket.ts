@@ -304,6 +304,42 @@ class WSService {
   }
 
   /**
+   * 定向广播：只发给指定用户集合，返回实际投递人数。
+   *
+   * 为什么需要它：`broadcast` 会把消息推给所有在线用户，带域名标识的事件
+   * （如 `domain_whois_updated`）一旦走全局广播，就等于把他人域名与到期时间
+   * 推给每一个已连接客户端。收件人必须由调用方按「能读到该资源的用户」算出，
+   * 本方法只负责投递与去重。
+   */
+  broadcastToUsers(userIds: Iterable<number>, message: any): number {
+    const data = JSON.stringify(message);
+    const seen = new Set<number>();
+    let delivered = 0;
+
+    for (const raw of userIds) {
+      const userId = Number(raw);
+      // 去重：同一用户既是账号创建者又是授权用户时不能收到两遍
+      if (!Number.isFinite(userId) || seen.has(userId)) continue;
+      seen.add(userId);
+
+      const client = this.clients.get(userId);
+      if (!client || client.ws.readyState !== WebSocket.OPEN) continue;
+
+      try {
+        client.ws.send(data);
+        delivered += 1;
+      } catch (error) {
+        log.error('Failed to send message to users', {
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return delivered;
+  }
+
+  /**
    * 向指定角色的用户广播消息
    */
   broadcastToRole(role: string, message: any): void {

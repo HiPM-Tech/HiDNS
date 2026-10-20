@@ -106,10 +106,14 @@ export async function syncAllDomainsWhois(forceRefresh: boolean = false): Promis
             successCount++;
             log.info(`Updated expiry for ${d.name}: ${formattedDate}`);
 
-            // 推送 WebSocket 消息通知前端更新
+            // 推送 WebSocket 消息通知前端更新。
+            // 必须按「能读到该域名的用户」定向推送：payload 带域名与到期时间，
+            // 全局广播会把这些信息推给所有在线用户，等于跨用户外泄。
             try {
               const { wsService } = await import('../websocket');
-              wsService.broadcast({
+              const { getDomainAudienceUserIds } = await import('../realtime-audience');
+              const audience = await getDomainAudienceUserIds(Number(d.id));
+              wsService.broadcastToUsers(audience, {
                 type: 'domain_whois_updated',
                 data: {
                   domainId: d.id,
@@ -120,7 +124,7 @@ export async function syncAllDomainsWhois(forceRefresh: boolean = false): Promis
                 },
               });
             } catch (error) {
-              log.error('Failed to broadcast domain_whois_updated event', { error });
+              log.error('Failed to send domain_whois_updated event', { error });
             }
 
             await checkAndSendNotification(d, whoisResult.expiryDate);

@@ -4,6 +4,7 @@ import { taskManager } from './taskManager';
 import { connect } from '../db/dal/connection';
 import { createLogger } from '../lib/logger';
 import { wsService } from './websocket';
+import { getSuperAdminUserIds } from './realtime-audience';
 
 const log = createLogger('Job').sub('ServiceMonitor');
 export function startServiceMonitorJob() {
@@ -41,7 +42,16 @@ export function startServiceMonitorJob() {
             }
 
             await runCheckAndUpdate(monitor);
-            try { wsService.broadcast({ type: 'servicemonitor_checked', data: { id: monitor.id, userId: monitor.userId } }); } catch { }
+            try {
+              // 检查结果只属于「监控所有者 + 超管」：与 GET /api/servicemonitor/:id 的读权限一致
+              // （routes/servicemonitor.ts 只放行 owner 与超管）。全局广播会把他人监控 id
+              // 与所属用户 id 推给所有在线用户。
+              const audience = [monitor.userId, ...(await getSuperAdminUserIds())];
+              wsService.broadcastToUsers(audience, {
+                type: 'servicemonitor_checked',
+                data: { id: monitor.id, userId: monitor.userId },
+              });
+            } catch { }
           }
         );
       });
