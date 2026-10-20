@@ -15,7 +15,10 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  
+
+  /* 全局登录一次，Cookie 存成 storageState 供各用例复用（避免登录限流把用例打成 skip） */
+  globalSetup: require.resolve('./global-setup'),
+
   /* Run tests in files in parallel */
   fullyParallel: true,
   
@@ -60,8 +63,10 @@ export default defineConfig({
     {
       name: 'chromium',
       testMatch: /ui\/.*\.spec\.ts$/,
-      use: { 
+      use: {
         ...devices['Desktop Chrome'],
+        // 复用 globalSetup 的登录态，避免每条用例各自登录触发限流
+        storageState: './.auth/state.json',
         // Use system Chrome if Playwright browsers not installed
         channel: process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD ? 'chrome' : undefined,
       },

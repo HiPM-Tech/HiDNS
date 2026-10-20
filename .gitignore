@@ -11,6 +11,11 @@ node_modules/
 server/dist/
 client/dist/
 
+# E2E artifacts
+e2e/.auth/
+e2e/test-results/
+e2e/playwright-report/
+
 # Environment files
 .env
 *.env.local
