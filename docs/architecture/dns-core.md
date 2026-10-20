@@ -574,8 +574,43 @@ export type ProviderAuthorize = (
 
 实现落在 `service/realtime-audience.ts`：`getDomainAudienceUserIds(domainId)` 按上表产出收件人集合，
 `wsService.broadcastToUsers` 负责去重与投递。特权用户名单 60 秒缓存，避免每次事件全表扫用户。
+`routes/audience.ts` 再承载两类跨文件口径（`getAdminAudienceUserIds`、`getAccountAudienceUserIds`），
+供 domains / users / settings / accounts / tunnels 共用，避免每个文件各写一份特权判定。
 
 口径漂移的两个方向都要防：**多算**是外泄，**少算**是用户看得到却收不到实时更新。
+
+### 收口范围与现状
+
+`server/src/routes` 下 **35 处全局广播已全部收口**（9 个文件、9 个提交），`grep 'wsService.broadcast('`
+在 routes 下为 0 命中。逐文件口径：
+
+| 文件 | 收件人 | HTTP 依据 |
+| --- | --- | --- |
+| records.ts | `getDomainAudienceUserIds(access.domain.id)` | GET /domains/:domainId/records 的 `canRead` |
+| ns-monitor.ts | `[userId]`（仅本人） | GET /:id 走 `getById(id, userId)`，带 user_id 过滤 |
+| domains.ts | 域名口径；续期事件→管理员 | GET /domains/:id；GET /renewable-domains 仅 role≥admin |
+| accounts.ts | 超管 + 创建者 + 团队成员 | `canReadAccount()` |
+| servicemonitor.ts | 所有者 + 超管 | GET /:id 的 `monitor.userId === user \|\| isSuper` |
+| teams.ts | 团队成员 + 超管 | GET /teams/:id 的 `isSuper \|\| isMember` |
+| users.ts | 管理员 + 超管 | GET /users 挂 `adminOnly` |
+| settings.ts | 管理员 + 超管 | GET/PUT /settings/* 全部 `adminOnly` |
+| tunnels.ts | 所属账号可读者 | `getAccessibleCloudflareAccounts()` |
+
+三处**顺序敏感**的点必须特别注意，否则收件人恒为空集：
+
+- `domain_deleted` / `account_deleted` / `team_deleted`：收件人在删除**之前**计算
+- `team_member_added`：在 addMember **之后**计算（新成员当次即收到）
+- `team_member_removed`：在 removeMember **之前**计算（被移除者需要知道自己已离开）
+
+所有调用点统一 fail-closed：收件人为空（资源已删、账号被禁用、查询失败）时
+`log.warn` 跳过投递，**绝不回退成全局广播**——回退等于把刚堵上的口子重新打开。
+
+两处经核实保留原样：
+
+- `service/resource/job.ts` 的 `resource:snapshot` 全员广播：HTTP 侧 `GET /api/resource-monitor/current`
+  只有 `authMiddleware`、无 `adminOnly`，口径一致。
+- `service/audit.ts` 的 `broadcastToRole('3')`：只推超管，而 `/api/audit/logs` 是 `adminOnly`（role≥2 可读），
+  方向是"少算"，fail-closed，无外泄。
 
 ### 工作流触发的域名边界
 
