@@ -307,9 +307,18 @@ describe('写入闸门（能力层）', () => {
   const replaceHandler = HANDLERS['ext.tencenteo.originGroup.replace'];
   const planHandler = HANDLERS['ext.tencenteo.originGroup.plan'];
 
-  // 注册表里的 handler 已被 wrap 成 (ctx, args)，ctx.principal 决定可写域名集合
+  // 注册表里的 handler 已被 wrap 成 (ctx, args)。
+  // 源站组走的是站点级授权（capability.authorize），不再看域名写权限，
+  // 但需要确定的执行身份 —— 用超管身份即可跳过账号归属判定。
   const ctx = {
-    principal: { allowedDomainIds: [7], allowedWriteDomainIds: [7] },
+    principal: {
+      kind: 'user',
+      id: '1',
+      role: 'super_admin',
+      allowedDomainIds: [7],
+      allowedWriteDomainIds: [7],
+      allowedDomains: ['example.com'],
+    },
   } as never;
 
   /** 有状态的假 TEO：写入后回读能看到新记录，才能真实覆盖"写后校验"这一步 */

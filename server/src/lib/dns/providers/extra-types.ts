@@ -44,6 +44,33 @@ export interface ProviderExtraAction {
 
 export type ProviderActionHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
+/**
+ * 授权钩子看到的身份最小子集。
+ *
+ * 刻意不直接依赖 `workflow/auth` 的 `Principal`：providers 是被 workflow 反向依赖的，
+ * 直接 import 会形成环。这里的字段与 `Principal` 结构兼容，由 ext 模块原样传入。
+ */
+export interface ExtraAuthorizePrincipal {
+  readonly kind: string;
+  readonly id: string;
+  readonly role: string;
+}
+
+/**
+ * 能力级自定义授权。
+ *
+ * 缺省行为是按 `args.domainId` 做域名级校验（`assertExtDomainAllowed`）。
+ * 但有些能力的**资源根本不是域名** —— 例如 EdgeOne 源站组属于"站点"，
+ * 用域名写权限去约束它，既不对等也会误伤（用户没有该域名写权限，却可能确实拥有那个站点）。
+ *
+ * 钩子抛错即拒绝；返回即放行。必须**失败关闭**：无法确定资源归属时不得放行。
+ */
+export type ProviderAuthorize = (
+  principal: ExtraAuthorizePrincipal,
+  args: Record<string, unknown>,
+  actionClass: ActionClass,
+) => Promise<void>;
+
 export interface ProviderExtraCapability {
   /** 全名：ext.<providerType>.<suffix> */
   name: string;
@@ -55,4 +82,9 @@ export interface ProviderExtraCapability {
    * 提供商层不感知工作流的 ActionContext，由 ext 模块用 defineAction 包装。
    */
   handlers?: Record<string, ProviderActionHandler>;
+  /**
+   * 能力级授权：声明后取代缺省的域名级校验。
+   * 适用于"资源不是域名"的能力（如 EdgeOne 源站组按站点授权）。
+   */
+  authorize?: ProviderAuthorize;
 }

@@ -1,4 +1,5 @@
-import type { NamespaceClaim } from '../../../types/namespace';
+import type { ActionClass, NamespaceClaim } from '../../../types/namespace';
+import type { ProviderAuthorize } from '../../../lib/dns/providers/extra-types';
 import type { ActionDeclaration, BrandedActionHandler } from '../types';
 import { defineAction } from '../types';
 import { assertExtDomainAllowed } from '../ext-guard';
@@ -36,15 +37,23 @@ export const declarations: ActionDeclaration[] = providerDefinitions.flatMap((de
 /**
  * 扩展能力的 handler 由各提供商自行注册。
  *
- * 这里必须做**域名级二次校验**：`authorize` 校验的是事件域名，
- * 而扩展动作的目标域名来自 `args.domainId` —— 不校验就等于允许跨租户读写。
+ * 这里必须做**资源级二次校验**：`authorize` 校验的是事件域名，
+ * 而扩展动作的目标资源来自 `args` —— 不校验就等于允许跨租户操作。
+ *
+ * 缺省按 `args.domainId` 做域名级校验；能力声明了 `authorize` 钩子时以钩子为准
+ * （例如 EdgeOne 源站组属于"站点"而不是域名，用域名写权限约束它既不对等也会误伤）。
  */
 function wrap(
   handler: (args: Record<string, unknown>) => Promise<unknown>,
   actionClass: string,
+  authorize?: ProviderAuthorize,
 ): BrandedActionHandler {
   return defineAction(async (ctx, args) => {
-    assertExtDomainAllowed(ctx.principal, args.domainId, actionClass);
+    if (authorize) {
+      await authorize(ctx.principal, args, actionClass as ActionClass);
+    } else {
+      assertExtDomainAllowed(ctx.principal, args.domainId, actionClass);
+    }
     return handler(args);
   });
 }
@@ -58,7 +67,7 @@ export const handlers: Record<string, BrandedActionHandler> = Object.assign(
           const declaration = capability.actions.find((action) => action.name === name);
           // 缺声明时按读集合兜底等于 fail-open —— 直接拒绝注册
           if (!declaration) throw new Error(`扩展动作缺少声明: ${name}`);
-          return [name, wrap(handler, declaration.actionClass)];
+          return [name, wrap(handler, declaration.actionClass, capability.authorize)];
         }),
       ),
     ),

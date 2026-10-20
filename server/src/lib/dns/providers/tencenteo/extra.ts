@@ -9,6 +9,7 @@ import {
   type OriginGroup,
 } from './origin-group';
 import { teoOpsForDomain, type TeoOps } from './teo-ops';
+import { authorizeTencenteoOriginGroup } from './authorize';
 
 /**
  * EdgeOne 源站组能力。
@@ -128,6 +129,8 @@ const handlers: Record<string, ProviderActionHandler> = {
 export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
   name: 'ext.tencenteo.originGroup',
   label: 'provider.tencenteo_origin_group',
+  // 源站组属于 EdgeOne 站点，不是域名资源：授权按"账号 + 站点"判定，不套域名写权限
+  authorize: authorizeTencenteoOriginGroup,
   actions: [
     {
       name: 'ext.tencenteo.originGroup.list',

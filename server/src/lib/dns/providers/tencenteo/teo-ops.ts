@@ -46,6 +46,8 @@ export function normalizeSiteType(raw: unknown): SiteType | null {
 export interface TeoOps {
   ops: OriginGroupClient;
   credentialSource: CredentialSource;
+  /** 提供凭据的 DNS 账号；站点级授权据此判断用户是否有权使用该账号 */
+  accountId: number;
   zoneId: string;
   domainName: string;
   /** 实际使用的调用站点类型，写操作据此可追溯调的是哪个端点 */
@@ -152,6 +154,7 @@ export async function teoOpsForDomain(domainId: number, options: TeoOpsOptions =
     return {
       ops: adapter.originGroups(),
       credentialSource: 'tencenteo',
+      accountId: domain.accountId,
       zoneId: domain.thirdId,
       domainName: domain.domainName,
       siteType: adapter.getSiteType(),
@@ -175,6 +178,7 @@ export async function teoOpsForDomain(domainId: number, options: TeoOpsOptions =
   return {
     ops: teo.originGroups(),
     credentialSource: 'dnspod',
+    accountId: domain.accountId,
     zoneId,
     domainName: domain.domainName,
     siteType,
