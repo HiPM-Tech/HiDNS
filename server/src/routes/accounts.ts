@@ -9,7 +9,7 @@ import { isAdmin, isSuper, normalizeRole, ROLE_ADMIN } from '../utils/roles';
 import { parseInteger, sendError, sendSuccess, sendServerError } from '../utils/http';
 import { accountEventData } from '../utils/accountEvent';
 import { wsService } from '../service/websocket';
-import { getSuperAdminUserIds } from '../service/realtime-audience';
+import { getAccountAudienceUserIds } from './audience';
 import { logAuditOperation } from '../service/audit';
 import { createLogger } from '../lib/logger';
 
@@ -31,40 +31,8 @@ function canManageAccount(account: DnsAccount, userId: number, role: number): bo
   return role >= ROLE_ADMIN && account.created_by === userId;
 }
 
-/**
- * 能读到该 DNS 账号的用户集合。
- *
- * 为什么需要它：account_* 事件原本走 wsService.broadcast，payload 带账号名、类型、
- * 备注与团队归属，全局广播等于把「谁在用哪家 DNS 服务商、有哪些账号」推给所有在线
- * 客户端，而 HTTP 上这些信息是受限的。
- *
- * 口径直接复刻本文件的 canReadAccount()（GET /accounts 与 GET /accounts/:id 共用）：
- *   超管 → 是；账号创建者 → 是；账号所属团队成员 → 是；其余 → 否。
- * 超管集合复用 realtime-audience 的实现（含账号未停用过滤），避免第二份特权判定。
- */
-async function getAccountAudienceUserIds(account: DnsAccount): Promise<number[]> {
-  const audience = new Set<number>();
-  const add = (value: unknown): void => {
-    const id = Number(value);
-    if (Number.isFinite(id) && id > 0) audience.add(id);
-  };
-
-  for (const id of await getSuperAdminUserIds()) add(id);
-  add(account.created_by);
-
-  // 团队共享账号：只按 created_by 收口会整段漏掉团队成员
-  if (account.team_id) {
-    try {
-      const members = (await TeamOperations.getMembers(account.team_id)) as Array<{ user_id?: number }>;
-      for (const member of members) add(member.user_id);
-    } catch (error) {
-      // 查不到成员时保留已算出的收件人，成员仍可由列表刷新兜底
-      log.error('Failed to load account team members', { accountId: account.id, error });
-    }
-  }
-
-  return [...audience];
-}
+// account_* 事件的收件人（超管 / 创建者 / 团队成员）统一由 routes/audience.ts 提供，
+// 口径与本文件 canReadAccount() 一致，隧道事件（tunnels.ts）复用同一份判定。
 
 /**
  * @swagger
@@ -274,7 +242,7 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
   // 不能推给所有人。
   try {
     const audience = newAccount
-      ? await getAccountAudienceUserIds(newAccount as unknown as DnsAccount)
+      ? await getAccountAudienceUserIds(newAccount as unknown as { created_by?: number | null; team_id?: number | null })
       : [];
     if (audience.length === 0) {
       log.warn('No audience for account_created event, skipped', { accountId: id });
@@ -452,7 +420,7 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
   // 新加入的团队成员应当收到，被移出的成员不该再收到。
   try {
     const audience = updatedAccount
-      ? await getAccountAudienceUserIds(updatedAccount as unknown as DnsAccount)
+      ? await getAccountAudienceUserIds(updatedAccount as unknown as { created_by?: number | null; team_id?: number | null })
       : [];
     if (audience.length === 0) {
       log.warn('No audience for account_updated event, skipped', { accountId: id });
@@ -566,7 +534,7 @@ router.patch('/:id/toggle-enabled', authMiddleware, asyncHandler(async (req: Req
     const updatedAccount = await DnsAccountOperations.getById(id);
     try {
       const audience = await getAccountAudienceUserIds(
-        (updatedAccount ?? account) as unknown as DnsAccount,
+        (updatedAccount ?? account) as unknown as { created_by?: number | null; team_id?: number | null },
       );
       if (audience.length === 0) {
         log.warn('No audience for account_updated event, skipped', { accountId: id });

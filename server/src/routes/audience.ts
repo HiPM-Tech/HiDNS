@@ -16,8 +16,9 @@
  * 调用方据此跳过投递，不得回退成全局广播。
  */
 
-import { UserOperations } from '../db/bal/business-adapter';
+import { UserOperations, TeamOperations } from '../db/bal/business-adapter';
 import { ROLE_ADMIN } from '../utils/roles';
+import { getSuperAdminUserIds } from '../service/realtime-audience';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('HTTP').sub('Route').sub('Audience');
@@ -51,5 +52,48 @@ export async function getAdminAudienceUserIds(): Promise<number[]> {
     log.error('Failed to resolve admin audience', { error });
     return [];
   }
+  return [...audience];
+}
+
+/**
+ * 能读到某个 DNS 账号的用户集合：超管 + 账号创建者 + 账号所属团队成员。
+ *
+ * 口径来源（两处等价）：
+ *   - routes/accounts.ts 的 canReadAccount()：超管 / created_by / 团队成员
+ *   - routes/tunnels.ts 的 getAccessibleCloudflareAccounts()：super 取全部，
+ *     否则取 created_by 或所属团队名下的账号
+ * 账号类与隧道类事件都带账号归属，收件人一律按这一份实现算，避免各写一份漂移。
+ *
+ * 团队共享账号必须带上成员：只按 created_by 收口会整段漏掉「团队共享账号」的使用者。
+ */
+export async function getAccountAudienceUserIds(account: {
+  id?: number | null;
+  created_by?: number | null;
+  team_id?: number | null;
+}): Promise<number[]> {
+  const audience = new Set<number>();
+  const add = (value: unknown): void => {
+    const id = Number(value);
+    if (Number.isFinite(id) && id > 0) audience.add(id);
+  };
+
+  for (const id of await getSuperAdminUserIds()) add(id);
+  add(account.created_by);
+
+  const teamId = Number(account.team_id);
+  if (Number.isFinite(teamId) && teamId > 0) {
+    try {
+      const members = (await TeamOperations.getMembers(teamId)) as unknown as Array<{ user_id?: number }>;
+      for (const member of members) add(member.user_id);
+    } catch (error) {
+      // 查不到成员时保留已算出的收件人，成员仍可由列表刷新兜底
+      log.error('Failed to load account team members for audience', {
+        accountId: account.id,
+        teamId,
+        error,
+      });
+    }
+  }
+
   return [...audience];
 }
