@@ -421,6 +421,35 @@ providers/
 实现位置：`providers/tencenteo/teo-ops.ts` 的 `teoOpsForDomain(domainId)`，
 能力层（`ext.tencenteo.originGroup.*`）与编辑器候选源（`originGroups`）共用这一份解析。
 
+### 依赖方向：提供商不碰 BAL 与服务层
+
+`providers/**` 只该懂「怎么调厂商 API」。凭据存在哪张表、从哪个 service 取适配器实例，
+都是上层的事。提供商直接 import BAL 会让依赖方向倒挂，并且把「谁有资格读凭据」的判断
+散落到每个提供商里 —— 那正是跨提供商凭据复用被单方面决定的温床。
+
+因此新增 DNS 模块子功能 **`lib/dns/account-context.ts`**，集中承担三件事：
+
+| 函数 | 职责 |
+| --- | --- |
+| `resolveDomainAccount(domainId)` | 域名行 → accountId / thirdId |
+| `resolveAccount(accountId)` | 账号行 → 类型 + 解析后的配置 |
+| `resolveAccountContext(domainId)` | 上面两者 + 适配器实例 |
+
+依赖方向由此变成：
+
+```
+providers/**  ←  lib/dns/account-context.ts  →  db/bal（BAL）/ service
+```
+
+凭据复用的判定本身（`origin-group-broker.ts`）与站点级授权（`origin-group-authorize.ts`）
+也随之从 `providers/tencenteo/` 上提到 `lib/dns/`，提供商目录里只剩适配器与能力声明。
+
+这条规则由 `providers/__tests__/layer-dependency.test.ts` 强制：扫描 `providers/**` 的
+全部源码，出现 `db/bal/` 或 `service/dns-provider-service` 即失败。
+
+> 提供商里仍有对 `service/renewalScheduler` 与 `service/whois` 的 import，
+> 那是「提供商提供调度器子类」的既有模式，与凭据路径无关，本守卫不覆盖。
+
 ### 凭据复用必须两端相互声明
 
 复用别人的凭据是**跨提供商的授权**，不能由消费方单方面决定。否则任何提供商实现

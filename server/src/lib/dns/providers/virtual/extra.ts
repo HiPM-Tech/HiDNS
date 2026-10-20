@@ -1,5 +1,4 @@
-import { DnsProviderService } from '../../../../service/dns-provider-service';
-import { DomainOperations } from '../../../../db/bal/business-adapter';
+import { resolveAccountContext } from '../../account-context';
 import { VirtualAdapter } from './adapter';
 import type { ProviderExtraCapability, ProviderActionHandler } from '../extra-types';
 import { OriginGroupError } from '../../origin-group-core';
@@ -25,17 +24,18 @@ async function opsFor(args: Record<string, unknown>): Promise<OriginGroupClient>
   if (!Number.isFinite(domainId) || domainId <= 0) {
     throw new OriginGroupError('INVALID_ARGS', '缺少 domainId');
   }
-  const domain = (await DomainOperations.getById(domainId)) as unknown as
-    | { id: number; name: string; account_id: number; third_id?: string }
-    | undefined;
-  if (!domain) throw new OriginGroupError('DOMAIN_NOT_FOUND', '域名不存在');
-
-  const adapter = await DnsProviderService.getAdapterByAccount(Number(domain.account_id));
-  if (!(adapter instanceof VirtualAdapter)) {
+  // 域名 / 账号 / 适配器的解析走 DNS 模块子功能，提供商不直接依赖 BAL 与服务层
+  let ctx: Awaited<ReturnType<typeof resolveAccountContext>>;
+  try {
+    ctx = await resolveAccountContext(domainId);
+  } catch {
+    throw new OriginGroupError('DOMAIN_NOT_FOUND', '域名不存在');
+  }
+  if (!(ctx.adapter instanceof VirtualAdapter)) {
     throw new OriginGroupError('PROVIDER_MISMATCH', '该域名的提供商不是虚拟提供商');
   }
-  adapter.setZoneInfo(String(domain.third_id ?? ''), String(domain.name ?? ''));
-  return adapter.originGroups();
+  ctx.adapter.setZoneInfo(ctx.thirdId, ctx.domainName);
+  return ctx.adapter.originGroups();
 }
 
 function readAddressUpdate(args: Record<string, unknown>): AddressUpdate {

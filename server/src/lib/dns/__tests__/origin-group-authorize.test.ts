@@ -2,26 +2,26 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { requestJsonMock } = vi.hoisted(() => ({ requestJsonMock: vi.fn() }));
 
-vi.mock('../../http', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../http')>();
+vi.mock('../providers/http', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../providers/http')>();
   return { ...actual, requestJson: requestJsonMock };
 });
 
-vi.mock('../../../../../service/dns-provider-service', () => ({
+vi.mock('../../../service/dns-provider-service', () => ({
   DnsProviderService: { getAdapterByAccount: vi.fn() },
 }));
 
-vi.mock('../../../../../db/bal/business-adapter', () => ({
+vi.mock('../../../db/bal/business-adapter', () => ({
   DomainOperations: { getById: vi.fn() },
   DnsAccountOperations: { getById: vi.fn() },
   TeamOperations: { isMember: vi.fn() },
 }));
 
-import { authorizeTencenteoOriginGroup, resetZoneAuthorizationCache } from '../authorize';
-import { TencenteoAdapter } from '../adapter';
-import { DnspodAdapter } from '../../dnspod/adapter';
-import { DnsProviderService } from '../../../../../service/dns-provider-service';
-import { DnsAccountOperations, DomainOperations, TeamOperations } from '../../../../../db/bal/business-adapter';
+import { authorizeTencenteoOriginGroup, resetZoneAuthorizationCache } from '../origin-group-authorize';
+import { TencenteoAdapter } from '../providers/tencenteo/adapter';
+import { DnspodAdapter } from '../providers/dnspod/adapter';
+import { DnsProviderService } from '../../../service/dns-provider-service';
+import { DnsAccountOperations, DomainOperations, TeamOperations } from '../../../db/bal/business-adapter';
 
 const DOMAIN_ID = 7;
 const ACCOUNT_ID = 3;

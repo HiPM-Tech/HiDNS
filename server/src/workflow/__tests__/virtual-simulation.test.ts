@@ -8,7 +8,7 @@ import { VIRTUAL_DDNS_ORIGIN_SYNC } from '../presets/virtual-ddns-origin-sync';
 import { VirtualAdapter } from '../../lib/dns/providers/virtual/adapter';
 import { VirtualStore } from '../../lib/dns/providers/virtual/store';
 import { DnsProviderService } from '../../service/dns-provider-service';
-import { DomainOperations } from '../../db/bal/business-adapter';
+import { DnsAccountOperations, DomainOperations } from '../../db/bal/business-adapter';
 import { setRecordDeps, resetRecordDeps } from '../actions/dns/record-deps';
 
 vi.mock('../../service/dns-provider-service', () => ({
@@ -17,6 +17,8 @@ vi.mock('../../service/dns-provider-service', () => ({
 
 vi.mock('../../db/bal/business-adapter', () => ({
   DomainOperations: { getById: vi.fn() },
+  // 域名→账号→适配器的解析现在走 lib/dns/account-context，会读账号行
+  DnsAccountOperations: { getById: vi.fn() },
 }));
 
 const DOMAIN_ID = 7;
@@ -116,6 +118,11 @@ beforeEach(() => {
     name: DOMAIN_NAME,
     account_id: 1,
     third_id: ZONE_ID,
+  });
+  (DnsAccountOperations.getById as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({
+    id: 1,
+    type: 'virtual',
+    config: JSON.stringify({ virtual_enabled: 'true' }),
   });
 });
 

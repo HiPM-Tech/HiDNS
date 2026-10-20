@@ -1,7 +1,7 @@
-import { DnsAccountOperations, TeamOperations } from '../../../../db/bal/business-adapter';
-import type { ExtraAuthorizePrincipal } from '../extra-types';
-import { OriginGroupError } from './origin-group';
-import { listTeoZones, teoOpsForDomain } from './teo-ops';
+import { DnsAccountOperations, TeamOperations } from '../../db/bal/business-adapter';
+import type { ExtraAuthorizePrincipal } from './providers/extra-types';
+import { OriginGroupError } from './providers/tencenteo/origin-group';
+import { listTeoZones, teoOpsForDomain } from './origin-group-broker';
 
 /**
  * EdgeOne 源站组的站点级授权。
