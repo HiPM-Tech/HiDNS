@@ -14,6 +14,61 @@ const log = createLogger('HTTP').sub('Route').sub('Users');
 const router = Router();
 
 /**
+ * 能收到用户管理事件的用户集合：admin 及以上、账号未停用。
+ *
+ * 为什么需要它：user_* 事件原本走 wsService.broadcast，payload 带用户名与角色，
+ * 全局广播等于把「系统里有哪些账号、谁是管理员」推给所有在线客户端，
+ * 而用户管理在 HTTP 上只有管理员可见。
+ *
+ * 口径直接复刻本文件读接口：GET /users 挂了 adminOnly（= isAdmin，role >= admin），
+ * 因此收件人 = 全部 admin + 超管。
+ *
+ * 已知重复：domains.ts 里「可续期域名」的收件人也是同一套特权判定，两处都因为
+ * realtime-audience 只导出了 getSuperAdminUserIds 而各自实现；后续应向该模块补一个
+ * getAdminUserIds 后合并。
+ */
+async function getUserManagementAudienceUserIds(): Promise<number[]> {
+  const audience = new Set<number>();
+  try {
+    const users = (await UserOperations.getAll()) as unknown as Array<{
+      id?: number;
+      role_level?: number;
+      role?: number;
+      status?: number;
+    }>;
+    for (const user of users) {
+      const id = Number(user.id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      // 停用账号不参与推送，与登录态口径一致
+      if (Number(user.status) !== 1) continue;
+      const level = Number(user.role_level ?? user.role ?? 0);
+      if (level >= ROLE_ADMIN) audience.add(id);
+    }
+  } catch (error) {
+    // fail-closed：算不出收件人就不推，管理端有列表刷新兜底
+    log.error('Failed to resolve user management audience', { error });
+    return [];
+  }
+  return [...audience];
+}
+
+/**
+ * 用户管理事件的定向推送。收件人为空时跳过并记 warn，不回退全局广播。
+ */
+async function pushUserEvent(message: { type: string; data: unknown }): Promise<void> {
+  try {
+    const audience = await getUserManagementAudienceUserIds();
+    if (audience.length === 0) {
+      log.warn('No audience for user event, skipped', { type: message.type });
+      return;
+    }
+    wsService.broadcastToUsers(audience, message);
+  } catch (error) {
+    log.error('Failed to send user event', { type: message.type, error });
+  }
+}
+
+/**
  * @swagger
  * /api/users:
  *   get:
@@ -96,19 +151,15 @@ router.post('/', authMiddleware, noTokenAuth('user management'), adminOnly, asyn
       role_level: roleLevel,
     });
 
-    // 推送 WebSocket 消息
-    try {
-      wsService.broadcast({
-        type: 'user_created',
-        data: {
-          userId: id,
-          username: normalizedUsername,
-          role: roleText,
-        },
-      });
-    } catch (error) {
-      log.error('Failed to broadcast user_created event', { error });
-    }
+    // 推送 WebSocket 消息：只推给管理员（口径同 GET /users 的 adminOnly）
+    await pushUserEvent({
+      type: 'user_created',
+      data: {
+        userId: id,
+        username: normalizedUsername,
+        role: roleText,
+      },
+    });
 
     sendSuccess(res, { id });
   } catch {
@@ -210,18 +261,15 @@ router.put('/:id', authMiddleware, noTokenAuth('user management'), adminOnly, as
 
   await UserOperations.update(id, updates);
 
-  // 推送 WebSocket 消息
-  try {
-    wsService.broadcast({
-      type: 'user_updated',
-      data: {
-        userId: id,
-        username: user.username,
-      },
-    });
-  } catch (error) {
-    log.error('Failed to broadcast user_updated event', { error });
-  }
+  // 推送 WebSocket 消息：只推给管理员。收件人在 update 之后算，
+  // 角色被提升为管理员的人当次就能收到后续用户变更。
+  await pushUserEvent({
+    type: 'user_updated',
+    data: {
+      userId: id,
+      username: user.username,
+    },
+  });
 
   sendSuccess(res);
 }));
@@ -272,18 +320,15 @@ router.delete('/:id', authMiddleware, noTokenAuth('user management'), adminOnly,
 
   await UserOperations.delete(id);
 
-  // 推送 WebSocket 消息
-  try {
-    wsService.broadcast({
-      type: 'user_deleted',
-      data: {
-        userId: id,
-        username: target.username,
-      },
-    });
-  } catch (error) {
-    log.error('Failed to broadcast user_deleted event', { error });
-  }
+  // 推送 WebSocket 消息：只推给管理员（删掉的可能正是某个非管理员，
+  // 其账号信息不该广播给所有在线客户端）
+  await pushUserEvent({
+    type: 'user_deleted',
+    data: {
+      userId: id,
+      username: target.username,
+    },
+  });
 
   sendSuccess(res);
 }));
