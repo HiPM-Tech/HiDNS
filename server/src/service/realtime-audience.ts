@@ -49,8 +49,8 @@ export function resetRealtimeAudienceCache(): void {
 
 /**
  * 一次性读出特权用户集合，避免逐域名查用户表。
- * 注意：`UserOperations.getAll()` 会带出整行（含 password_hash），本函数只在进程内使用、
- * 不落日志不落响应；最小投影需要改 business-adapter（当前写入范围之外），已记为后续项。
+ * `UserOperations.getAll()` 的 SELECT 列表不含 password_hash（见 business-adapter 的 users 查询），
+ * 本函数只在进程内使用、不落日志不落响应。
  */
 async function loadPrivilegedUsers(): Promise<PrivilegedUsers> {
   const now = Date.now();
@@ -131,9 +131,17 @@ export async function getDomainAudienceUserIds(domainId: number): Promise<number
       const permissions = (await DomainPermissionOperations.getByDomainId(domainId)) as Array<{
         user_id?: number | null;
         team_id?: number | null;
+        permission?: string | null;
       }>;
       const teamIds = new Set<number>();
       for (const row of permissions) {
+        // 与 HTTP 读判定（routes/domains.ts 的 resolveDomainAccess）逐字对齐：
+        // 只有 read/write 取值的行才算授权。permission 列没有 CHECK 约束，
+        // 不过滤会让 permission='deny' 的授权行反而把人加进收件人（多算=外泄）。
+        if (row.permission !== undefined && row.permission !== null
+          && row.permission !== 'read' && row.permission !== 'write') {
+          continue;
+        }
         add(row.user_id);
         const teamId = Number(row.team_id);
         if (Number.isFinite(teamId) && teamId > 0) teamIds.add(teamId);

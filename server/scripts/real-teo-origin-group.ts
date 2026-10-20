@@ -22,15 +22,25 @@ import { DomainOperations } from '../src/db/bal/business-adapter';
 import { TencenteoAdapter } from '../src/lib/dns/providers/tencenteo/adapter';
 import type { Principal } from '../src/workflow/auth';
 
-const ZONE_ID = process.env.TC_ZONE_ID ?? 'zone-3mr62gje0l1m';
-const DOMAIN_NAME = process.env.TC_DOMAIN ?? 'hinswu.top';
+// 默认值必须是明显的占位符：这个脚本会真的改写线上源站组，
+// 把真实 zone / 域名写死当默认值，等于漏传参数时默认操作真实站点。
+const ZONE_ID = process.env.TC_ZONE_ID ?? 'zone-REPLACE_ME';
+const DOMAIN_NAME = process.env.TC_DOMAIN ?? 'example.com';
 const DOMAIN_ID = Number(process.env.TC_DOMAIN_ID ?? '1');
 
-/** 白名单：只有这两个组允许被本脚本写入 */
-const ALLOWED_GROUPS = new Map<string, string>([
-  ['og-3we4nqony3sn', 'TEST-O'],
-  ['og-3we4ndtas6nr', 'TEST-HTTP'],
-]);
+/**
+ * 白名单：只有这里列出的组允许被本脚本写入。
+ * 默认为空 —— 真实源站组 ID 不应写死进仓库，用
+ *   TC_ALLOWED_GROUPS="og-xxx=名称A,og-yyy=名称B"
+ * 传入；为空时脚本不会写入任何组。
+ */
+const ALLOWED_GROUPS = new Map<string, string>(
+  String(process.env.TC_ALLOWED_GROUPS ?? '')
+    .split(',')
+    .map((pair) => pair.split('='))
+    .filter((pair) => pair.length === 2 && Boolean(pair[0].trim()))
+    .map((pair) => [pair[0].trim(), pair[1].trim()] as [string, string]),
+);
 
 const TARGETS = new Map<string, string>([
   ['og-3we4nqony3sn', process.env.TC_TARGET_TEST_O ?? '203.0.113.10'],

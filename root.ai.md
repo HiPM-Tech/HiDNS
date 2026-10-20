@@ -883,7 +883,7 @@ func updateDDNS(apiToken, baseURL, domain, subDomain, ip string) error {
 
 ### 第一行：主题（简短描述）
 - 格式：`<type>(<scope>): <简短描述>`
-- `type`：`feat`（新功能）、`fix`（修复）、`refactor`（重构）、`docs`（文档）、`style`（样式）、`chore`（构建/工具）、`perf`（性能）、`test`（测试）
+- `type`：`feat`（新功能）、`fix`（修复）、`refactor`（重构）、`docs`（文档）、`style`（样式）、`chore`（杂项）、`perf`（性能）、`test`（测试）、`build`（构建/打包）、`ci`（CI 配置）、`revert`（回滚）
 - `scope`（可选）：影响范围，如 `dpdns_reverse`、`components`、`server`、`client`
 - 简短描述：50 字以内，中文或英文，首字母小写（英文），不加句号
 - 示例：`fix(dpdns_reverse): 修正日期解析格式为MySQL兼容格式`

@@ -347,7 +347,12 @@ export class ConnectionManager {
     } finally {
       // 连接池驱动必须归还连接：否则每次事务泄漏一个 client，
       // 池耗尽后所有查询挂起、disconnect() 里的 pool.end() 也永不返回。
-      await trx.done?.();
+      // 归还失败不应掩盖正常返回值或业务抛出的原始错误（与上面的 ROLLBACK 一致）。
+      try {
+        await trx.done?.();
+      } catch {
+        /* ignore */
+      }
     }
   }
 

@@ -116,7 +116,9 @@ router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response)
     const securityConfigValue = await SettingsOperations.get('security_config');
     if (securityConfigValue) {
       const securityConfig = JSON.parse(securityConfigValue);
-      showSecrets = !!securityConfig.showDnsProviderSecrets;
+      // 开关语义是「管理员可见明文」，不是「所有能读账号的人都能看到明文」：
+      // 否则管理员为了自己查看而打开开关，会把账号所属团队成员一起暴露。
+      showSecrets = !!securityConfig.showDnsProviderSecrets && isAdmin(req.user!.role);
     }
   } catch {
     // Ignore errors, default to false
@@ -295,7 +297,9 @@ router.get('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
     const securityConfigValue = await SettingsOperations.get('security_config');
     if (securityConfigValue) {
       const securityConfig = JSON.parse(securityConfigValue);
-      showSecrets = !!securityConfig.showDnsProviderSecrets;
+      // 开关语义是「管理员可见明文」，不是「所有能读账号的人都能看到明文」：
+      // 否则管理员为了自己查看而打开开关，会把账号所属团队成员一起暴露。
+      showSecrets = !!securityConfig.showDnsProviderSecrets && isAdmin(req.user!.role);
     }
   } catch {
     // Ignore errors, default to false
