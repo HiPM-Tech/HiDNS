@@ -6,6 +6,7 @@ import { createLogger } from '../lib/logger';
 import { normalizeRole, isSuper } from '../utils/roles';
 import { parseInteger, sendError, sendSuccess } from '../utils/http';
 import { wsService } from '../service/websocket';
+import { getSuperAdminUserIds } from '../service/realtime-audience';
 import {
   getMonitors,
   getMonitor,
@@ -47,6 +48,47 @@ function toApiMonitor(monitor: any): any {
     updated_at: monitor.updatedAt,
   };
   return result;
+}
+
+/**
+ * 能读到该服务监控的用户集合：监控所有者本人 + 超管。
+ *
+ * 为什么需要它：servicemonitor_* 事件原本走 wsService.broadcast，payload 带监控名、
+ * 类型与目标地址（含被监控的域名/URL），全局广播等于把「谁在监控什么」推给所有
+ * 在线客户端。
+ *
+ * 口径直接复刻本文件 GET /servicemonitor/:id 的判定（见该处理器）：
+ * monitor.userId === 请求者 || isSuper(role)。超管集合复用 realtime-audience，
+ * 避免第二份特权判定。
+ */
+async function getMonitorAudienceUserIds(ownerUserId: number): Promise<number[]> {
+  const audience = new Set<number>();
+  const owner = Number(ownerUserId);
+  if (Number.isFinite(owner) && owner > 0) audience.add(owner);
+  for (const superId of await getSuperAdminUserIds()) audience.add(superId);
+  return [...audience];
+}
+
+/**
+ * 服务监控事件的定向推送。收件人为空时跳过并记 warn，不回退全局广播（fail-closed）。
+ */
+async function pushMonitorEvent(
+  ownerUserId: number,
+  message: { type: string; data: unknown },
+): Promise<void> {
+  try {
+    const audience = await getMonitorAudienceUserIds(ownerUserId);
+    if (audience.length === 0) {
+      log.warn('No audience for service monitor event, skipped', {
+        ownerUserId,
+        type: message.type,
+      });
+      return;
+    }
+    wsService.broadcastToUsers(audience, message);
+  } catch (e) {
+    log.error('WS broadcast error', e);
+  }
 }
 
 async function getDomainAccess(domainId: number, userId: number, role: number): Promise<{ canRead: boolean; canWrite: boolean }> {
@@ -200,7 +242,8 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
 
   log.info(`ServiceMonitor monitor created: ${id}`, { userId, name, type, target });
 
-  try { wsService.broadcast({ type: 'servicemonitor_created', data: { id, name, type, target, userId } }); } catch (e) { log.error('WS broadcast error', e); }
+  // 只推给能读到该监控的用户（所有者 + 超管，口径同 GET /servicemonitor/:id）
+  await pushMonitorEvent(userId, { type: 'servicemonitor_created', data: { id, name, type, target, userId } });
 
   sendSuccess(res, { id });
 }));
@@ -262,7 +305,8 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
 
   log.info(`ServiceMonitor monitor updated: ${monitorId}`, { userId: req.user!.userId });
 
-  try { wsService.broadcast({ type: 'servicemonitor_updated', data: { id: monitorId, userId: req.user!.userId } }); } catch (e) { log.error('WS broadcast error', e); }
+  // 按监控所有者收口：超管代改时所有者同样要收到，其他人不该收到
+  await pushMonitorEvent(Number(existing.userId), { type: 'servicemonitor_updated', data: { id: monitorId, userId: req.user!.userId } });
 
   sendSuccess(res, { id: monitorId });
 }));
@@ -288,7 +332,7 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req: Request, res: Res
 
   log.info(`ServiceMonitor monitor deleted: ${monitorId}`, { userId: req.user!.userId });
 
-  try { wsService.broadcast({ type: 'servicemonitor_deleted', data: { id: monitorId, userId: req.user!.userId } }); } catch (e) { log.error('WS broadcast error', e); }
+  await pushMonitorEvent(Number(existing.userId), { type: 'servicemonitor_deleted', data: { id: monitorId, userId: req.user!.userId } });
 
   sendSuccess(res, { id: monitorId });
 }));
@@ -316,7 +360,7 @@ router.post('/:id/check', authMiddleware, asyncHandler(async (req: Request, res:
   // 更新状态
   await runCheckAndUpdate(existing);
 
-  try { wsService.broadcast({ type: 'servicemonitor_checked', data: { id: monitorId, status, userId: req.user!.userId } }); } catch (e) { log.error('WS broadcast error', e); }
+  await pushMonitorEvent(Number(existing.userId), { type: 'servicemonitor_checked', data: { id: monitorId, status, userId: req.user!.userId } });
 
   sendSuccess(res, {
     monitorId,
