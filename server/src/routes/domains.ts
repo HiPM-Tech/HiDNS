@@ -12,11 +12,12 @@ import { logAuditOperation } from '../service/audit';
 import { parseInteger, sendError, sendSuccess, sendServerError } from '../utils/http';
 import { createLogger } from '../lib/logger';
 import { publishDomainEvent } from '../lib/domain-event-bus';
-import { DomainOperations, DnsAccountOperations, DomainPermissionOperations, TeamOperations, RenewableDomainOperations, UserPreferencesOperations, NSMonitorOperations, SystemCacheOperations, WhoisOperations } from '../db/bal/business-adapter';
+import { DomainOperations, DnsAccountOperations, DomainPermissionOperations, TeamOperations, RenewableDomainOperations, UserPreferencesOperations, NSMonitorOperations, SystemCacheOperations, WhoisOperations, UserOperations } from '../db/bal/business-adapter';
 import { syncDomainWhois } from '../service/whois';
 import { getRootDomain, queryWhois, groupDomains } from '../service/whois';
 import { getCachedGroupedData, setCachedGroupedData, getCacheVersion, bumpCacheVersion, submitGroupedCacheUpdate } from '../service/groupedCacheJob';
 import { wsService } from '../service/websocket';
+import { getDomainAudienceUserIds } from '../service/realtime-audience';
 import { normalizeDomain, isValidDomain, getDisplayDomain } from '../utils/dns';
 
 
@@ -40,6 +41,38 @@ async function getAccountForManage(accountId: number, userId: number, role: numb
   if (isSuper(role)) return account;
   if (role >= ROLE_ADMIN && account.created_by === userId) return account;
   return null;
+}
+
+/**
+ * 能读到「可续期域名」的用户集合。
+ *
+ * 为什么不用 getDomainAudienceUserIds：可续期域名是 renewable_domains 表的独立记录，
+ * 不是 domains 表的行，没有 domainId 可以套域名口径。
+ * 口径直接对齐同文件读接口 GET /renewable-domains：该处理器只校验
+ * role >= ROLE_ADMIN 且不按归属过滤（返回所有账号下的可续期域名），
+ * 因此收件人 = 全部「admin 及以上且账号未停用」的用户。
+ *
+ * 已知重复：realtime-audience 内部有一份同样的特权用户判定，但那是 service/** 私有实现，
+ * 当前写入范围不允许改，后续应把 getAdminUserIds 上提到 realtime-audience 供这里复用。
+ */
+async function getRenewableDomainAudienceUserIds(): Promise<number[]> {
+  const audience = new Set<number>();
+  try {
+    const users = (await UserOperations.getAll()) as Array<{ id?: number; role_level?: number; role?: number; status?: number }>;
+    for (const user of users) {
+      const id = Number(user.id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      // 停用账号不参与推送，与登录态口径一致
+      if (Number(user.status) !== 1) continue;
+      const level = Number(user.role_level ?? user.role ?? 0);
+      if (level >= ROLE_ADMIN) audience.add(id);
+    }
+  } catch (error) {
+    // fail-closed：算不出收件人就不推，续期结果仍由 HTTP 响应与列表刷新兜底
+    log.error('Failed to resolve renewable domain audience', { error });
+    return [];
+  }
+  return [...audience];
 }
 
 type DomainAccess = {
@@ -727,18 +760,29 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
     await logAuditOperation(req.user!.userId, 'add_domain', domainName, { accountId: account_id }, req);
   }
 
-  // 推送 WebSocket 消息
-  try {
-    wsService.broadcast({
-      type: 'domain_created',
-      data: {
-        domainId: firstId,
-        name: addedDomains.length === 1 ? addedDomains[0] : `${addedDomains.length} domains`,
-        count: added,
-      },
-    });
-  } catch (error) {
-    log.error('Failed to broadcast domain_created event', { error });
+  // 推送 WebSocket 消息：只推给能读到该域名的用户
+  // （口径同 GET /domains/:id 的 canRead，由 getDomainAudienceUserIds 落实）。
+  // 批量导入时 payload 只带 firstId 一条域名的标识（name 是「N domains」聚合串），
+  // 因此按 firstId 的可见范围投递；其余被创建域名的授权用户本次收不到实时信号，
+  // 由列表刷新兜底——少推是可接受方向，多推会泄露他人域名。
+  if (firstId !== null) {
+    try {
+      const audience = await getDomainAudienceUserIds(firstId);
+      if (audience.length === 0) {
+        log.warn('No audience for domain_created event, skipped', { domainId: firstId });
+      } else {
+        wsService.broadcastToUsers(audience, {
+          type: 'domain_created',
+          data: {
+            domainId: firstId,
+            name: addedDomains.length === 1 ? addedDomains[0] : `${addedDomains.length} domains`,
+            count: added,
+          },
+        });
+      }
+    } catch (error) {
+      log.error('Failed to send domain_created event', { error });
+    }
   }
 
   sendSuccess(res, { id: firstId, added, skipped: duplicates.length, duplicates });
@@ -1061,21 +1105,27 @@ router.put('/:id', authMiddleware, requireTokenDomainPermission(), asyncHandler(
     }
   }
 
-  // 推送 WebSocket 消息
+  // 推送 WebSocket 消息：只推给能读到该域名的用户
+  // （payload 带备注、启用状态与到期时间，全局广播等于把他人域名信息推给所有人）
   try {
-    wsService.broadcast({
-      type: 'domain_updated',
-      data: {
-        domainId: id,
-        name: access.domain.name,
-        enabled: enabled !== undefined ? enabled : access.domain.enabled,
-        expiresAt: (updatedDomain as any)?.expires_at || null,
-        apexExpiresAt: (updatedDomain as any)?.apex_expires_at || null,
-        whoisStatus: (updatedDomain as any)?.whois_status || null,
-      },
-    });
+    const audience = await getDomainAudienceUserIds(id);
+    if (audience.length === 0) {
+      log.warn('No audience for domain_updated event, skipped', { domainId: id });
+    } else {
+      wsService.broadcastToUsers(audience, {
+        type: 'domain_updated',
+        data: {
+          domainId: id,
+          name: access.domain.name,
+          enabled: enabled !== undefined ? enabled : access.domain.enabled,
+          expiresAt: (updatedDomain as any)?.expires_at || null,
+          apexExpiresAt: (updatedDomain as any)?.apex_expires_at || null,
+          whoisStatus: (updatedDomain as any)?.whois_status || null,
+        },
+      });
+    }
   } catch (error) {
-    log.error('Failed to broadcast domain_updated event', { error });
+    log.error('Failed to send domain_updated event', { error });
   }
 
   sendSuccess(res);
@@ -1111,6 +1161,8 @@ router.delete('/:id', authMiddleware, requireTokenDomainPermission(), asyncHandl
     return;
   }
   const deletedDomain = access.domain;
+  // 收件人先算再删：删除后域名行不存在，可见用户集合也就查不出来了
+  const deletedDomainAudience = await getDomainAudienceUserIds(id);
   await DomainOperations.delete(id);
 
   publishDomainEvent({
@@ -1153,17 +1205,24 @@ router.delete('/:id', authMiddleware, requireTokenDomainPermission(), asyncHandl
 
   await logAuditOperation(req.user!.userId, 'delete_domain', access.domain.name, { domainId: id, accountId: access.domain.account_id }, req);
 
-  // 推送 WebSocket 消息
+  // 推送 WebSocket 消息：只推给「删之前」能读到该域名的用户。
+  // 收件人必须在删除之前算：删除后 domain 行已不存在，getDomainAudienceUserIds 只能返回空集，
+  // 那样等于谁也不通知（缓存失效事件会丢）。
   try {
-    wsService.broadcast({
-      type: 'domain_deleted',
-      data: {
-        domainId: id,
-        name: access.domain.name,
-      },
-    });
+    const audience = deletedDomainAudience;
+    if (audience.length === 0) {
+      log.warn('No audience for domain_deleted event, skipped', { domainId: id });
+    } else {
+      wsService.broadcastToUsers(audience, {
+        type: 'domain_deleted',
+        data: {
+          domainId: id,
+          name: access.domain.name,
+        },
+      });
+    }
   } catch (error) {
-    log.error('Failed to broadcast domain_deleted event', { error });
+    log.error('Failed to send domain_deleted event', { error });
   }
 
   sendSuccess(res);
@@ -1408,18 +1467,24 @@ router.post('/:id/renew', authMiddleware, asyncHandler(async (req: Request, res:
     // Log audit
     await logAuditOperation(req.user!.userId, 'renew_domain', renewableDomain.full_domain, result, req);
 
-    // WebSocket
+    // WebSocket：只推给能读到「可续期域名」的用户（admin 及以上，口径同
+    // GET /renewable-domains）。payload 带完整域名与新到期时间，不能全局广播。
     try {
-      wsService.broadcast({
-        type: 'domain_renewed',
-        data: {
-          renewableDomainId,
-          fullDomain: renewableDomain.full_domain,
-          newExpiresAt: result.new_expires_at,
-        },
-      });
+      const audience = await getRenewableDomainAudienceUserIds();
+      if (audience.length === 0) {
+        log.warn('No audience for domain_renewed event, skipped', { renewableDomainId });
+      } else {
+        wsService.broadcastToUsers(audience, {
+          type: 'domain_renewed',
+          data: {
+            renewableDomainId,
+            fullDomain: renewableDomain.full_domain,
+            newExpiresAt: result.new_expires_at,
+          },
+        });
+      }
     } catch (error) {
-      log.error('Failed to broadcast domain_renewed event', { error });
+      log.error('Failed to send domain_renewed event', { error });
     }
 
     sendSuccess(res, result, 'Domain renewed successfully');
