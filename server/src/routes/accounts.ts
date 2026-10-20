@@ -9,6 +9,7 @@ import { isAdmin, isSuper, normalizeRole, ROLE_ADMIN } from '../utils/roles';
 import { parseInteger, sendError, sendSuccess, sendServerError } from '../utils/http';
 import { accountEventData } from '../utils/accountEvent';
 import { wsService } from '../service/websocket';
+import { getSuperAdminUserIds } from '../service/realtime-audience';
 import { logAuditOperation } from '../service/audit';
 import { createLogger } from '../lib/logger';
 
@@ -28,6 +29,41 @@ async function canReadAccount(account: DnsAccount, userId: number, role: number)
 function canManageAccount(account: DnsAccount, userId: number, role: number): boolean {
   if (isSuper(role)) return true;
   return role >= ROLE_ADMIN && account.created_by === userId;
+}
+
+/**
+ * 能读到该 DNS 账号的用户集合。
+ *
+ * 为什么需要它：account_* 事件原本走 wsService.broadcast，payload 带账号名、类型、
+ * 备注与团队归属，全局广播等于把「谁在用哪家 DNS 服务商、有哪些账号」推给所有在线
+ * 客户端，而 HTTP 上这些信息是受限的。
+ *
+ * 口径直接复刻本文件的 canReadAccount()（GET /accounts 与 GET /accounts/:id 共用）：
+ *   超管 → 是；账号创建者 → 是；账号所属团队成员 → 是；其余 → 否。
+ * 超管集合复用 realtime-audience 的实现（含账号未停用过滤），避免第二份特权判定。
+ */
+async function getAccountAudienceUserIds(account: DnsAccount): Promise<number[]> {
+  const audience = new Set<number>();
+  const add = (value: unknown): void => {
+    const id = Number(value);
+    if (Number.isFinite(id) && id > 0) audience.add(id);
+  };
+
+  for (const id of await getSuperAdminUserIds()) add(id);
+  add(account.created_by);
+
+  // 团队共享账号：只按 created_by 收口会整段漏掉团队成员
+  if (account.team_id) {
+    try {
+      const members = (await TeamOperations.getMembers(account.team_id)) as Array<{ user_id?: number }>;
+      for (const member of members) add(member.user_id);
+    } catch (error) {
+      // 查不到成员时保留已算出的收件人，成员仍可由列表刷新兜底
+      log.error('Failed to load account team members', { accountId: account.id, error });
+    }
+  }
+
+  return [...audience];
 }
 
 /**
@@ -233,17 +269,26 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
   const newAccount = await DnsAccountOperations.getById(id);
 
   // 增量更新缓存
-  // 推送 WebSocket 消息
+  // 推送 WebSocket 消息：只推给能读到该账号的用户（超管 / 创建者 / 团队成员，
+  // 口径同 GET /accounts/:id 的 canReadAccount）。账号元信息含服务商与团队归属，
+  // 不能推给所有人。
   try {
-    wsService.broadcast({
-      type: 'account_created',
-      data: {
-        accountId: id,
-        account: accountEventData(newAccount),
-      },
-    });
+    const audience = newAccount
+      ? await getAccountAudienceUserIds(newAccount as unknown as DnsAccount)
+      : [];
+    if (audience.length === 0) {
+      log.warn('No audience for account_created event, skipped', { accountId: id });
+    } else {
+      wsService.broadcastToUsers(audience, {
+        type: 'account_created',
+        data: {
+          accountId: id,
+          account: accountEventData(newAccount),
+        },
+      });
+    }
   } catch (error) {
-    log.error('Failed to broadcast account_created event', { error });
+    log.error('Failed to send account_created event', { error });
   }
 
   sendSuccess(res, { id });
@@ -403,17 +448,25 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
   // 获取更新后的完整账户数据用于 WebSocket 推送
   const updatedAccount = await DnsAccountOperations.getById(id);
 
-  // 推送 WebSocket 消息
+  // 推送 WebSocket 消息：按「更新之后」的账号算收件人——team_id 变更时，
+  // 新加入的团队成员应当收到，被移出的成员不该再收到。
   try {
-    wsService.broadcast({
-      type: 'account_updated',
-      data: {
-        accountId: id,
-        account: accountEventData(updatedAccount),
-      },
-    });
+    const audience = updatedAccount
+      ? await getAccountAudienceUserIds(updatedAccount as unknown as DnsAccount)
+      : [];
+    if (audience.length === 0) {
+      log.warn('No audience for account_updated event, skipped', { accountId: id });
+    } else {
+      wsService.broadcastToUsers(audience, {
+        type: 'account_updated',
+        data: {
+          accountId: id,
+          account: accountEventData(updatedAccount),
+        },
+      });
+    }
   } catch (error) {
-    log.error('Failed to broadcast account_updated event', { error });
+    log.error('Failed to send account_updated event', { error });
   }
 
   sendSuccess(res);
@@ -444,19 +497,25 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req: Request, res: Res
     sendError(res, 'Account not found');
     return;
   }
+  // 收件人先算再删：账号行删除后就查不到 created_by / team_id 了
+  const deletedAccountAudience = await getAccountAudienceUserIds(account);
   await DnsAccountOperations.delete(id);
 
-  // 推送 WebSocket 消息
+  // 推送 WebSocket 消息：只推给删除前能读到该账号的用户
   try {
-    wsService.broadcast({
-      type: 'account_deleted',
-      data: {
-        accountId: id,
-        name: account.name,
-      },
-    });
+    if (deletedAccountAudience.length === 0) {
+      log.warn('No audience for account_deleted event, skipped', { accountId: id });
+    } else {
+      wsService.broadcastToUsers(deletedAccountAudience, {
+        type: 'account_deleted',
+        data: {
+          accountId: id,
+          name: account.name,
+        },
+      });
+    }
   } catch (error) {
-    log.error('Failed to broadcast account_deleted event', { error });
+    log.error('Failed to send account_deleted event', { error });
   }
 
   sendSuccess(res);
@@ -506,15 +565,22 @@ router.patch('/:id/toggle-enabled', authMiddleware, asyncHandler(async (req: Req
     // Broadcast account metadata only; provider config must stay private
     const updatedAccount = await DnsAccountOperations.getById(id);
     try {
-      wsService.broadcast({
-        type: 'account_updated',
-        data: {
-          accountId: id,
-          account: updatedAccount ? { ...accountEventData(updatedAccount), enabled: Boolean(updatedAccount.enabled) } : null,
-        },
-      });
+      const audience = await getAccountAudienceUserIds(
+        (updatedAccount ?? account) as unknown as DnsAccount,
+      );
+      if (audience.length === 0) {
+        log.warn('No audience for account_updated event, skipped', { accountId: id });
+      } else {
+        wsService.broadcastToUsers(audience, {
+          type: 'account_updated',
+          data: {
+            accountId: id,
+            account: updatedAccount ? { ...accountEventData(updatedAccount), enabled: Boolean(updatedAccount.enabled) } : null,
+          },
+        });
+      }
     } catch (error) {
-      log.error('Failed to broadcast account_updated event', { error });
+      log.error('Failed to send account_updated event', { error });
     }
 
     sendSuccess(res, { enabled });
