@@ -1,4 +1,4 @@
-import { AccountContextError, canAccessAccount, resolveDomainAccount } from '../../account-context';
+import { AccountContextError, accountAccessLevel, resolveDomainAccount } from '../../account-context';
 import { WRITE_ACTION_CLASSES, type ActionClass } from '../../../../types/namespace';
 import type { ExtraAuthorizePrincipal } from '../extra-types';
 import { OriginGroupError } from '../../origin-group-core';
@@ -63,9 +63,10 @@ export async function authorizeTencenteoOriginGroup(
     throw new OriginGroupError('UNAUTHORIZED', '无法确定执行身份，拒绝操作源站组');
   }
 
-  // 写类判定走共享常量，未知分类一律按写处理（失败关闭）。
-  // 不要写成 `=== 'ext.write' ? write : read` —— 那会让将来新增的写类分类静默降级为读。
-  const mode = WRITE_ACTION_CLASSES.includes(actionClass as ActionClass) ? 'write' : 'read';
+  // 只有显式的 ext.read 才按读处理，其余一律按写（失败关闭）。
+  // 不能用 `=== 'ext.write'`，也不能用 `WRITE_ACTION_CLASSES.includes(...)`：
+  // 两者对「将来新增的写类分类」都会落成 read，等于默认放行。
+  const mode = actionClass === 'ext.read' ? 'read' : 'write';
 
   const domainId = Number(args.domainId);
   if (!Number.isFinite(domainId) || domainId <= 0) {
@@ -83,9 +84,18 @@ export async function authorizeTencenteoOriginGroup(
     throw error;
   }
 
-  // ② 判权。无权时返回与「不存在」完全相同的错误 —— 否则可用 domainId 枚举他人域名。
-  if (!(await canAccessAccount({ accountId, userId, role: principal.role, mode }))) {
+  // ② 判权。分三态，只在「完全无权」与「不存在」之间做等价（防枚举）；
+  // 「有读权限但写权限不足」必须可区分 —— 否则团队成员看到「域名不存在」，
+  // 而同一工作流的 list 又正常工作，现象自相矛盾、无从诊断。
+  const level = await accountAccessLevel({ accountId, userId, role: principal.role });
+  if (level === 'none') {
     throw new OriginGroupError('NOT_FOUND', '域名不存在或无权访问');
+  }
+  if (mode === 'write' && level !== 'write') {
+    throw new OriginGroupError(
+      'WRITE_FORBIDDEN',
+      '你对这个账号只有读权限：改写源站组要求「超管」或「账号创建者且 role >= admin」',
+    );
   }
 
   // ③ 鉴权通过后才解析凭据与站点；此后的错误只可能属于调用者有权访问的资源

@@ -124,6 +124,10 @@ describe('EdgeOne 账号：直接复用账号配置', () => {
     await expect(teoOpsForDomain(DOMAIN_ID, { zoneId: 'zone-other' })).rejects.toMatchObject({
       code: 'ZONE_ID_IGNORED',
     });
+    // 错误串会落进 workflow_runs.error 并返回给 owner，不得携带本域名的 third_id
+    const error = await teoOpsForDomain(DOMAIN_ID, { zoneId: 'zone-other' }).catch((e) => e);
+    expect(error.message).not.toContain('dnspod-domain-42');
+    expect(error.message).not.toContain('zone-other');
   });
 
   it('传入与 third_id 相同的 zoneId 不报错（等价声明）', async () => {
@@ -228,6 +232,16 @@ describe('站点候选（edgeoneZones）', () => {
   it('列站点同样要求显式声明站点类型', async () => {
     stubDnspodAccount();
     await expect(listTeoZones(DOMAIN_ID)).rejects.toMatchObject({ code: 'SITE_TYPE_REQUIRED' });
+  });
+
+  it('EdgeOne 账号只返回本域名的站点（避免编辑器选到别的站点后执行期硬失败）', async () => {
+    asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue(
+      new TencenteoAdapter({ SecretId: 'id', SecretKey: 'key', site_type: 'mainland' }),
+    );
+    const zones = await listTeoZones(DOMAIN_ID);
+    expect(zones).toEqual([{ zoneId: 'dnspod-domain-42', zoneName: DOMAIN_NAME }]);
+    // 不应调用 DescribeZones：EdgeOne 账号的站点由域名自身决定
+    expect(requestJsonMock).not.toHaveBeenCalled();
   });
 });
 

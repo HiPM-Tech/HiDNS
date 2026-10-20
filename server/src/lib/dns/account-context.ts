@@ -113,34 +113,41 @@ export type AccessMode = 'read' | 'write';
  * 放在这里而不是提供商目录：它要读账号行（BAL），而提供商不得直接依赖 BAL。
  * 授权**策略**留在提供商的能力层，**数据**在这里。
  *
- * 读 = 超管 / 账号创建者 / 账号所属团队成员
+ * 返回三态而不是布尔：调用方需要区分「完全无权（可伪装成不存在）」与
+ * 「有读权限但写权限不足（应当明确告知）」，否则一次过度模糊会让
+ * 有读权限的人拿到「域名不存在」，运维无从诊断。
+ *
+ * 读 = 账号创建者 / 账号所属团队成员 / 超管
  * 写 = 超管 /（账号创建者 且 角色为 admin 或 super_admin）
  *      —— 与 routes/accounts.ts 的 canManageAccount 同口径；团队成员只读。
+ * 账号停用时三态一律为 none（含超管）。
  *
  * role 传入的是 workflow 的角色词表（'user' | 'admin' | 'super_admin'），
  * **不要**喂给 utils/roles 的数值词表（normalizeRole 不认 'super_admin'）。
  */
-export async function canAccessAccount(params: {
+export type AccessLevel = 'none' | 'read' | 'write';
+
+export async function accountAccessLevel(params: {
   accountId: number;
   userId: number;
   role: string;
-  mode: AccessMode;
-}): Promise<boolean> {
-  const { accountId, userId, role, mode } = params;
-  if (role === 'super_admin') return true;
-
+}): Promise<AccessLevel> {
+  const { accountId, userId, role } = params;
   const account = (await DnsAccountOperations.getById(accountId)) as unknown as
     | { created_by?: number; team_id?: number | null; enabled?: number | boolean }
     | undefined;
-  if (!account) return false;
-  // 账号被停用时一律拒绝：与 routes/domains.ts 的 resolveDomainAccess 和
-  // getUserAccessibleDomains 的 enabled = 1 过滤保持一致。
-  if (Number(account.enabled) === 0) return false;
+  if (!account) return 'none';
 
-  if (Number(account.created_by) === userId) {
-    return mode === 'read' ? true : role === 'admin' || role === 'super_admin';
-  }
+  // 账号停用一律拒绝，**包括超管**：与 routes/domains.ts 的 resolveDomainAccess
+  // （先判 enabled 再判 isSuper）和 getUserAccessibleDomains 的 enabled = 1 过滤一致。
+  if (Number(account.enabled) === 0) return 'none';
+
+  if (role === 'super_admin') return 'write';
+
+  const isCreator = Number(account.created_by) === userId;
+  if (isCreator) return role === 'admin' || role === 'super_admin' ? 'write' : 'read';
 
   // 团队成员只读：否则被拉进团队的人可以整组覆盖该账号可见的全部站点。
-  return mode === 'read' && Boolean(account.team_id) && TeamOperations.isMember(Number(account.team_id), userId);
+  if (account.team_id && (await TeamOperations.isMember(Number(account.team_id), userId))) return 'read';
+  return 'none';
 }

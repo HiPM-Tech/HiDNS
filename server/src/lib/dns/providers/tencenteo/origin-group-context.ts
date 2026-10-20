@@ -58,10 +58,12 @@ export interface TeoOps {
 export interface TeoOpsOptions {
   /** 站点类型，仅**复用 DNSPod 凭据**时需要；EdgeOne 账号直接复用账号配置 */
   siteType?: string;
-  /** EdgeOne ZoneId，仅**复用 DNSPod 凭据**时需要（DNSPod 域名与 EO 站点无对应关系） */
+  /**
+   * EdgeOne ZoneId。复用 DNSPod 凭据时**必需**（DNSPod 域名与 EO 站点无对应关系）；
+   * EdgeOne 账号下若传入且与 third_id 不一致，会报 ZONE_ID_IGNORED。
+   */
   zoneId?: string;
 }
-
 
 interface ResolvedDomain {
   accountId: number;

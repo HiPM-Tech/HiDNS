@@ -447,16 +447,22 @@ providers/**  →  lib/dns/account-context.ts  →  db/bal（BAL）/ service
 
 **命题二：实现位置。** root.ai.md §310 要求「扩展能力的实现留在提供商目录内，对外只暴露
 裸原语，保护由能力层承担」。因此凭据/站点解析（`origin-group-context.ts`）与站点级授权
-（`origin-group-authorize.ts`）都在 `providers/tencenteo/` 内；`lib/dns/` 只保留
-数据访问（`account-context.ts`，读账号行与构造适配器）。
+（`origin-group-authorize.ts`）都在 `providers/tencenteo/` 内。
 
-授权的**策略**在能力层，**数据**在 account-context —— 这样既满足 §310，又不让提供商
-直接依赖 BAL。
+`lib/dns/` 保留的是**与提供商无关的共享件**：`account-context.ts`（读账号行、构造适配器、
+账号读写权限判定）、`origin-group-core.ts`（DTO 与纯函数，tencenteo 与 virtual 共用）、
+`origin-group-sync.ts`（按地址族同步的通用规划）。它们既不是 tencenteo 私有，也不属于
+「数据访问」一类。
+
+权限判定本身放在 `account-context.ts`（只此一处，避免各提供商各写一份），
+能力层决定**何时、以何种模式**调用它（站点归属核验、读写分流）。
 
 守卫：`providers/__tests__/layer-dependency.test.ts` 解析每个提供商文件的 import 目标
-（静态 / 动态 / require，先剥注释），归一化路径后比对前缀，命中 `src/db/bal` 或
-`src/service/dns-provider-service` 即失败。该测试自带反例，证明「带不带尾斜杠都能抓到」
-「注释里出现关键字不会误报」。
+（`from` / 副作用 `import` / 动态 `import()` / `require`，先剥注释），相对路径按文件解析、
+`@/x` 按 `src` 解析，归一化后用路径分隔符比对前缀，命中 `src/db/bal` 或
+`src/service/dns-provider-service` 即失败；`*.test.ts` 不参与扫描。该测试自带反例，
+证明「带不带尾斜杠都能抓到」「注释里出现关键字不会误报」「相似前缀（`db/balance-helper`、
+`dns/bal`）不会被误判」。
 
 > 提供商里仍有对 `service/renewalScheduler` 与 `service/whois` 的 import，
 > 那是「提供商提供调度器子类」的既有模式，与凭据路径无关，本守卫不覆盖。

@@ -14,8 +14,8 @@ import { authorizeTencenteoOriginGroup } from './origin-group-authorize';
 /**
  * EdgeOne 源站组能力。
  *
- * 凭据解析（含"复用 DNSPod 账号的腾讯云凭据"）在 `../../origin-group-broker`，
- * 站点级授权在 `../../origin-group-authorize`；两者与编辑器的候选源共用同一份实现。
+ * 凭据解析（含"复用 DNSPod 账号的腾讯云凭据"）在同目录 `./origin-group-context`，
+ * 站点级授权在 `./origin-group-authorize`；两者与编辑器的候选源共用同一份实现。
  */
 
 /** 站点类型只对"复用 DNSPod 凭据"有意义；EdgeOne 账号会忽略它 */

@@ -14,7 +14,8 @@ export function assertExtDomainAllowed(
   domainId: unknown,
   actionClass: string,
 ): number {
-  const writeClass = actionClass === 'ext.write';
+  // 与 origin-group-authorize 同口径：只有显式 ext.read 算读，其余按写（失败关闭）。
+  const writeClass = actionClass !== 'ext.read';
   const ids = writeClass ? principal.allowedWriteDomainIds : principal.allowedDomainIds;
 
   // fail-closed：没有集合就拒绝，不再因 undefined 放行

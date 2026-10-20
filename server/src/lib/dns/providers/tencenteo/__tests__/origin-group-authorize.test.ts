@@ -87,12 +87,36 @@ describe('身份与账号归属', () => {
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
   });
 
-  it('既非超管、也非账号所有者、也非团队成员时拒绝', async () => {
+  it('既非超管、也非账号所有者、也非团队成员时拒绝，且不触达适配器', async () => {
     stubTeoAccount();
     asMock(DnsAccountOperations.getById).mockResolvedValue({ id: ACCOUNT_ID, created_by: 999, team_id: null });
     await expect(
       authorizeTencenteoOriginGroup(principal(), { domainId: DOMAIN_ID }, 'ext.read'),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    // 锁住「先鉴权、再解析」：判权失败时不得去构造适配器（那会读凭据/打上游）
+    expect(DnsProviderService.getAdapterByAccount).not.toHaveBeenCalled();
+  });
+
+  it('账号被停用时拒绝（超管也不例外），且不触达适配器', async () => {
+    stubTeoAccount();
+    asMock(DnsAccountOperations.getById).mockResolvedValue({
+      id: ACCOUNT_ID,
+      created_by: 42,
+      team_id: null,
+      enabled: 0,
+    });
+    await expect(
+      authorizeTencenteoOriginGroup(principal({ role: 'super_admin' }), { domainId: DOMAIN_ID }, 'ext.read'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(DnsProviderService.getAdapterByAccount).not.toHaveBeenCalled();
+  });
+
+  it('域名不存在时返回 NOT_FOUND，且不触达适配器', async () => {
+    asMock(DomainOperations.getById).mockResolvedValue(undefined);
+    await expect(
+      authorizeTencenteoOriginGroup(principal(), { domainId: DOMAIN_ID }, 'ext.read'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(DnsProviderService.getAdapterByAccount).not.toHaveBeenCalled();
   });
 
   it('账号所有者放行', async () => {
@@ -122,12 +146,15 @@ describe('身份与账号归属', () => {
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
-  it('超管跳过账号归属判定', async () => {
+  it('超管放行，但仍要读账号行确认账号存在且未停用', async () => {
     stubTeoAccount();
+    asMock(DnsAccountOperations.getById).mockResolvedValue({ id: ACCOUNT_ID, created_by: 999, team_id: null });
     await expect(
       authorizeTencenteoOriginGroup(principal({ role: 'super_admin' }), { domainId: DOMAIN_ID }, 'ext.read'),
     ).resolves.toBeUndefined();
-    expect(DnsAccountOperations.getById).not.toHaveBeenCalled();
+    // enabled 判定在超管短路之前，所以这里会读一次账号行
+    expect(DnsAccountOperations.getById).toHaveBeenCalledTimes(1);
+    expect(TeamOperations.isMember).not.toHaveBeenCalled();
   });
 });
 
@@ -177,9 +204,10 @@ describe('读与写的准入必须分开（评审 P0）', () => {
 
     // 读放行
     await expect(authorizeTencenteoOriginGroup(principal(), args, 'ext.read')).resolves.toBeUndefined();
-    // 写拒绝：否则被拉进团队的人可以整组覆盖该账号可见的所有站点
+    // 写拒绝：否则被拉进团队的人可以整组覆盖该账号可见的所有站点。
+    // 这里是「有读权限但写权限不足」，必须与「域名不存在」区分开，否则无从诊断。
     await expect(authorizeTencenteoOriginGroup(principal(), args, 'ext.write')).rejects.toMatchObject({
-      code: 'NOT_FOUND',
+      code: 'WRITE_FORBIDDEN',
     });
   });
 
@@ -190,7 +218,7 @@ describe('读与写的准入必须分开（评审 P0）', () => {
     await expect(authorizeTencenteoOriginGroup(principal(), args, 'ext.read')).resolves.toBeUndefined();
     await expect(
       authorizeTencenteoOriginGroup(principal({ role: 'user' }), args, 'ext.write'),
-    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    ).rejects.toMatchObject({ code: 'WRITE_FORBIDDEN' });
   });
 
   it('创建者且 admin 可以写', async () => {
@@ -199,12 +227,13 @@ describe('读与写的准入必须分开（评审 P0）', () => {
     await expect(authorizeTencenteoOriginGroup(principal(), args, 'ext.write')).resolves.toBeUndefined();
   });
 
-  it('超管可以写（不看账号归属）', async () => {
+  it('超管可以写（不看归属，但要求账号存在且未停用）', async () => {
     stubTeoAccount();
+    asMock(DnsAccountOperations.getById).mockResolvedValue({ id: ACCOUNT_ID, created_by: 999, team_id: null });
     await expect(
       authorizeTencenteoOriginGroup(principal({ role: 'super_admin' }), args, 'ext.write'),
     ).resolves.toBeUndefined();
-    expect(DnsAccountOperations.getById).not.toHaveBeenCalled();
+    expect(TeamOperations.isMember).not.toHaveBeenCalled();
   });
 
   it('非 user 身份给出独立错误码，而不是「身份缺失」', async () => {
