@@ -1,8 +1,9 @@
-import { resolveAccount, resolveAdapter, resolveDomainAccount } from './account-context';
+import { AccountContextError, resolveAccount, resolveAdapter, resolveDomainAccount } from './account-context';
 import { TencenteoAdapter } from './providers/tencenteo/adapter';
 import type { OriginGroupClient } from './providers/tencenteo/origin-group-client';
-import { OriginGroupError } from './providers/tencenteo/origin-group';
+import { OriginGroupError } from './origin-group-core';
 import { mayReuseCredentials } from './providers/credential-sharing';
+import { normalizeProviderType } from './providerAlias';
 
 /**
  * 由域名解析出可用的 EdgeOne 源站组客户端。
@@ -61,17 +62,6 @@ export interface TeoOpsOptions {
   zoneId?: string;
 }
 
-export function parseAccountConfig(raw: unknown): Record<string, string> {
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
-    } catch {
-      return {};
-    }
-  }
-  return raw && typeof raw === 'object' ? (raw as Record<string, string>) : {};
-}
 
 interface ResolvedDomain {
   accountId: number;
@@ -83,12 +73,31 @@ async function resolveDomain(domainId: number): Promise<ResolvedDomain> {
   if (!Number.isFinite(domainId) || domainId <= 0) {
     throw new OriginGroupError('INVALID_ARGS', '缺少 domainId');
   }
-  // 域名与账号的读取走 DNS 模块子功能（account-context），本文件不直接依赖 BAL
+  // 域名与账号的读取走 DNS 模块子功能（account-context），本文件不直接依赖 BAL。
+  // 只把「行不存在」映射成业务错误；DB 故障 / 连接池耗尽必须原样上抛，
+  // 否则运维看到的是「域名不存在」，排查方向会被彻底带偏。
   try {
     const ref = await resolveDomainAccount(domainId);
     return { accountId: ref.accountId, domainName: ref.domainName, thirdId: ref.thirdId };
-  } catch {
-    throw new OriginGroupError('DOMAIN_NOT_FOUND', '域名不存在');
+  } catch (error) {
+    if (error instanceof AccountContextError && error.code === 'DOMAIN_NOT_FOUND') {
+      throw new OriginGroupError('DOMAIN_NOT_FOUND', '域名不存在');
+    }
+    throw error;
+  }
+}
+
+/** 取账号行；只有「账号不存在」映射成业务错误，其余故障原样上抛 */
+async function requireAccount(
+  accountId: number,
+): Promise<{ accountType: string; accountConfig: Record<string, string> }> {
+  try {
+    return await resolveAccount(accountId);
+  } catch (error) {
+    if (error instanceof AccountContextError && error.code === 'ACCOUNT_NOT_FOUND') {
+      throw new OriginGroupError('PROVIDER_MISMATCH', '该域名的提供商不是 EdgeOne，也没有找到可复用凭据的账号');
+    }
+    throw error;
   }
 }
 
@@ -118,7 +127,9 @@ async function buildReusedAdapter(
   // 凭据复用必须**双向声明**：导出方允许谁用、消费方要用谁的，两边都命中才放行。
   // 只由本文件单方面判断"可以吃 dnspod 的凭据"是不安全的——那样任何提供商实现
   // 只要写死同样一句，就能拿到别的提供商的 SecretId / SecretKey。
-  const accountType = account.accountType;
+  // 历史账号行可能存的是 lego 别名（tencentcloud / edgeone 等），
+  // 归一化后再比对，避免把「配置写法不同」报成「授权未声明」。
+  const accountType = normalizeProviderType(account.accountType);
   if (!mayReuseCredentials('tencenteo', accountType)) {
     throw new OriginGroupError(
       'CREDENTIAL_REUSE_NOT_DECLARED',
@@ -149,7 +160,17 @@ export async function teoOpsForDomain(domainId: number, options: TeoOpsOptions =
   const adapter = await resolveAdapter(domain.accountId);
 
   if (adapter instanceof TencenteoAdapter) {
-    // EdgeOne 账号：third_id 就是 ZoneId，site_type 取自账号配置，不需要额外声明
+    // EdgeOne 账号：third_id 就是 ZoneId，site_type 取自账号配置，不需要额外声明。
+    // 若调用方还传了 zoneId，说明它以为自己在指定站点 —— 但这条路径根本不用它。
+    // 静默忽略会让「账号类型从 dnspod 换成 tencenteo」后的旧工作流悄悄改打到另一个站点，
+    // 所以这里显式报错，让人重新确认参数。
+    const explicitZone = String(options.zoneId ?? '').trim();
+    if (explicitZone && explicitZone !== domain.thirdId) {
+      throw new OriginGroupError(
+        'ZONE_ID_IGNORED',
+        `该域名属于 EdgeOne 账号，ZoneId 由账号决定（${domain.thirdId}），传入的 ${explicitZone} 不会生效；请移除 zoneId 参数`,
+      );
+    }
     adapter.setZoneInfo(domain.thirdId, domain.domainName);
     return {
       ops: adapter.originGroups(),
@@ -161,10 +182,7 @@ export async function teoOpsForDomain(domainId: number, options: TeoOpsOptions =
     };
   }
 
-  const account = await resolveAccount(domain.accountId).catch(() => null);
-  if (!account) {
-    throw new OriginGroupError('PROVIDER_MISMATCH', '该域名的提供商不是 EdgeOne，也没有找到可复用凭据的账号');
-  }
+  const account = await requireAccount(domain.accountId);
   const { adapter: teo, siteType } = await buildReusedAdapter(account, options);
 
   // DNSPod 注册的域名与 EdgeOne 站点没有对应关系，不能按域名反查。
@@ -201,10 +219,7 @@ export async function listTeoZones(
     return adapter.listZones();
   }
 
-  const account = await resolveAccount(domain.accountId).catch(() => null);
-  if (!account) {
-    throw new OriginGroupError('PROVIDER_MISMATCH', '该域名的提供商不是 EdgeOne，也没有找到可复用凭据的账号');
-  }
+  const account = await requireAccount(domain.accountId);
   const { adapter: teo } = await buildReusedAdapter(account, options);
   return teo.listZones();
 }

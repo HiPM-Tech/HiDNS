@@ -1,6 +1,7 @@
 import { DnsAccountOperations, TeamOperations } from '../../db/bal/business-adapter';
+import { isAtLeast, ROLE_ADMIN } from '../../utils/roles';
 import type { ExtraAuthorizePrincipal } from './providers/extra-types';
-import { OriginGroupError } from './providers/tencenteo/origin-group';
+import { OriginGroupError } from './origin-group-core';
 import { listTeoZones, teoOpsForDomain } from './origin-group-broker';
 
 /**
@@ -27,10 +28,19 @@ export function resetZoneAuthorizationCache(): void {
   zoneVisibility.clear();
 }
 
+/**
+ * 用户能否以指定模式使用该账号的凭据。
+ *
+ * **读与写必须分开**：源站组整组覆盖是 ext.write，若与读共用同一条判定，
+ * 就等于把「能看这个账号」放大成「能改写该账号密钥可见的全部站点」。
+ * 写口径与 routes/accounts.ts 的 canManageAccount 对齐：
+ * 超管，或「账号创建者且 role >= admin」；团队成员只读。
+ */
 async function canAccessAccount(
   accountId: number,
   userId: number,
   role: string,
+  mode: 'read' | 'write',
 ): Promise<boolean> {
   // 超管本来就拥有全部账号；这里只对非超管做实质判定
   if (role === 'super_admin') return true;
@@ -38,9 +48,15 @@ async function canAccessAccount(
     | { created_by?: number; team_id?: number | null }
     | undefined;
   if (!account) return false;
-  if (Number(account.created_by) === userId) return true;
-  if (account.team_id) return TeamOperations.isMember(Number(account.team_id), userId);
-  return false;
+
+  if (Number(account.created_by) === userId) {
+    // 读：创建者即可；写：还必须是 admin 及以上
+    return mode === 'read' ? true : isAtLeast(role, ROLE_ADMIN);
+  }
+
+  // 团队成员只有读权限。写必须由账号创建者发起 —— 否则被拉进团队的人
+  // 可以整组覆盖该账号密钥可见的所有 EdgeOne 站点（评审 P0）。
+  return mode === 'read' && Boolean(account.team_id) && TeamOperations.isMember(Number(account.team_id), userId);
 }
 
 async function zoneVisibleUnderCredentials(params: {
@@ -66,12 +82,19 @@ async function zoneVisibleUnderCredentials(params: {
 export async function authorizeTencenteoOriginGroup(
   principal: ExtraAuthorizePrincipal,
   args: Record<string, unknown>,
-  _actionClass: string,
+  actionClass: string,
 ): Promise<void> {
+  // 非 user 身份（token / system）没有可判定的账号归属，直接拒绝；
+  // 单独给错误码，避免以后接入令牌身份时被当成「身份缺失」去查 401。
+  if (principal.kind !== 'user') {
+    throw new OriginGroupError('PRINCIPAL_KIND_UNSUPPORTED', `不支持的身份类型: ${principal.kind}`);
+  }
   const userId = Number(principal.id);
   if (!Number.isInteger(userId) || userId <= 0) {
     throw new OriginGroupError('UNAUTHORIZED', '无法确定执行身份，拒绝操作源站组');
   }
+  // 读、写两类动作的准入不同：写必须由账号创建者发起（见 canAccessAccount）
+  const mode: 'read' | 'write' = actionClass === 'ext.write' ? 'write' : 'read';
 
   const domainId = Number(args.domainId);
   if (!Number.isFinite(domainId) || domainId <= 0) {
@@ -84,10 +107,12 @@ export async function authorizeTencenteoOriginGroup(
   // 解析过程会给出真实的 accountId / zoneId / 凭据来源；解析失败本身就是拒绝
   const ctx = await teoOpsForDomain(domainId, { siteType, zoneId: zoneIdArg });
 
-  if (!(await canAccessAccount(ctx.accountId, userId, principal.role))) {
+  if (!(await canAccessAccount(ctx.accountId, userId, principal.role, mode))) {
     throw new OriginGroupError(
       'ACCOUNT_FORBIDDEN',
-      `无权使用该 DNS 账号（#${ctx.accountId}）的凭据操作 EdgeOne 源站组`,
+      mode === 'write'
+        ? `无权以写模式使用该 DNS 账号（#${ctx.accountId}）：改写源站组要求「超管」或「账号创建者且 role >= admin」`
+        : `无权使用该 DNS 账号（#${ctx.accountId}）的凭据操作 EdgeOne 源站组`,
     );
   }
 

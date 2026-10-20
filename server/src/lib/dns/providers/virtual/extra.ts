@@ -1,4 +1,4 @@
-import { resolveAccountContext } from '../../account-context';
+import { AccountContextError, resolveAccountContext } from '../../account-context';
 import { VirtualAdapter } from './adapter';
 import type { ProviderExtraCapability, ProviderActionHandler } from '../extra-types';
 import { OriginGroupError } from '../../origin-group-core';
@@ -24,12 +24,16 @@ async function opsFor(args: Record<string, unknown>): Promise<OriginGroupClient>
   if (!Number.isFinite(domainId) || domainId <= 0) {
     throw new OriginGroupError('INVALID_ARGS', '缺少 domainId');
   }
-  // 域名 / 账号 / 适配器的解析走 DNS 模块子功能，提供商不直接依赖 BAL 与服务层
+  // 域名 / 账号 / 适配器的解析走 DNS 模块子功能，提供商不直接依赖 BAL 与服务层。
+  // 只把「行不存在」映射成业务错误，其余（DB 故障等）原样上抛。
   let ctx: Awaited<ReturnType<typeof resolveAccountContext>>;
   try {
     ctx = await resolveAccountContext(domainId);
-  } catch {
-    throw new OriginGroupError('DOMAIN_NOT_FOUND', '域名不存在');
+  } catch (error) {
+    if (error instanceof AccountContextError && error.code === 'DOMAIN_NOT_FOUND') {
+      throw new OriginGroupError('DOMAIN_NOT_FOUND', '域名不存在');
+    }
+    throw error;
   }
   if (!(ctx.adapter instanceof VirtualAdapter)) {
     throw new OriginGroupError('PROVIDER_MISMATCH', '该域名的提供商不是虚拟提供商');

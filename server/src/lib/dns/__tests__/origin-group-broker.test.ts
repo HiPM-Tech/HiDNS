@@ -108,13 +108,31 @@ describe('EdgeOne 账号：直接复用账号配置', () => {
     expect(requestJsonMock).not.toHaveBeenCalled();
   });
 
-  it('忽略 siteType / zoneId 参数，不需要额外声明', async () => {
+  it('忽略 siteType（取账号配置），站点类型以账号为准', async () => {
     asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue(
       new TencenteoAdapter({ SecretId: 'id', SecretKey: 'key', site_type: 'intl' }),
     );
-    const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland', zoneId: 'ignored' });
+    const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland' });
     expect(ctx.zoneId).toBe('dnspod-domain-42');
     expect(ctx.siteType).toBe('intl');
+  });
+
+  it('传入不同的 zoneId 时报错，而不是静默改打另一个站点', async () => {
+    asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue(
+      new TencenteoAdapter({ SecretId: 'id', SecretKey: 'key', site_type: 'mainland' }),
+    );
+    await expect(teoOpsForDomain(DOMAIN_ID, { zoneId: 'zone-other' })).rejects.toMatchObject({
+      code: 'ZONE_ID_IGNORED',
+    });
+  });
+
+  it('传入与 third_id 相同的 zoneId 不报错（等价声明）', async () => {
+    asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue(
+      new TencenteoAdapter({ SecretId: 'id', SecretKey: 'key', site_type: 'mainland' }),
+    );
+    await expect(
+      teoOpsForDomain(DOMAIN_ID, { zoneId: 'dnspod-domain-42' }),
+    ).resolves.toMatchObject({ zoneId: 'dnspod-domain-42' });
   });
 });
 

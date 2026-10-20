@@ -17,6 +17,17 @@ import type { DnsAdapter } from './DnsInterface';
  * 而不是 providers → BAL / service。
  */
 
+/** 带 code 的解析错误：调用方只映射「不存在」，其余（DB 故障等）原样上抛 */
+export class AccountContextError extends Error {
+  constructor(
+    readonly code: 'DOMAIN_NOT_FOUND' | 'ACCOUNT_NOT_FOUND',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'AccountContextError';
+  }
+}
+
 export interface AccountContext {
   domainId: number;
   domainName: string;
@@ -54,7 +65,7 @@ export async function resolveDomainAccount(domainId: number): Promise<DomainRef>
     | { id: number; name: string; account_id: number; third_id?: string }
     | undefined;
   if (!domain) {
-    throw new Error(`域名不存在: #${domainId}`);
+    throw new AccountContextError('DOMAIN_NOT_FOUND', `域名不存在: #${domainId}`);
   }
   return {
     domainId: Number(domain.id ?? domainId),
@@ -72,7 +83,7 @@ export async function resolveAccount(
     | { type?: string; config?: unknown }
     | undefined;
   if (!account) {
-    throw new Error(`DNS 账号不存在: #${accountId}`);
+    throw new AccountContextError('ACCOUNT_NOT_FOUND', `DNS 账号不存在: #${accountId}`);
   }
   return {
     accountId,

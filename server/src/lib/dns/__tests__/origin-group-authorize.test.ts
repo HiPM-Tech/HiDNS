@@ -166,3 +166,55 @@ describe('站点归属（复用 DNSPod 凭据时必须核验）', () => {
     expect(requestJsonMock).not.toHaveBeenCalled();
   });
 });
+
+describe('读与写的准入必须分开（评审 P0）', () => {
+  const args = { domainId: DOMAIN_ID };
+
+  it('团队成员只能读：ext.write 必须拒绝', async () => {
+    stubTeoAccount();
+    asMock(DnsAccountOperations.getById).mockResolvedValue({ id: ACCOUNT_ID, created_by: 999, team_id: 5 });
+    asMock(TeamOperations.isMember).mockResolvedValue(true);
+
+    // 读放行
+    await expect(authorizeTencenteoOriginGroup(principal(), args, 'ext.read')).resolves.toBeUndefined();
+    // 写拒绝：否则被拉进团队的人可以整组覆盖该账号可见的所有站点
+    await expect(authorizeTencenteoOriginGroup(principal(), args, 'ext.write')).rejects.toMatchObject({
+      code: 'ACCOUNT_FORBIDDEN',
+    });
+  });
+
+  it('创建者但不是 admin 只能读', async () => {
+    stubTeoAccount();
+    asMock(DnsAccountOperations.getById).mockResolvedValue({ id: ACCOUNT_ID, created_by: 42, team_id: null });
+
+    await expect(authorizeTencenteoOriginGroup(principal(), args, 'ext.read')).resolves.toBeUndefined();
+    await expect(
+      authorizeTencenteoOriginGroup(principal({ role: 'user' }), args, 'ext.write'),
+    ).rejects.toMatchObject({ code: 'ACCOUNT_FORBIDDEN' });
+  });
+
+  it('创建者且 admin 可以写', async () => {
+    stubTeoAccount();
+    asMock(DnsAccountOperations.getById).mockResolvedValue({ id: ACCOUNT_ID, created_by: 42, team_id: null });
+    await expect(authorizeTencenteoOriginGroup(principal(), args, 'ext.write')).resolves.toBeUndefined();
+  });
+
+  it('超管可以写（不看账号归属）', async () => {
+    stubTeoAccount();
+    await expect(
+      authorizeTencenteoOriginGroup(principal({ role: 'super_admin' }), args, 'ext.write'),
+    ).resolves.toBeUndefined();
+    expect(DnsAccountOperations.getById).not.toHaveBeenCalled();
+  });
+
+  it('非 user 身份给出独立错误码，而不是「身份缺失」', async () => {
+    stubTeoAccount();
+    await expect(
+      authorizeTencenteoOriginGroup(
+        { kind: 'token', id: 'token-1', role: 'admin' } as never,
+        args,
+        'ext.read',
+      ),
+    ).rejects.toMatchObject({ code: 'PRINCIPAL_KIND_UNSUPPORTED' });
+  });
+});
