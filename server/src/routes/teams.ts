@@ -9,10 +9,64 @@ import { createLogger } from '../lib/logger';
 import { TeamOperations, DomainPermissionOperations, UserOperations, DomainOperations, DnsAccountOperations } from '../db/bal/business-adapter';
 import { invalidateAccessCache } from '../workflow/access';
 import { wsService } from '../service/websocket';
+import { getSuperAdminUserIds } from '../service/realtime-audience';
 import { getDisplayDomain } from '../utils/dns';
 
 const log = createLogger('HTTP').sub('Route').sub('Teams');
 const router = Router();
+
+/**
+ * 能读到该团队的用户集合：团队成员 + 超管。
+ *
+ * 为什么需要它：team_* 事件原本走 wsService.broadcast，payload 带团队名与成员 ID，
+ * 全局广播等于把「谁和谁在同一个团队、团队有哪些成员」推给所有在线客户端，
+ * 而 HTTP 上团队是受限资源。
+ *
+ * 口径直接复刻本文件读接口的判定：
+ *   GET /teams            → super 看全部，其他人 getByUserId（自己所在的团队）
+ *   GET /teams/:id        → isSuper(role) || isMember(teamId, userId)
+ *   GET /teams/:id/members→ 同上
+ * 因此收件人 = getMembers(teamId) 的 user_id 集合 ∪ 超管集合。
+ * 超管集合复用 realtime-audience，避免第二份特权判定。
+ */
+async function getTeamAudienceUserIds(teamId: number): Promise<number[]> {
+  const audience = new Set<number>();
+  const add = (value: unknown): void => {
+    const id = Number(value);
+    if (Number.isFinite(id) && id > 0) audience.add(id);
+  };
+
+  try {
+    const members = (await TeamOperations.getMembers(teamId)) as unknown as Array<{ user_id?: number }>;
+    for (const member of members) add(member.user_id);
+  } catch (error) {
+    // 查不到成员时仍保留超管收件人，成员可由列表刷新兜底
+    log.error('Failed to load team members for realtime audience', { teamId, error });
+  }
+
+  for (const superId of await getSuperAdminUserIds()) add(superId);
+  return [...audience];
+}
+
+/**
+ * 团队事件的定向推送。收件人为空时跳过并记 warn，不回退全局广播（fail-closed）。
+ */
+async function pushTeamEvent(
+  teamId: number,
+  audience: number[] | null,
+  message: { type: string; data: unknown },
+): Promise<void> {
+  try {
+    const targets = audience ?? (await getTeamAudienceUserIds(teamId));
+    if (targets.length === 0) {
+      log.warn('No audience for team event, skipped', { teamId, type: message.type });
+      return;
+    }
+    wsService.broadcastToUsers(targets, message);
+  } catch (error) {
+    log.error('Failed to send team event', { teamId, type: message.type, error });
+  }
+}
 
 /**
  * 域名归属校验：非超管必须是自己账号下的域名。
@@ -118,18 +172,15 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
 
   await logAuditOperation(userId, 'create_team', name.trim(), { teamId: id }, req as any);
 
-  // 推送 WebSocket 消息
-  try {
-    wsService.broadcast({
-      type: 'team_created',
-      data: {
-        teamId: id,
-        name: name.trim(),
-      },
-    });
-  } catch (error) {
-    log.error('Failed to broadcast team_created event', { error });
-  }
+  // 推送 WebSocket 消息：只推给能读到该团队的用户（创建者已是成员 + 超管，
+  // 口径同 GET /teams/:id 的 isSuper || isMember）
+  await pushTeamEvent(id, null, {
+    type: 'team_created',
+    data: {
+      teamId: id,
+      name: name.trim(),
+    },
+  });
 
   sendSuccess(res, { id }, 'Team created successfully');
 }));
@@ -231,18 +282,14 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
 
   await logAuditOperation(userId, 'update_team', team.name, { teamId, ...updates }, req as any);
 
-  // 推送 WebSocket 消息
-  try {
-    wsService.broadcast({
-      type: 'team_updated',
-      data: {
-        teamId,
-        name: name ?? team.name,
-      },
-    });
-  } catch (error) {
-    log.error('Failed to broadcast team_updated event', { error });
-  }
+  // 推送 WebSocket 消息：只推给团队成员与超管
+  await pushTeamEvent(teamId, null, {
+    type: 'team_updated',
+    data: {
+      teamId,
+      name: name ?? team.name,
+    },
+  });
 
   sendSuccess(res);
 }));
@@ -282,22 +329,20 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req: Request, res: Res
     return;
   }
 
+  // 收件人先算再删：团队行删除后 getMembers 查不到成员，只能剩下超管
+  const deletedTeamAudience = await getTeamAudienceUserIds(teamId);
   await TeamOperations.delete(teamId);
 
   await logAuditOperation(userId, 'delete_team', team.name, { teamId }, req as any);
 
-  // 推送 WebSocket 消息
-  try {
-    wsService.broadcast({
-      type: 'team_deleted',
-      data: {
-        teamId,
-        name: team.name,
-      },
-    });
-  } catch (error) {
-    log.error('Failed to broadcast team_deleted event', { error });
-  }
+  // 推送 WebSocket 消息：只推给删除前能读到该团队的用户
+  await pushTeamEvent(teamId, deletedTeamAudience, {
+    type: 'team_deleted',
+    data: {
+      teamId,
+      name: team.name,
+    },
+  });
 
   sendSuccess(res);
 }));
@@ -416,19 +461,16 @@ router.post('/:id/members', authMiddleware, asyncHandler(async (req: Request, re
 
   await logAuditOperation(userId, 'add_team_member', team.name, { teamId, targetUserId, role: memberRole }, req as any);
 
-  // 推送 WebSocket 消息
-  try {
-    wsService.broadcast({
-      type: 'team_member_added',
-      data: {
-        teamId,
-        userId: targetUserId,
-        role: memberRole || 'member',
-      },
-    });
-  } catch (error) {
-    log.error('Failed to broadcast team_member_added event', { error });
-  }
+  // 推送 WebSocket 消息：成员表已更新，按「加入之后」的成员集合投递，
+  // 新成员本人也能收到（他此刻已具备读权限）
+  await pushTeamEvent(teamId, null, {
+    type: 'team_member_added',
+    data: {
+      teamId,
+      userId: targetUserId,
+      role: memberRole || 'member',
+    },
+  });
 
   sendSuccess(res);
 }));
@@ -547,22 +589,21 @@ router.delete('/:id/members/:userId', authMiddleware, asyncHandler(async (req: R
     return;
   }
 
+  // 收件人按「移除之前」的成员集合算：被移除的人刚失去权限，让他知道
+  // 自己已不在团队里，比静默丢权限更安全（该信息他在移除前本就可见）
+  const removedMemberAudience = await getTeamAudienceUserIds(teamId);
   await TeamOperations.removeMember(teamId, targetUserId);
 
   await logAuditOperation(userId, 'remove_team_member', team.name, { teamId, targetUserId }, req as any);
 
-  // 推送 WebSocket 消息
-  try {
-    wsService.broadcast({
-      type: 'team_member_removed',
-      data: {
-        teamId,
-        userId: targetUserId,
-      },
-    });
-  } catch (error) {
-    log.error('Failed to broadcast team_member_removed event', { error });
-  }
+  // 推送 WebSocket 消息：只推给团队成员与超管
+  await pushTeamEvent(teamId, removedMemberAudience, {
+    type: 'team_member_removed',
+    data: {
+      teamId,
+      userId: targetUserId,
+    },
+  });
 
   sendSuccess(res);
 }));
