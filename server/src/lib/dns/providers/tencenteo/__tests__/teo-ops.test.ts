@@ -98,7 +98,9 @@ describe('EdgeOne 账号：直接用 third_id', () => {
 });
 
 describe('DNSPod 账号：复用同一对腾讯云密钥调用 EdgeOne', () => {
-  function stubDnspodAccount(config: Record<string, string> = { SecretId: 'id', SecretKey: 'key' }) {
+  function stubDnspodAccount(
+    config: Record<string, string> = { SecretId: 'id', SecretKey: 'key', site_type: 'mainland' },
+  ) {
     asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue(
       new DnspodAdapter({ SecretId: 'id', SecretKey: 'key' }),
     );
@@ -135,6 +137,37 @@ describe('DNSPod 账号：复用同一对腾讯云密钥调用 EdgeOne', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].name).toBe('POOL');
     expect(groups[0].records[0].record).toBe('203.0.113.10');
+  });
+
+  it('站点类型必须显式声明：缺省直接拒绝，不猜 mainland', async () => {
+    stubDnspodAccount({ SecretId: 'id', SecretKey: 'key' });
+    stubTeo({ DescribeZones: zoneList([{ ZoneId: 'zone-target', ZoneName: DOMAIN_NAME }]) });
+
+    const error = await teoOpsForDomain(DOMAIN_ID).catch((e) => e);
+    expect(error.code).toBe('SITE_TYPE_REQUIRED');
+    expect(error.message).toMatch(/mainland 或 intl/);
+    // 没有声明就不该发出任何请求
+    expect(requestJsonMock).not.toHaveBeenCalled();
+  });
+
+  it('站点类型取值非法时拒绝', async () => {
+    stubDnspodAccount({ SecretId: 'id', SecretKey: 'key', site_type: 'global' });
+    await expect(teoOpsForDomain(DOMAIN_ID)).rejects.toMatchObject({ code: 'SITE_TYPE_INVALID' });
+  });
+
+  it('声明 intl 时打国际站域名，声明 mainland 时打国内站域名', async () => {
+    for (const [siteType, expectedHost] of [
+      ['intl', 'https://teo.intl.tencentcloudapi.com'],
+      ['mainland', 'https://teo.tencentcloudapi.com'],
+    ] as const) {
+      requestJsonMock.mockReset();
+      stubDnspodAccount({ SecretId: 'id', SecretKey: 'key', site_type: siteType });
+      stubTeo({ DescribeZones: zoneList([{ ZoneId: 'zone-target', ZoneName: DOMAIN_NAME }]) });
+
+      const ctx = await teoOpsForDomain(DOMAIN_ID);
+      expect(ctx.siteType).toBe(siteType);
+      expect(requestJsonMock.mock.calls[0][0]).toBe(expectedHost);
+    }
   });
 
   it('域名匹配是精确等值，不会被前缀域名命中', async () => {

@@ -33,7 +33,7 @@ const handlers: Record<string, ProviderActionHandler> = {
   'ext.tencenteo.originGroup.get': async (args) => (await loadGroup(args)).group,
 
   'ext.tencenteo.originGroup.plan': async (args) => {
-    const { group, credentialSource, zoneId } = await loadGroup(args);
+    const { group, credentialSource, zoneId, siteType } = await loadGroup(args);
     const target: CollapseTarget = {
       record: String(args.target ?? ''),
       type: 'IP_DOMAIN',
@@ -44,9 +44,10 @@ const handlers: Record<string, ProviderActionHandler> = {
       irrecoverable: hasIrrecoverableData(plan.removed),
       referenced: group.references.length > 0,
       referencing: describeReferences(group.references),
-      // 让操作者在确认前就看到这次会用哪类账号的凭据
+      // 让操作者在确认前就看到这次会用哪类账号的凭据、打的是哪个端点
       credentialSource,
       zoneId,
+      siteType,
     };
   },
 
@@ -54,14 +55,14 @@ const handlers: Record<string, ProviderActionHandler> = {
     if (args.collapse !== true) {
       throw new OriginGroupError('COLLAPSE_NOT_ACKNOWLEDGED', '必须显式声明 collapse: true');
     }
-    const { group, ops, credentialSource, zoneId } = await loadGroup(args);
+    const { group, ops, credentialSource, zoneId, siteType } = await loadGroup(args);
     const target: CollapseTarget = {
       record: String(args.target ?? ''),
       type: 'IP_DOMAIN',
     };
     const plan = planCollapse(group, target);
 
-    if (plan.noop) return { skipped: true, reason: 'already-collapsed', plan, credentialSource, zoneId };
+    if (plan.noop) return { skipped: true, reason: 'already-collapsed', plan, credentialSource, zoneId, siteType };
 
     // 被引用中的源站组不得整组覆盖：坍缩会立刻改变这些域名的回源行为。
     // 这是"写入前的最后一道闸门"，不依赖调用方自律。
@@ -103,6 +104,7 @@ const handlers: Record<string, ProviderActionHandler> = {
       requestId: requestId ?? null,
       credentialSource,
       zoneId,
+      siteType,
     };
   },
 };

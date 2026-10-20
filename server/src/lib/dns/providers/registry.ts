@@ -83,6 +83,12 @@ const allProviderDefinitions: ProviderDefinition[] = [
     configFields: [
       { key: 'SecretId', label: 'provider.config.secret_id', type: 'text', required: true },
       { key: 'SecretKey', label: 'provider.config.secret_key', type: 'password', required: true },
+      // DNSPod 账号也可以管理 EdgeOne 源站组（同一对腾讯云密钥），
+      // 但 EO 的国内站与国际站是两个不同的调用域名，必须由用户显式声明，不能猜。
+      { key: 'site_type', label: 'provider.config.edgeone_site_type', type: 'select', required: false, options: [
+        { value: 'mainland', label: 'provider.config.site_type_mainland' },
+        { value: 'intl', label: 'provider.config.site_type_intl' },
+      ]},
     ],
     adapterFactory: (config) => new Adapters.DnspodAdapter(config),
   },

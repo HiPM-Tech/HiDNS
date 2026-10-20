@@ -20,6 +20,15 @@ export class TencenteoAdapter extends TencentCloudAdapter {
     return this.siteType === 'intl' ? 'teo.intl.tencentcloudapi.com' : 'teo.tencentcloudapi.com';
   }
 
+  /**
+   * 当前使用的调用站点类型。
+   * 国内站与国际站是**两个不同的调用域名**，数据不互通；
+   * 上层（源站组能力）用它做审计与错误提示，避免"查不到"被误判成"域名没接入"。
+   */
+  getSiteType(): 'mainland' | 'intl' {
+    return this.siteType === 'intl' ? 'intl' : 'mainland';
+  }
+
   protected version(): string {
     return '2022-09-01';
   }

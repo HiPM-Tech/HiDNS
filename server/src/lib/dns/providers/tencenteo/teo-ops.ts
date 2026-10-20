@@ -21,11 +21,31 @@ import { OriginGroupError } from './origin-group';
 
 export type CredentialSource = 'tencenteo' | 'dnspod';
 
+/**
+ * EdgeOne 的调用域名按站点类型区分，两者**不互通**：
+ * - `mainland`：teo.tencentcloudapi.com
+ * - `intl`：teo.intl.tencentcloudapi.com
+ *
+ * 拿国内站域名去查国际站账号，只会得到空列表或 AuthFailure，
+ * 表现为"域名未接入 EdgeOne"这种误导性错误。所以这里不接受默认值，
+ * 必须由账号显式声明。
+ */
+export type SiteType = 'mainland' | 'intl';
+
+export const SITE_TYPES: readonly SiteType[] = ['mainland', 'intl'];
+
+export function normalizeSiteType(raw: unknown): SiteType | null {
+  const value = String(raw ?? '').trim().toLowerCase();
+  return value === 'mainland' || value === 'intl' ? value : null;
+}
+
 export interface TeoOps {
   ops: OriginGroupClient;
   credentialSource: CredentialSource;
   zoneId: string;
   domainName: string;
+  /** 实际使用的调用站点类型，写操作据此可追溯调的是哪个端点 */
+  siteType: SiteType;
 }
 
 export function parseAccountConfig(raw: unknown): Record<string, string> {
@@ -54,9 +74,16 @@ export async function teoOpsForDomain(domainId: number): Promise<TeoOps> {
   const adapter = await DnsProviderService.getAdapterByAccount(accountId);
 
   if (adapter instanceof TencenteoAdapter) {
+    // EdgeOne 账号的 site_type 在账号配置里是必填项，适配器已按它选好端点
     const zoneId = String(domain.third_id ?? '');
     adapter.setZoneInfo(zoneId, domainName);
-    return { ops: adapter.originGroups(), credentialSource: 'tencenteo', zoneId, domainName };
+    return {
+      ops: adapter.originGroups(),
+      credentialSource: 'tencenteo',
+      zoneId,
+      domainName,
+      siteType: adapter.getSiteType(),
+    };
   }
 
   const account = (await DnsAccountOperations.getById(accountId)) as unknown as
@@ -79,10 +106,27 @@ export async function teoOpsForDomain(domainId: number): Promise<TeoOps> {
     );
   }
 
+  // 不接受默认值：国内站与国际站的调用域名不同，猜错只会得到误导性的空结果
+  const rawSiteType = config.site_type;
+  if (rawSiteType === undefined || String(rawSiteType).trim() === '') {
+    throw new OriginGroupError(
+      'SITE_TYPE_REQUIRED',
+      '复用 DNSPod 账号调用 EdgeOne 时必须显式声明站点类型（mainland 或 intl）：' +
+        '国内站与国际站是不同的调用域名，无法自动推断。请在账号配置中补上 site_type。',
+    );
+  }
+  const siteType = normalizeSiteType(rawSiteType);
+  if (!siteType) {
+    throw new OriginGroupError(
+      'SITE_TYPE_INVALID',
+      `站点类型 ${String(rawSiteType)} 无效，只能是 mainland 或 intl`,
+    );
+  }
+
   const teo = new TencenteoAdapter({
     SecretId: secretId,
     SecretKey: secretKey,
-    site_type: String(config.site_type ?? 'mainland'),
+    site_type: siteType,
   });
   let zoneId: string | null;
   try {
@@ -98,5 +142,5 @@ export async function teoOpsForDomain(domainId: number): Promise<TeoOps> {
     throw new OriginGroupError('ZONE_NOT_FOUND', `域名 ${domainName} 未接入 EdgeOne`);
   }
   teo.setZoneInfo(zoneId, domainName);
-  return { ops: teo.originGroups(), credentialSource: 'dnspod', zoneId, domainName };
+  return { ops: teo.originGroups(), credentialSource: 'dnspod', zoneId, domainName, siteType };
 }

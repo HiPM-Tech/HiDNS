@@ -1741,7 +1741,8 @@
                 "virtual_state_memory": "Memory (ephemeral)",
                 "virtual_seed": "Initial data",
                 "virtual_seed_demo": "Demo dataset",
-                "virtual_seed_empty": "Empty"
+                "virtual_seed_empty": "Empty",
+                "edgeone_site_type": "EdgeOne site type (only when reusing this account’s key to call EdgeOne)"
             }
         },
         "resourceMonitor": {

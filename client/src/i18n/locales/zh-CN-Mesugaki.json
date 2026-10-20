@@ -1710,7 +1710,8 @@
                 "virtual_state_memory": "内存（临时）",
                 "virtual_seed": "初始数据",
                 "virtual_seed_demo": "演示数据集",
-                "virtual_seed_empty": "空"
+                "virtual_seed_empty": "空",
+                "edgeone_site_type": "EdgeOne 站点类型（仅复用本账号密钥调用 EdgeOne 时需要）"
             }
         },
         "resourceMonitor": {

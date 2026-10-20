@@ -423,10 +423,25 @@ providers/
 
 ### 两条解析路径
 
-| 账号类型 | ZoneId 来源 | 凭据来源标记 |
-| --- | --- | --- |
-| `tencenteo` | `domains.third_id` 直接就是 ZoneId | `tencenteo` |
-| `dnspod` | 用域名调 `DescribeZones` **精确等值**反查 | `dnspod` |
+| 账号类型 | ZoneId 来源 | 站点类型来源 | 凭据来源标记 |
+| --- | --- | --- | --- |
+| `tencenteo` | `domains.third_id` 直接就是 ZoneId | 账号配置的 `site_type`（**必填**） | `tencenteo` |
+| `dnspod` | 用域名调 `DescribeZones` **精确等值**反查 | 账号配置的 `site_type`（**必须显式声明**） | `dnspod` |
+
+### 站点类型必须显式声明
+
+EdgeOne 的国内站与国际站是**两个不同的调用域名**，数据互不通用：
+
+| 站点类型 | 调用域名 |
+| --- | --- |
+| `mainland` | `teo.tencentcloudapi.com` |
+| `intl` | `teo.intl.tencentcloudapi.com` |
+
+复用 DNSPod 凭据时，代码**不会**替你猜：未声明 `site_type` 直接报 `SITE_TYPE_REQUIRED`，
+取值非法报 `SITE_TYPE_INVALID`，且不会发出任何请求。
+
+猜错方向的后果不是报错而是**看起来像没数据**：拿国内站域名去查国际站账号，
+返回的是空列表，表现为「域名未接入 EdgeOne」这种误导性错误。所以宁可让用户显式声明。
 
 ### 为什么必须反查
 
@@ -442,8 +457,10 @@ DNSPod 账号下 `domains.third_id` 存的是 DNSPod 的域名 ID（如 `4123456
 | --- | --- |
 | 账号既不是 `tencenteo` 也不是 `dnspod` | `PROVIDER_MISMATCH` |
 | DNSPod 账号缺少 SecretId / SecretKey | `CREDENTIAL_MISSING` |
+| DNSPod 账号未声明 `site_type` | `SITE_TYPE_REQUIRED` |
+| `site_type` 不是 mainland / intl | `SITE_TYPE_INVALID` |
 | 密钥没有 EdgeOne 权限（TEO 返回 AuthFailure） | `EDGEONE_ACCESS_DENIED` |
-| 域名未接入 EdgeOne | `ZONE_NOT_FOUND` |
+| 域名未接入 EdgeOne（该站点类型下） | `ZONE_NOT_FOUND` |
 
-写操作（`ext.tencenteo.originGroup.replace`）的返回值里带 `credentialSource` 与 `zoneId`，
-用于追溯这次写入到底是哪一类账号的凭据发起的。
+`ext.tencenteo.originGroup.plan` / `replace` 的返回值里带 `credentialSource`、
+`zoneId` 与 `siteType`，用于追溯这次操作到底是哪一类账号的凭据、打的是哪个端点。

@@ -25,6 +25,9 @@ vi.mock('../../../lib/dns/providers/tencenteo/adapter', () => {
       this.zoneId = zoneId;
       this.domain = domain;
     }
+    getSiteType() {
+      return 'mainland' as const;
+    }
     originGroups() {
       return (this.constructor as unknown as { nextClient: unknown }).nextClient;
     }
