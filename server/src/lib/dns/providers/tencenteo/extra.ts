@@ -23,8 +23,18 @@ function readSiteType(args: Record<string, unknown>): string | undefined {
   return value || undefined;
 }
 
+/** EdgeOne ZoneId，同样只在复用 DNSPod 凭据时需要 */
+function readZoneId(args: Record<string, unknown>): string | undefined {
+  const value = String(args.zoneId ?? '').trim();
+  return value || undefined;
+}
+
+function teoOptions(args: Record<string, unknown>): { siteType?: string; zoneId?: string } {
+  return { siteType: readSiteType(args), zoneId: readZoneId(args) };
+}
+
 async function loadGroup(args: Record<string, unknown>): Promise<TeoOps & { group: OriginGroup }> {
-  const ctx = await teoOpsForDomain(Number(args.domainId), { siteType: readSiteType(args) });
+  const ctx = await teoOpsForDomain(Number(args.domainId), teoOptions(args));
   const group = await ctx.ops.get(String(args.groupId ?? ''));
   if (!group) throw new OriginGroupError('GROUP_NOT_FOUND', '源站组不存在');
   return { ...ctx, group };
@@ -32,7 +42,7 @@ async function loadGroup(args: Record<string, unknown>): Promise<TeoOps & { grou
 
 const handlers: Record<string, ProviderActionHandler> = {
   'ext.tencenteo.originGroup.list': async (args) => {
-    const { ops } = await teoOpsForDomain(Number(args.domainId), { siteType: readSiteType(args) });
+    const { ops } = await teoOpsForDomain(Number(args.domainId), teoOptions(args));
     return ops.list({});
   },
 
@@ -129,6 +139,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       params: [
         { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
+        { key: 'zoneId', label: 'workflow.param.zone_id', type: 'text', required: false, source: 'edgeoneZones', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
       ],
     },
     {
@@ -141,7 +152,8 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       params: [
         { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
+        { key: 'zoneId', label: 'workflow.param.zone_id', type: 'text', required: false, source: 'edgeoneZones', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'], sourceOptionalParams: ['siteType', 'zoneId'] },
       ],
     },
     {
@@ -154,7 +166,8 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       params: [
         { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
+        { key: 'zoneId', label: 'workflow.param.zone_id', type: 'text', required: false, source: 'edgeoneZones', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'], sourceOptionalParams: ['siteType', 'zoneId'] },
         { key: 'target', label: 'workflow.param.target', type: 'text', required: true },
       ],
     },
@@ -168,7 +181,8 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       params: [
         { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
+        { key: 'zoneId', label: 'workflow.param.zone_id', type: 'text', required: false, source: 'edgeoneZones', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'], sourceOptionalParams: ['siteType', 'zoneId'] },
         { key: 'target', label: 'workflow.param.target', type: 'text', required: true },
         { key: 'diffDigest', label: 'workflow.param.diff_digest', type: 'text', required: true },
       ],

@@ -1781,6 +1781,7 @@
                 "ipv4_from": "旧 IPv4（精确匹配）",
                 "ipv6_from": "旧 IPv6（精确匹配）",
                 "site_type": "EdgeOne 站点类型（复用 DNSPod 密钥时必填）",
+                "zone_id": "EdgeOne 站点 ID（复用 DNSPod 密钥时必填）",
                 "domain": "域名",
                 "name": "主机记录",
                 "type": "记录类型",

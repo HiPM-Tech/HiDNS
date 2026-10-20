@@ -8,10 +8,14 @@ import { OriginGroupError } from './origin-group';
  * 由域名解析出可用的 EdgeOne 源站组客户端。
  *
  * 两条路径：
- * 1. **EdgeOne 账号**：`domains.third_id` 就是 ZoneId，直接用
+ * 1. **EdgeOne 账号**：`domains.third_id` 就是 ZoneId，直接用，不需要额外声明
  * 2. **DNSPod 账号**：EO 与 DNSPod 用的是同一对腾讯云 SecretId/SecretKey，
- *    因此可以复用 DNSPod 账号的凭据调用 TEO。但此时 `third_id` 是 DNSPod 的域名 ID，
- *    不能当 ZoneId，必须拿域名去 TEO 侧精确反查。
+ *    因此可以复用 DNSPod 账号的凭据调用 TEO。
+ *
+ *    但要注意：**DNSPod 注册的域名与 EdgeOne 站点没有对应关系**。
+ *    不能拿 HiDNS 里的域名去 EO 侧反查 ZoneId —— 那只是把"域名看起来一样"
+ *    当成了"就是同一个站点"，一旦用户的 EO 站点用了别的名字，就会静默落空。
+ *    所以复用凭据时必须**显式给出 EdgeOne ZoneId**（站点类型同理）。
  *
  * 复用凭据的前提是这对密钥本身拥有 EdgeOne 权限；没有权限时 TEO 会返回
  * AuthFailure，这里统一翻译成可读错误，而不是把底层报文抛给用户。
@@ -28,7 +32,7 @@ export type CredentialSource = 'tencenteo' | 'dnspod';
  *
  * 拿国内站域名去查国际站账号，只会得到空列表或 AuthFailure，
  * 表现为"域名未接入 EdgeOne"这种误导性错误。所以这里不接受默认值，
- * 必须由账号显式声明。
+ * 必须由调用方显式声明。
  */
 export type SiteType = 'mainland' | 'intl';
 
@@ -48,6 +52,13 @@ export interface TeoOps {
   siteType: SiteType;
 }
 
+export interface TeoOpsOptions {
+  /** 站点类型，仅**复用 DNSPod 凭据**时需要；EdgeOne 账号直接复用账号配置 */
+  siteType?: string;
+  /** EdgeOne ZoneId，仅**复用 DNSPod 凭据**时需要（DNSPod 域名与 EO 站点无对应关系） */
+  zoneId?: string;
+}
+
 export function parseAccountConfig(raw: unknown): Record<string, string> {
   if (typeof raw === 'string') {
     try {
@@ -60,15 +71,13 @@ export function parseAccountConfig(raw: unknown): Record<string, string> {
   return raw && typeof raw === 'object' ? (raw as Record<string, string>) : {};
 }
 
-export interface TeoOpsOptions {
-  /**
-   * 站点类型，仅**复用 DNSPod 凭据**时需要。
-   * EdgeOne 账号直接复用账号配置里已有的 site_type，忽略此参数。
-   */
-  siteType?: string;
+interface ResolvedDomain {
+  accountId: number;
+  domainName: string;
+  thirdId: string;
 }
 
-export async function teoOpsForDomain(domainId: number, options: TeoOpsOptions = {}): Promise<TeoOps> {
+async function resolveDomain(domainId: number): Promise<ResolvedDomain> {
   if (!Number.isFinite(domainId) || domainId <= 0) {
     throw new OriginGroupError('INVALID_ARGS', '缺少 domainId');
   }
@@ -76,24 +85,36 @@ export async function teoOpsForDomain(domainId: number, options: TeoOpsOptions =
     | { id: number; name: string; account_id: number; third_id?: string }
     | undefined;
   if (!domain) throw new OriginGroupError('DOMAIN_NOT_FOUND', '域名不存在');
+  return {
+    accountId: Number(domain.account_id),
+    domainName: String(domain.name ?? ''),
+    thirdId: String(domain.third_id ?? ''),
+  };
+}
 
-  const accountId = Number(domain.account_id);
-  const domainName = String(domain.name ?? '');
-  const adapter = await DnsProviderService.getAdapterByAccount(accountId);
-
-  if (adapter instanceof TencenteoAdapter) {
-    // EdgeOne 账号的 site_type 在账号配置里是必填项，适配器已按它选好端点
-    const zoneId = String(domain.third_id ?? '');
-    adapter.setZoneInfo(zoneId, domainName);
-    return {
-      ops: adapter.originGroups(),
-      credentialSource: 'tencenteo',
-      zoneId,
-      domainName,
-      siteType: adapter.getSiteType(),
-    };
+function requireSiteType(raw: unknown): SiteType {
+  if (raw === undefined || String(raw).trim() === '') {
+    throw new OriginGroupError(
+      'SITE_TYPE_REQUIRED',
+      '复用 DNSPod 账号调用 EdgeOne 时必须显式声明站点类型：在工作流动作里传 siteType=mainland 或 intl。' +
+        '国内站与国际站是不同的调用域名，无法自动推断，也不会默认成任何一个。',
+    );
   }
+  const siteType = normalizeSiteType(raw);
+  if (!siteType) {
+    throw new OriginGroupError('SITE_TYPE_INVALID', `站点类型 ${String(raw)} 无效，只能是 mainland 或 intl`);
+  }
+  return siteType;
+}
 
+/**
+ * 用 DNSPod 账号的腾讯云密钥构造一个只用于 EdgeOne 的适配器。
+ * 这里只取 SecretId / SecretKey，不涉及任何 DNSPod 注册的域名。
+ */
+async function buildReusedAdapter(
+  accountId: number,
+  options: TeoOpsOptions,
+): Promise<{ adapter: TencenteoAdapter; siteType: SiteType }> {
   const account = (await DnsAccountOperations.getById(accountId)) as unknown as
     | { type?: string; config?: unknown }
     | undefined;
@@ -114,43 +135,64 @@ export async function teoOpsForDomain(domainId: number, options: TeoOpsOptions =
     );
   }
 
-  // 不接受默认值：国内站与国际站的调用域名不同，猜错只会得到误导性的空结果。
-  // 站点类型写在**工作流动作**里（siteType 参数），不写进 DNSPod 账号配置：
-  // 同一个账号下的不同域名可能落在不同站点类型上，账号级配置表达不了。
-  const rawSiteType = options.siteType;
-  if (rawSiteType === undefined || String(rawSiteType).trim() === '') {
-    throw new OriginGroupError(
-      'SITE_TYPE_REQUIRED',
-      '复用 DNSPod 账号调用 EdgeOne 时必须显式声明站点类型：在工作流动作里传 siteType=mainland 或 intl。' +
-        '国内站与国际站是不同的调用域名，无法自动推断，也不会默认成任何一个。',
-    );
+  const siteType = requireSiteType(options.siteType);
+  return {
+    adapter: new TencenteoAdapter({ SecretId: secretId, SecretKey: secretKey, site_type: siteType }),
+    siteType,
+  };
+}
+
+export async function teoOpsForDomain(domainId: number, options: TeoOpsOptions = {}): Promise<TeoOps> {
+  const domain = await resolveDomain(domainId);
+  const adapter = await DnsProviderService.getAdapterByAccount(domain.accountId);
+
+  if (adapter instanceof TencenteoAdapter) {
+    // EdgeOne 账号：third_id 就是 ZoneId，site_type 取自账号配置，不需要额外声明
+    adapter.setZoneInfo(domain.thirdId, domain.domainName);
+    return {
+      ops: adapter.originGroups(),
+      credentialSource: 'tencenteo',
+      zoneId: domain.thirdId,
+      domainName: domain.domainName,
+      siteType: adapter.getSiteType(),
+    };
   }
-  const siteType = normalizeSiteType(rawSiteType);
-  if (!siteType) {
+
+  const { adapter: teo, siteType } = await buildReusedAdapter(domain.accountId, options);
+
+  // DNSPod 注册的域名与 EdgeOne 站点没有对应关系，不能按域名反查。
+  const zoneId = String(options.zoneId ?? '').trim();
+  if (!zoneId) {
     throw new OriginGroupError(
-      'SITE_TYPE_INVALID',
-      `站点类型 ${String(rawSiteType)} 无效，只能是 mainland 或 intl`,
+      'ZONE_ID_REQUIRED',
+      '复用 DNSPod 凭据时必须显式给出 EdgeOne ZoneId（zoneId 参数）：' +
+        'DNSPod 注册的域名与 EdgeOne 站点没有对应关系，无法从域名推导。' +
+        '可先用 edgeoneZones 候选源列出当前凭据可见的站点。',
     );
   }
 
-  const teo = new TencenteoAdapter({
-    SecretId: secretId,
-    SecretKey: secretKey,
-    site_type: siteType,
-  });
-  let zoneId: string | null;
-  try {
-    zoneId = await teo.resolveZoneIdByName(domainName);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new OriginGroupError(
-      'EDGEONE_ACCESS_DENIED',
-      `复用 DNSPod 凭据调用 EdgeOne 失败（该密钥可能没有 EdgeOne 权限）: ${message}`,
-    );
+  teo.setZoneInfo(zoneId, domain.domainName);
+  return {
+    ops: teo.originGroups(),
+    credentialSource: 'dnspod',
+    zoneId,
+    domainName: domain.domainName,
+    siteType,
+  };
+}
+
+/** 列出当前域名所属账号的密钥可见的 EdgeOne 站点（供编辑器下拉选择 zoneId） */
+export async function listTeoZones(
+  domainId: number,
+  options: TeoOpsOptions = {},
+): Promise<Array<{ zoneId: string; zoneName: string }>> {
+  const domain = await resolveDomain(domainId);
+  const adapter = await DnsProviderService.getAdapterByAccount(domain.accountId);
+
+  if (adapter instanceof TencenteoAdapter) {
+    return adapter.listZones();
   }
-  if (!zoneId) {
-    throw new OriginGroupError('ZONE_NOT_FOUND', `域名 ${domainName} 未接入 EdgeOne`);
-  }
-  teo.setZoneInfo(zoneId, domainName);
-  return { ops: teo.originGroups(), credentialSource: 'dnspod', zoneId, domainName, siteType };
+
+  const { adapter: teo } = await buildReusedAdapter(domain.accountId, options);
+  return teo.listZones();
 }

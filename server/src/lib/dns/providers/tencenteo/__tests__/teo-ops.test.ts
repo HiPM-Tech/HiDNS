@@ -16,7 +16,7 @@ vi.mock('../../../../../db/bal/business-adapter', () => ({
   DnsAccountOperations: { getById: vi.fn() },
 }));
 
-import { teoOpsForDomain } from '../teo-ops';
+import { listTeoZones, teoOpsForDomain } from '../teo-ops';
 import { TencenteoAdapter } from '../adapter';
 import { DnspodAdapter } from '../../dnspod/adapter';
 import { DnsProviderService } from '../../../../../service/dns-provider-service';
@@ -26,6 +26,7 @@ import { OriginGroupError } from '../origin-group';
 const DOMAIN_ID = 7;
 const DOMAIN_NAME = 'example.com';
 const ACCOUNT_ID = 3;
+const EO_ZONE = 'zone-explicit-1';
 
 const asMock = <T>(fn: T) => fn as unknown as { mockResolvedValue: (v: unknown) => void };
 
@@ -65,13 +66,24 @@ function groupList() {
   };
 }
 
-function stubDomain(accountId = ACCOUNT_ID) {
+function stubDomain() {
   asMock(DomainOperations.getById).mockResolvedValue({
     id: DOMAIN_ID,
     name: DOMAIN_NAME,
-    account_id: accountId,
-    // DNSPod 账号下这里存的是 DNSPod 域名 ID，不是 EO 的 ZoneId
+    account_id: ACCOUNT_ID,
+    // DNSPod 账号下这里存的是 DNSPod 域名 ID，与 EdgeOne 站点无关
     third_id: 'dnspod-domain-42',
+  });
+}
+
+function stubDnspodAccount(config: Record<string, string> = { SecretId: 'id', SecretKey: 'key' }) {
+  asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue(
+    new DnspodAdapter({ SecretId: 'id', SecretKey: 'key' }),
+  );
+  asMock(DnsAccountOperations.getById).mockResolvedValue({
+    id: ACCOUNT_ID,
+    type: 'dnspod',
+    config: JSON.stringify(config),
   });
 }
 
@@ -85,84 +97,67 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('EdgeOne 账号：直接用 third_id', () => {
-  it('走原生路径，不查 DescribeZones', async () => {
+describe('EdgeOne 账号：直接复用账号配置', () => {
+  it('用 third_id 作为 ZoneId，不额外调用 DescribeZones', async () => {
     asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue(
-      new TencenteoAdapter({ SecretId: 'id', SecretKey: 'key' }),
+      new TencenteoAdapter({ SecretId: 'id', SecretKey: 'key', site_type: 'mainland' }),
     );
     const ctx = await teoOpsForDomain(DOMAIN_ID);
     expect(ctx.credentialSource).toBe('tencenteo');
     expect(ctx.zoneId).toBe('dnspod-domain-42');
     expect(requestJsonMock).not.toHaveBeenCalled();
   });
+
+  it('忽略 siteType / zoneId 参数，不需要额外声明', async () => {
+    asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue(
+      new TencenteoAdapter({ SecretId: 'id', SecretKey: 'key', site_type: 'intl' }),
+    );
+    const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland', zoneId: 'ignored' });
+    expect(ctx.zoneId).toBe('dnspod-domain-42');
+    expect(ctx.siteType).toBe('intl');
+  });
 });
 
-describe('DNSPod 账号：复用同一对腾讯云密钥调用 EdgeOne', () => {
-  function stubDnspodAccount(
-    config: Record<string, string> = { SecretId: 'id', SecretKey: 'key' },
-  ) {
-    asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue(
-      new DnspodAdapter({ SecretId: 'id', SecretKey: 'key' }),
-    );
-    asMock(DnsAccountOperations.getById).mockResolvedValue({
-      id: ACCOUNT_ID,
-      type: 'dnspod',
-      config: JSON.stringify(config),
-    });
-  }
-
-  it('按域名反查 ZoneId，并标记凭据来源', async () => {
+describe('DNSPod 账号：用凭据直接发 EdgeOne 请求', () => {
+  it('站点类型必须显式声明，缺省直接拒绝且不发请求', async () => {
     stubDnspodAccount();
-    stubTeo({
-      DescribeZones: zoneList([
-        { ZoneId: 'zone-other', ZoneName: 'other.com' },
-        { ZoneId: 'zone-target', ZoneName: DOMAIN_NAME },
-      ]),
-    });
-
-    const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland' });
-    expect(ctx.credentialSource).toBe('dnspod');
-    expect(ctx.zoneId).toBe('zone-target');
-    expect(ctx.siteType).toBe('mainland');
-  });
-
-  it('反查到 ZoneId 后可以直接列出源站组', async () => {
-    stubDnspodAccount();
-    stubTeo({
-      DescribeZones: zoneList([{ ZoneId: 'zone-target', ZoneName: DOMAIN_NAME }]),
-      DescribeOriginGroup: groupList(),
-    });
-
-    const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland' });
-    const groups = await ctx.ops.list({ limit: 100 });
-    expect(groups).toHaveLength(1);
-    expect(groups[0].name).toBe('POOL');
-    expect(groups[0].records[0].record).toBe('203.0.113.10');
-  });
-
-  it('站点类型必须显式声明：缺省直接拒绝，不猜 mainland', async () => {
-    stubDnspodAccount({ SecretId: 'id', SecretKey: 'key' });
-    stubTeo({ DescribeZones: zoneList([{ ZoneId: 'zone-target', ZoneName: DOMAIN_NAME }]) });
-
-    const error = await teoOpsForDomain(DOMAIN_ID).catch((e) => e);
+    const error = await teoOpsForDomain(DOMAIN_ID, { zoneId: EO_ZONE }).catch((e) => e);
     expect(error.code).toBe('SITE_TYPE_REQUIRED');
     expect(error.message).toMatch(/mainland 或 intl/);
-    // 没有声明就不该发出任何请求
     expect(requestJsonMock).not.toHaveBeenCalled();
   });
 
   it('站点类型取值非法时拒绝', async () => {
     stubDnspodAccount();
-    await expect(teoOpsForDomain(DOMAIN_ID, { siteType: 'global' })).rejects.toMatchObject({
+    await expect(teoOpsForDomain(DOMAIN_ID, { siteType: 'global', zoneId: EO_ZONE })).rejects.toMatchObject({
       code: 'SITE_TYPE_INVALID',
     });
   });
 
-  it('站点类型写在工作流参数里，账号配置里的同名字段不再生效', async () => {
-    // 账号配置里即便有 site_type，也不应该被采用 —— 声明位置只有一处
-    stubDnspodAccount({ SecretId: 'id', SecretKey: 'key', site_type: 'intl' });
-    stubTeo({ DescribeZones: zoneList([{ ZoneId: 'zone-target', ZoneName: DOMAIN_NAME }]) });
-    await expect(teoOpsForDomain(DOMAIN_ID)).rejects.toMatchObject({ code: 'SITE_TYPE_REQUIRED' });
+  it('ZoneId 必须显式给出：DNSPod 域名与 EdgeOne 站点没有对应关系', async () => {
+    stubDnspodAccount();
+    const error = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland' }).catch((e) => e);
+    expect(error).toBeInstanceOf(OriginGroupError);
+    expect(error.code).toBe('ZONE_ID_REQUIRED');
+    expect(error.message).toMatch(/没有对应关系/);
+    // 不再按域名反查，所以一个请求都不该发
+    expect(requestJsonMock).not.toHaveBeenCalled();
+  });
+
+  it('给了 siteType + zoneId 后直接按该站点操作，不反查域名', async () => {
+    stubDnspodAccount();
+    stubTeo({ DescribeOriginGroup: groupList() });
+
+    const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland', zoneId: EO_ZONE });
+    expect(ctx.credentialSource).toBe('dnspod');
+    expect(ctx.zoneId).toBe(EO_ZONE);
+
+    const groups = await ctx.ops.list({ limit: 100 });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].name).toBe('POOL');
+    // 只调了 DescribeOriginGroup，没有 DescribeZones
+    const actions = requestJsonMock.mock.calls.map((call) => (call[1] as { headers: Record<string, string> }).headers['X-TC-Action']);
+    expect(actions).toEqual(['DescribeOriginGroup']);
   });
 
   it('声明 intl 时打国际站域名，声明 mainland 时打国内站域名', async () => {
@@ -172,57 +167,53 @@ describe('DNSPod 账号：复用同一对腾讯云密钥调用 EdgeOne', () => {
     ] as const) {
       requestJsonMock.mockReset();
       stubDnspodAccount();
-      stubTeo({ DescribeZones: zoneList([{ ZoneId: 'zone-target', ZoneName: DOMAIN_NAME }]) });
+      stubTeo({ DescribeOriginGroup: groupList() });
 
-      const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType });
+      const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType, zoneId: EO_ZONE });
       expect(ctx.siteType).toBe(siteType);
+      await ctx.ops.list({ limit: 100 });
       expect(requestJsonMock.mock.calls[0][0]).toBe(expectedHost);
     }
   });
 
-  it('域名匹配是精确等值，不会被前缀域名命中', async () => {
-    stubDnspodAccount();
-    stubTeo({
-      DescribeZones: zoneList([
-        { ZoneId: 'zone-sub', ZoneName: 'a.example.com' },
-        { ZoneId: 'zone-root', ZoneName: 'example.com' },
-      ]),
-    });
-    const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland' });
-    expect(ctx.zoneId).toBe('zone-root');
-  });
-
-  it('域名未接入 EdgeOne 时报 ZONE_NOT_FOUND', async () => {
-    stubDnspodAccount();
-    stubTeo({ DescribeZones: zoneList([{ ZoneId: 'zone-other', ZoneName: 'other.com' }]) });
-    await expect(teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland' })).rejects.toMatchObject({
-      code: 'ZONE_NOT_FOUND',
-    });
-  });
-
   it('缺少密钥时报 CREDENTIAL_MISSING', async () => {
-    asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue(
-      new DnspodAdapter({ SecretId: 'id', SecretKey: 'key' }),
-    );
-    asMock(DnsAccountOperations.getById).mockResolvedValue({
-      id: ACCOUNT_ID,
-      type: 'dnspod',
-      config: JSON.stringify({ SecretId: 'id' }),
+    stubDnspodAccount({ SecretId: 'id' });
+    await expect(teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland', zoneId: EO_ZONE })).rejects.toMatchObject({
+      code: 'CREDENTIAL_MISSING',
     });
-    await expect(teoOpsForDomain(DOMAIN_ID)).rejects.toMatchObject({ code: 'CREDENTIAL_MISSING' });
   });
 
-  it('密钥没有 EdgeOne 权限时翻译成可读错误', async () => {
+  it('密钥没有 EdgeOne 权限时把底层错误透出', async () => {
     stubDnspodAccount();
-    stubTeo({ DescribeZones: new Error('AuthFailure: 未授权') });
-    const error = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland' }).catch((e) => e);
-    expect(error).toBeInstanceOf(OriginGroupError);
-    expect(error.code).toBe('EDGEONE_ACCESS_DENIED');
-    expect(error.message).toMatch(/EdgeOne 权限/);
+    stubTeo({ DescribeOriginGroup: new Error('AuthFailure: 未授权') });
+    const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland', zoneId: EO_ZONE });
+    await expect(ctx.ops.list({ limit: 100 })).rejects.toThrow(/AuthFailure/);
   });
 });
 
-describe('其它提供商', () => {
+describe('站点候选（edgeoneZones）', () => {
+  it('用复用凭据列出可见站点，供用户显式选择', async () => {
+    stubDnspodAccount();
+    stubTeo({
+      DescribeZones: zoneList([
+        { ZoneId: 'zone-a', ZoneName: 'a.example.com' },
+        { ZoneId: 'zone-b', ZoneName: 'b.example.com' },
+      ]),
+    });
+    const zones = await listTeoZones(DOMAIN_ID, { siteType: 'mainland' });
+    expect(zones).toEqual([
+      { zoneId: 'zone-a', zoneName: 'a.example.com' },
+      { zoneId: 'zone-b', zoneName: 'b.example.com' },
+    ]);
+  });
+
+  it('列站点同样要求显式声明站点类型', async () => {
+    stubDnspodAccount();
+    await expect(listTeoZones(DOMAIN_ID)).rejects.toMatchObject({ code: 'SITE_TYPE_REQUIRED' });
+  });
+});
+
+describe('其它情况', () => {
   it('既不是 EdgeOne 也不是 DNSPod 时报 PROVIDER_MISMATCH', async () => {
     asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue({ check: async () => true });
     asMock(DnsAccountOperations.getById).mockResolvedValue({

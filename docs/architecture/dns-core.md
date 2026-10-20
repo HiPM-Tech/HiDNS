@@ -426,7 +426,27 @@ providers/
 | 账号类型 | ZoneId 来源 | 站点类型来源 | 凭据来源标记 |
 | --- | --- | --- | --- |
 | `tencenteo` | `domains.third_id` 直接就是 ZoneId | 复用账号配置里的 `site_type`，**不需要额外声明** | `tencenteo` |
-| `dnspod` | 用域名调 `DescribeZones` **精确等值**反查 | **工作流动作的 `siteType` 参数**，必须显式传 | `dnspod` |
+| `dnspod` | **工作流动作的 `zoneId` 参数**，必须显式传 | **工作流动作的 `siteType` 参数**，必须显式传 | `dnspod` |
+
+### DNSPod 凭据不涉及 DNSPod 注册的域名
+
+这是最容易搞错的一点：复用 DNSPod 凭据时，**DNSPod 注册的域名与 EdgeOne 站点没有对应关系**。
+
+那对 `SecretId` / `SecretKey` 只是在腾讯云账号层级通用，用它发 EO 请求时，
+`domains.third_id`（DNSPod 的域名 ID，如 `41234567`）既不是 EO 的 ZoneId（形如
+`zone-3mr62gje0l1m`），也不应该拿去 EO 侧按域名反查——那等于把"域名看起来一样"
+当成了"就是同一个站点"，一旦用户的 EO 站点用了别的名字，就会静默落空。
+
+所以代码不走任何域名推导：**ZoneId 由调用方显式给出**。
+
+取值途径是候选源 `edgeoneZones`——用这对凭据先列出可见站点，让用户选一个：
+
+```
+ext.tencenteo.originGroup.list
+  domainId : 7            # 只用于定位"用哪个账号的密钥"
+  siteType : mainland     # 调国内站还是国际站
+  zoneId   : zone-xxxx    # 要操作的 EdgeOne 站点
+```
 
 ### 站点类型：EdgeOne 账号不用声明，DNSPod 账号必须显式声明
 
@@ -440,22 +460,11 @@ EdgeOne 的国内站与国际站是**两个不同的调用域名**，数据互�
 - **EdgeOne 账号**：账号创建时就填了 `site_type`，直接复用，源站组动作不需要再传。
 - **DNSPod 账号**：账号里没有这个信息，必须在**工作流动作**里显式传 `siteType`。
 
-为什么写在动作而不是账号配置：同一个 DNSPod 账号下的不同域名可能落在不同站点类型上，
+为什么写在动作而不是账号配置：同一对密钥可能管理多个站点、落在不同站点类型上，
 账号级配置表达不了这种差异，而且把 EdgeOne 的概念塞进 DNSPod 账号配置也不合理。
 
-复用 DNSPod 凭据时，代码**不会**替你猜：未传 `siteType` 直接报 `SITE_TYPE_REQUIRED`，
-取值非法报 `SITE_TYPE_INVALID`，且不会发出任何请求。
-
 猜错方向的后果不是报错而是**看起来像没数据**：拿国内站域名去查国际站账号，
-返回的是空列表，表现为「域名未接入 EdgeOne」这种误导性错误。所以宁可让用户显式声明。
-
-### 为什么必须反查
-
-DNSPod 账号下 `domains.third_id` 存的是 DNSPod 的域名 ID（如 `41234567`），
-不是 EO 的 ZoneId（形如 `zone-3mr62gje0l1m`）。直接拿去调 TEO 会得到 `InvalidParameter`。
-
-反查只做精确等值匹配，不做后缀或模糊匹配——否则 `example.com` 可能命中
-`a.example.com` 的站点，把源站组写到别人的域名上。
+返回的是空列表。所以宁可让用户显式声明。
 
 ### 失败语义
 
@@ -465,12 +474,21 @@ DNSPod 账号下 `domains.third_id` 存的是 DNSPod 的域名 ID（如 `4123456
 | DNSPod 账号缺少 SecretId / SecretKey | `CREDENTIAL_MISSING` |
 | DNSPod 账号未传 `siteType` | `SITE_TYPE_REQUIRED` |
 | `siteType` 不是 mainland / intl | `SITE_TYPE_INVALID` |
-| 密钥没有 EdgeOne 权限（TEO 返回 AuthFailure） | `EDGEONE_ACCESS_DENIED` |
-| 域名未接入 EdgeOne（该站点类型下） | `ZONE_NOT_FOUND` |
+| DNSPod 账号未传 `zoneId` | `ZONE_ID_REQUIRED` |
+
+以上都发生在**发出任何请求之前**。密钥没有 EdgeOne 权限时，TEO 的
+`AuthFailure` 会原样透出，不再包装成自定义错误码——避免把"没权限"和"没找到"混为一谈。
 
 `ext.tencenteo.originGroup.plan` / `replace` 的返回值里带 `credentialSource`、
-`zoneId` 与 `siteType`，用于追溯这次操作到底是哪一类账号的凭据、打的是哪个端点。
+`zoneId` 与 `siteType`，用于追溯这次操作到底是哪一类账号的凭据、打的是哪个端点、碰的是哪个站点。
 
-编辑器的源站组下拉同样需要站点类型：`groupId` 参数的 `sourceParams` 声明为
-`['domainId', 'siteType']`，前端会把它一并带给候选值接口，服务端经
-`ProviderMetaContext.params` 透传给解析层。
+### 编辑器下拉的依赖
+
+`zoneId` 的候选源是 `edgeoneZones`，只依赖 `domainId`；
+`siteType` 声明为**可选**依赖（`sourceOptionalParams`），有值就带上。
+
+`groupId` 的依赖是 `sourceParams: ['domainId']` + `sourceOptionalParams: ['siteType', 'zoneId']`。
+之所以把后两者做成可选，是因为 **EdgeOne 账号根本不需要它们**——放进 `sourceParams`
+会把这类账号的下拉一并禁用。
+
+前端经 `ProviderMetaContext.params` 把这些参数透传给解析层，核心不解释其语义。

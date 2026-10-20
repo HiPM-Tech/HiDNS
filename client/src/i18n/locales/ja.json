@@ -1812,6 +1812,7 @@
                 "ipv4_from": "Previous IPv4 (precise match)",
                 "ipv6_from": "Previous IPv6 (precise match)",
                 "site_type": "EdgeOne site type (required when reusing a DNSPod key)",
+                "zone_id": "EdgeOne zone ID (required when reusing a DNSPod key)",
                 "domain": "Domain",
                 "name": "Record name",
                 "type": "Record type",

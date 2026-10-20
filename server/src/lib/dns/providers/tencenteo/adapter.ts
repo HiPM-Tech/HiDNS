@@ -49,26 +49,25 @@ export class TencenteoAdapter extends TencentCloudAdapter {
   }
 
   /**
-   * 按域名反查 EdgeOne ZoneId。
+   * 列出当前凭据可见的 EdgeOne 站点。
    *
-   * 用途：DNSPod 账号下的 `domains.third_id` 是 DNSPod 的域名 ID，不是 EO 的 ZoneId。
-   * 复用同一对腾讯云密钥调用 TEO 时，只能拿域名去 TEO 侧反查。
-   * 匹配用**精确等值**（忽略大小写），不做后缀/模糊匹配 —— 否则
-   * `a.example.com` 可能被 `example.com` 命中，写到别人的站点上。
+   * 用途：复用 DNSPod 凭据时，DNSPod 注册的域名与 EdgeOne 站点**没有对应关系**，
+   * 不能拿域名去猜 ZoneId。先列出站点让用户显式选，才是确定的做法。
    */
-  async resolveZoneIdByName(zoneName: string): Promise<string | null> {
-    const target = safeString(zoneName).trim().toLowerCase();
-    if (!target) return null;
+  async listZones(): Promise<Array<{ zoneId: string; zoneName: string }>> {
+    const out: Array<{ zoneId: string; zoneName: string }> = [];
     const limit = 100;
     for (let offset = 0; offset < 1000; offset += limit) {
       const res = await this.call<Dict>('DescribeZones', { Limit: limit, Offset: offset });
       const zones = asArray<Dict>(res?.Zones);
-      const hit = zones.find((zone) => safeString(zone.ZoneName).trim().toLowerCase() === target);
-      if (hit) return safeString(hit.ZoneId) || null;
+      for (const zone of zones) {
+        const zoneId = safeString(zone.ZoneId);
+        if (zoneId) out.push({ zoneId, zoneName: safeString(zone.ZoneName) });
+      }
       const total = toNumber(res?.TotalCount, 0);
       if (zones.length < limit || offset + zones.length >= total) break;
     }
-    return null;
+    return out;
   }
 
   private fqdn(name: string): string {
