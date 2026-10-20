@@ -492,3 +492,36 @@ EdgeOne 的国内站与国际站是**两个不同的调用域名**，数据互�
 会把这类账号的下拉一并禁用。
 
 前端经 `ProviderMetaContext.params` 把这些参数透传给解析层，核心不解释其语义。
+
+## 权限与作用域：两个平台是正交糅合，工作流是管理员专属
+
+### 为什么叫"正交糅合"
+
+EdgeOne 与 DNSPod 是**两个方向不同的解析平台**，但共用腾讯云统一鉴权：
+
+| 维度 | DNSPod | EdgeOne |
+| --- | --- | --- |
+| 鉴权 | 同一对 `SecretId` / `SecretKey` | 同一对 `SecretId` / `SecretKey` |
+| 作用域 | 域名（`domains.third_id` = DNSPod 域名 ID） | 站点 ZoneId（`zone-xxx`） |
+| 资源 | 解析记录 | 加速站点 / 源站组 |
+
+两条作用域链**不能互相推导**：DNSPod 的域名 ID 不是 EO 的 ZoneId，域名同名也不代表是同一个站点。
+所以复用凭据时只能"正交地"各管各的——用同一对密钥，分别指向各自的作用域。
+
+这也是为什么 `teoOpsForDomain` 对 DNSPod 路径要求显式 `siteType` 与 `zoneId`：
+任何"猜"都会在两个正交维度之间制造一条不存在的对应关系。
+
+### 工作流是管理员专属
+
+工作流能跨域名、跨账号地串联写操作，一旦对普通用户开放，等于绕过了域名级授权。
+因此它被限定为**管理员能力**，三条口径同时生效：
+
+| 口径 | 实现 |
+| --- | --- |
+| 不能管理 | `/api/workflows` 的增删改查全部挂 `adminOnly` |
+| 不能操作 | 创建 / 更新 / 删除 / 手动运行 / 试运行同样挂 `adminOnly` + `requireJwtAuth('workflows')` |
+| 不能展示 | 客户端路由包在 `AdminRoute` 内，侧边栏条目只在 `isAdmin` 时渲染 |
+
+守卫不靠"界面上藏起来"：路由级 `adminOnly` 是硬约束，知道 URL 也进不去。
+这条不变量由 `server/src/routes/__tests__/workflows-admin-guard.test.ts` 直接检查
+Express 路由表来保证——新增路由漏挂守卫会立刻失败。
