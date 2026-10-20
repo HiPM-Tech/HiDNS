@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from '../contexts/I18nContext';
 import { Workflows } from './Workflows';
+import { CascadingSelect } from '../components/workflows/CascadingSelect';
 
 const listMock = vi.fn();
 const metaMock = vi.fn();
@@ -14,7 +15,7 @@ const runMock = vi.fn();
 vi.mock('../api', () => ({
   workflowsApi: {
     list: () => listMock(),
-    meta: (source: string) => metaMock(source),
+    meta: (source: string, params?: Record<string, string>) => metaMock(source, params),
     create: (payload: unknown) => createMock(payload),
     update: (id: number, payload: unknown) => updateMock(id, payload),
     remove: (id: number) => removeMock(id),
@@ -178,6 +179,66 @@ describe('工作流页面（人类可读性）', () => {
     expect(screen.getByText('新记录值')).toBeTruthy();
     expect(screen.getByText('原记录值（用于精确匹配源站）')).toBeTruthy();
     expect(screen.queryByText('record.oldValue')).toBeNull();
+  });
+});
+
+describe('级联下拉的前置参数', () => {
+  function renderCascading(param: Record<string, unknown>, args: Record<string, string>) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <I18nProvider>
+          <CascadingSelect param={param as never} args={args} value="" onChange={() => undefined} />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it('可选前置参数缺失时不禁用下拉，也不把它带给候选接口', async () => {
+    metaMock.mockResolvedValue({ data: { data: { items: [] } } });
+    const { container } = renderCascading(
+      {
+        key: 'groupId',
+        source: 'originGroups',
+        sourceParams: ['domainId'],
+        sourceOptionalParams: ['siteType'],
+      },
+      { domainId: '7' },
+    );
+
+    await waitFor(() => expect(metaMock).toHaveBeenCalled());
+    const [, passed] = metaMock.mock.calls.at(-1)!;
+    expect(passed).toEqual({ domainId: '7' });
+
+    const input = container.querySelector('input') as HTMLInputElement | null;
+    expect(input?.disabled).toBe(false);
+  });
+
+  it('可选前置参数有值时一并带上', async () => {
+    metaMock.mockResolvedValue({ data: { data: { items: [] } } });
+    renderCascading(
+      {
+        key: 'groupId',
+        source: 'originGroups',
+        sourceParams: ['domainId'],
+        sourceOptionalParams: ['siteType'],
+      },
+      { domainId: '7', siteType: 'intl' },
+    );
+
+    await waitFor(() => expect(metaMock).toHaveBeenCalled());
+    const [, passed] = metaMock.mock.calls.at(-1)!;
+    expect(passed).toEqual({ domainId: '7', siteType: 'intl' });
+  });
+
+  it('必需前置参数缺失时禁用下拉', () => {
+    metaMock.mockResolvedValue({ data: { data: { items: [] } } });
+    const { container } = renderCascading(
+      { key: 'groupId', source: 'originGroups', sourceParams: ['domainId'] },
+      {},
+    );
+    const input = container.querySelector('input') as HTMLInputElement | null;
+    expect(input?.disabled).toBe(true);
   });
 });
 

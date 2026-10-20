@@ -141,7 +141,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       params: [
         { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId', 'siteType'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
       ],
     },
     {
@@ -154,7 +154,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       params: [
         { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId', 'siteType'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
         { key: 'target', label: 'workflow.param.target', type: 'text', required: true },
       ],
     },
@@ -168,7 +168,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       params: [
         { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId', 'siteType'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
         { key: 'target', label: 'workflow.param.target', type: 'text', required: true },
         { key: 'diffDigest', label: 'workflow.param.diff_digest', type: 'text', required: true },
       ],

@@ -18,8 +18,13 @@ export interface ProviderActionParam {
   options?: string[];
   /** 候选来源（`/api/workflows/meta/:source`）；声明后前端渲染为下拉 */
   source?: string;
-  /** 拉取候选时一并带上的其它参数 */
+  /** 拉取候选时一并带上的其它参数；缺任意一个就禁用下拉 */
   sourceParams?: string[];
+  /**
+   * 可选的候选依赖参数：有值才带上，缺了不影响下拉可用性。
+   * 用于"只有部分账号类型才需要"的前置条件，例如腾讯云源站组的站点类型。
+   */
+  sourceOptionalParams?: string[];
 }
 
 export interface ProviderExtraAction {

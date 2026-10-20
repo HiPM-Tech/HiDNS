@@ -9,8 +9,10 @@ export interface WorkflowActionParam {
   options?: string[];
   /** 候选来源，如 'originGroups'；声明后渲染为级联下拉 */
   source?: string;
-  /** 拉取候选取自同动作的哪些实参，如 ['domainId'] */
+  /** 拉取候选取自同动作的哪些实参，如 ['domainId']；缺一个就禁用下拉 */
   sourceParams?: string[];
+  /** 传了才带上、缺了也不禁用下拉的可选实参 */
+  sourceOptionalParams?: string[];
 }
 
 export interface WorkflowActionMeta {
