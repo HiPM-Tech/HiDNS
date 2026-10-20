@@ -16,6 +16,7 @@ import { hasWorkflowSubscribers, publishRecordEvent } from '../workflow/publish'
 import { findRecordMeta } from '../lib/dns/record-lookup';
 import { createLogger } from '../lib/logger';
 import { wsService } from '../service/websocket';
+import { getDomainAudienceUserIds } from '../service/realtime-audience';
 import { normalizeDomain, isValidDomain } from '../utils/dns';
 import { validateRecordValue, validateExtraField, getRecordTypeDef } from '../lib/dns/record-types';
 import { getAvailableTemplates, getEmailTemplate, generatePreview } from '../lib/dns/emailTemplate';
@@ -75,6 +76,43 @@ function canWriteSubdomain(writeSubs: string[] | null, fullName: string, domainN
   if (writeSubs === null) return true;
   const sub = getSubdomain(fullName, domainName);
   return writeSubs.includes(sub);
+}
+
+/**
+ * 记录类事件的 payload 形状：type + data。
+ * data 用 unknown 是因为各事件字段不同（record_created 带整条记录，其余只带 id），
+ * 本辅助函数只负责投递范围，不解析也不改写 payload 结构。
+ */
+interface RecordRealtimeMessage {
+  type: string;
+  data: unknown;
+}
+
+/**
+ * 解析记录类事件的定向推送。
+ *
+ * 为什么不再用 wsService.broadcast：record_* 的 payload 里带 domainId / recordId /
+ * host / 记录值，全局广播会把他人域名的解析结构与记录内容推给所有在线客户端，
+ * 等于把「能读该域名的用户」之外的登录用户也纳入了可见范围。
+ *
+ * 收件人口径与同文件读接口一致：GET /domains/:domainId/records（本文件 getDomainAccess
+ * 的 canRead 判定，见 records.ts 列表处理器），由 getDomainAudienceUserIds 落实
+ * （该函数逐条对齐 routes/domains.ts 的 resolveDomainAccess）。
+ *
+ * fail-closed：算不出收件人（域名被删、账号被禁用、查询失败）时跳过投递并记 warn，
+ * 绝不回退成全局广播——回退等于把刚堵上的口子重新打开。
+ */
+async function pushRecordEvent(domainId: number, message: RecordRealtimeMessage): Promise<void> {
+  try {
+    const audience = await getDomainAudienceUserIds(domainId);
+    if (audience.length === 0) {
+      log.warn('No audience for record event, skipped', { domainId, type: message.type });
+      return;
+    }
+    wsService.broadcastToUsers(audience, message);
+  } catch (error) {
+    log.error('Failed to push record event', { domainId, type: message.type, error });
+  }
 }
 
 async function getAdapterForDomain(domain: Domain) {
@@ -452,21 +490,18 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
       actor: { userId: req.user!.userId, source: 'ui' },
     });
 
-    // 推送 WebSocket 消息
-    try {
-      wsService.broadcast({
-        type: 'record_created',
-        data: {
-          recordId,
-          domainId,
-          host: name,
-          type,
-          record: newRecord,
-        },
-      });
-    } catch (error) {
-      log.error('Failed to broadcast record_created event', { error });
-    }
+    // 推送 WebSocket 消息：只推给能读到该域名的用户
+    // （口径同 GET /domains/:domainId/records 的 canRead，见 getDomainAccess 判定）
+    await pushRecordEvent(access.domain.id, {
+      type: 'record_created',
+      data: {
+        recordId,
+        domainId,
+        host: name,
+        type,
+        record: newRecord,
+      },
+    });
 
     sendSuccess(res, { id: recordId });
   } catch (e) {
@@ -704,18 +739,14 @@ router.put('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
       actor: { userId: req.user!.userId, source: 'ui' },
     });
 
-    // 推送 WebSocket 消息
-    try {
-      wsService.broadcast({
-        type: 'record_updated',
-        data: {
-          recordId,
-          domainId,
-        },
-      });
-    } catch (error) {
-      log.error('Failed to broadcast record_updated event', { error });
-    }
+    // 推送 WebSocket 消息：只推给能读到该域名的用户
+    await pushRecordEvent(access.domain.id, {
+      type: 'record_updated',
+      data: {
+        recordId,
+        domainId,
+      },
+    });
 
     sendSuccess(res);
   } catch (e) {
@@ -784,18 +815,14 @@ router.delete('/:recordId', authMiddleware, requireTokenDomainPermission('domain
       });
     }
 
-    // 推送 WebSocket 消息
-    try {
-      wsService.broadcast({
-        type: 'record_deleted',
-        data: {
-          recordId,
-          domainId,
-        },
-      });
-    } catch (error) {
-      log.error('Failed to broadcast record_deleted event', { error });
-    }
+    // 推送 WebSocket 消息：只推给能读到该域名的用户
+    await pushRecordEvent(access.domain.id, {
+      type: 'record_deleted',
+      data: {
+        recordId,
+        domainId,
+      },
+    });
 
     sendSuccess(res);
   } catch (e) {
@@ -855,19 +882,15 @@ router.put('/:recordId/status', authMiddleware, requireTokenDomainPermission('do
       });
     }
 
-    // 推送 WebSocket 消息
-    try {
-      wsService.broadcast({
-        type: 'record_status_changed',
-        data: {
-          recordId,
-          domainId,
-          status,
-        },
-      });
-    } catch (error) {
-      log.error('Failed to broadcast record_status_changed event', { error });
-    }
+    // 推送 WebSocket 消息：只推给能读到该域名的用户
+    await pushRecordEvent(access.domain.id, {
+      type: 'record_status_changed',
+      data: {
+        recordId,
+        domainId,
+        status,
+      },
+    });
 
     sendSuccess(res);
   } catch (e) {
