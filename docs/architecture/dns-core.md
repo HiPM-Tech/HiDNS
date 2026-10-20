@@ -425,10 +425,10 @@ providers/
 
 | 账号类型 | ZoneId 来源 | 站点类型来源 | 凭据来源标记 |
 | --- | --- | --- | --- |
-| `tencenteo` | `domains.third_id` 直接就是 ZoneId | 账号配置的 `site_type`（**必填**） | `tencenteo` |
-| `dnspod` | 用域名调 `DescribeZones` **精确等值**反查 | 账号配置的 `site_type`（**必须显式声明**） | `dnspod` |
+| `tencenteo` | `domains.third_id` 直接就是 ZoneId | 复用账号配置里的 `site_type`，**不需要额外声明** | `tencenteo` |
+| `dnspod` | 用域名调 `DescribeZones` **精确等值**反查 | **工作流动作的 `siteType` 参数**，必须显式传 | `dnspod` |
 
-### 站点类型必须显式声明
+### 站点类型：EdgeOne 账号不用声明，DNSPod 账号必须显式声明
 
 EdgeOne 的国内站与国际站是**两个不同的调用域名**，数据互不通用：
 
@@ -437,7 +437,13 @@ EdgeOne 的国内站与国际站是**两个不同的调用域名**，数据互�
 | `mainland` | `teo.tencentcloudapi.com` |
 | `intl` | `teo.intl.tencentcloudapi.com` |
 
-复用 DNSPod 凭据时，代码**不会**替你猜：未声明 `site_type` 直接报 `SITE_TYPE_REQUIRED`，
+- **EdgeOne 账号**：账号创建时就填了 `site_type`，直接复用，源站组动作不需要再传。
+- **DNSPod 账号**：账号里没有这个信息，必须在**工作流动作**里显式传 `siteType`。
+
+为什么写在动作而不是账号配置：同一个 DNSPod 账号下的不同域名可能落在不同站点类型上，
+账号级配置表达不了这种差异，而且把 EdgeOne 的概念塞进 DNSPod 账号配置也不合理。
+
+复用 DNSPod 凭据时，代码**不会**替你猜：未传 `siteType` 直接报 `SITE_TYPE_REQUIRED`，
 取值非法报 `SITE_TYPE_INVALID`，且不会发出任何请求。
 
 猜错方向的后果不是报错而是**看起来像没数据**：拿国内站域名去查国际站账号，
@@ -457,10 +463,14 @@ DNSPod 账号下 `domains.third_id` 存的是 DNSPod 的域名 ID（如 `4123456
 | --- | --- |
 | 账号既不是 `tencenteo` 也不是 `dnspod` | `PROVIDER_MISMATCH` |
 | DNSPod 账号缺少 SecretId / SecretKey | `CREDENTIAL_MISSING` |
-| DNSPod 账号未声明 `site_type` | `SITE_TYPE_REQUIRED` |
-| `site_type` 不是 mainland / intl | `SITE_TYPE_INVALID` |
+| DNSPod 账号未传 `siteType` | `SITE_TYPE_REQUIRED` |
+| `siteType` 不是 mainland / intl | `SITE_TYPE_INVALID` |
 | 密钥没有 EdgeOne 权限（TEO 返回 AuthFailure） | `EDGEONE_ACCESS_DENIED` |
 | 域名未接入 EdgeOne（该站点类型下） | `ZONE_NOT_FOUND` |
 
 `ext.tencenteo.originGroup.plan` / `replace` 的返回值里带 `credentialSource`、
 `zoneId` 与 `siteType`，用于追溯这次操作到底是哪一类账号的凭据、打的是哪个端点。
+
+编辑器的源站组下拉同样需要站点类型：`groupId` 参数的 `sourceParams` 声明为
+`['domainId', 'siteType']`，前端会把它一并带给候选值接口，服务端经
+`ProviderMetaContext.params` 透传给解析层。

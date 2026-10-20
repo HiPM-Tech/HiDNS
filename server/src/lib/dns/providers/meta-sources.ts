@@ -12,6 +12,11 @@ export interface ProviderMetaContext {
   /** 上游作用域标识（核心只透传 domains.third_id，不解释其含义） */
   zoneId: string;
   adapter: DnsAdapter;
+  /**
+   * 前端声明的其它参数（来自参数声明里的 sourceParams）。
+   * 核心只透传，不解释语义 —— 例如腾讯云源站组需要的 siteType。
+   */
+  params: Readonly<Record<string, string>>;
 }
 
 export interface ProviderMetaItem {

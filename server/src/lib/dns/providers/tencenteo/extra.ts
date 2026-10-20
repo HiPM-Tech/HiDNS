@@ -17,8 +17,14 @@ import { teoOpsForDomain, type TeoOps } from './teo-ops';
  * 与编辑器的候选源共用同一份实现，避免两处各写一遍。
  */
 
+/** 站点类型只对"复用 DNSPod 凭据"有意义；EdgeOne 账号会忽略它 */
+function readSiteType(args: Record<string, unknown>): string | undefined {
+  const value = String(args.siteType ?? '').trim();
+  return value || undefined;
+}
+
 async function loadGroup(args: Record<string, unknown>): Promise<TeoOps & { group: OriginGroup }> {
-  const ctx = await teoOpsForDomain(Number(args.domainId));
+  const ctx = await teoOpsForDomain(Number(args.domainId), { siteType: readSiteType(args) });
   const group = await ctx.ops.get(String(args.groupId ?? ''));
   if (!group) throw new OriginGroupError('GROUP_NOT_FOUND', '源站组不存在');
   return { ...ctx, group };
@@ -26,7 +32,7 @@ async function loadGroup(args: Record<string, unknown>): Promise<TeoOps & { grou
 
 const handlers: Record<string, ProviderActionHandler> = {
   'ext.tencenteo.originGroup.list': async (args) => {
-    const { ops } = await teoOpsForDomain(Number(args.domainId));
+    const { ops } = await teoOpsForDomain(Number(args.domainId), { siteType: readSiteType(args) });
     return ops.list({});
   },
 
@@ -122,6 +128,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       dslVisible: true,
       params: [
         { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
+        { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
       ],
     },
     {
@@ -133,7 +140,8 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       dslVisible: true,
       params: [
         { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'] },
+        { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId', 'siteType'] },
       ],
     },
     {
@@ -145,7 +153,8 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       dslVisible: true,
       params: [
         { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'] },
+        { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId', 'siteType'] },
         { key: 'target', label: 'workflow.param.target', type: 'text', required: true },
       ],
     },
@@ -158,7 +167,8 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       dslVisible: true,
       params: [
         { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'] },
+        { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId', 'siteType'] },
         { key: 'target', label: 'workflow.param.target', type: 'text', required: true },
         { key: 'diffDigest', label: 'workflow.param.diff_digest', type: 'text', required: true },
       ],

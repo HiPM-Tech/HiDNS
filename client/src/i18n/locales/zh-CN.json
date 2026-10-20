@@ -1710,8 +1710,7 @@
                 "virtual_state_memory": "内存（临时）",
                 "virtual_seed": "初始数据",
                 "virtual_seed_demo": "演示数据集",
-                "virtual_seed_empty": "空",
-                "edgeone_site_type": "EdgeOne 站点类型（仅复用本账号密钥调用 EdgeOne 时需要）"
+                "virtual_seed_empty": "空"
             }
         },
         "resourceMonitor": {
@@ -1781,6 +1780,7 @@
                 "diff_digest": "差异摘要",
                 "ipv4_from": "旧 IPv4（精确匹配）",
                 "ipv6_from": "旧 IPv6（精确匹配）",
+                "site_type": "EdgeOne 站点类型（复用 DNSPod 密钥时必填）",
                 "domain": "域名",
                 "name": "主机记录",
                 "type": "记录类型",

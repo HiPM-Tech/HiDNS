@@ -1715,8 +1715,7 @@
                 "virtual_state_memory": "Memory (ephemeral)",
                 "virtual_seed": "Initial data",
                 "virtual_seed_demo": "Demo dataset",
-                "virtual_seed_empty": "Empty",
-                "edgeone_site_type": "EdgeOne site type (only when reusing this account’s key to call EdgeOne)"
+                "virtual_seed_empty": "Empty"
             }
         },
         "resourceMonitor": {
@@ -1786,6 +1785,7 @@
                 "diff_digest": "Diff digest",
                 "ipv4_from": "Previous IPv4 (precise match)",
                 "ipv6_from": "Previous IPv6 (precise match)",
+                "site_type": "EdgeOne site type (required when reusing a DNSPod key)",
                 "domain": "Domain",
                 "name": "Record name",
                 "type": "Record type",

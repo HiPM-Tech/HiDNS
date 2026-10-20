@@ -136,11 +136,18 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
     }
     try {
       const adapter = await DnsProviderService.getAdapter(domainId);
+      // 透传前端声明的其它参数（sourceParams），核心不解释其语义
+      const extraParams: Record<string, string> = {};
+      for (const [key, value] of Object.entries(req.query)) {
+        if (key === 'domainId' || typeof value !== 'string') continue;
+        extraParams[key] = value;
+      }
       const items = await providerMeta.resolve({
         domainId,
         domainName: String(domain.name ?? ''),
         zoneId: String(domain.third_id ?? ''),
         adapter,
+        params: extraParams,
       });
       sendSuccess(res, { items });
     } catch (error) {

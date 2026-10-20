@@ -99,7 +99,7 @@ describe('EdgeOne 账号：直接用 third_id', () => {
 
 describe('DNSPod 账号：复用同一对腾讯云密钥调用 EdgeOne', () => {
   function stubDnspodAccount(
-    config: Record<string, string> = { SecretId: 'id', SecretKey: 'key', site_type: 'mainland' },
+    config: Record<string, string> = { SecretId: 'id', SecretKey: 'key' },
   ) {
     asMock(DnsProviderService.getAdapterByAccount).mockResolvedValue(
       new DnspodAdapter({ SecretId: 'id', SecretKey: 'key' }),
@@ -120,9 +120,10 @@ describe('DNSPod 账号：复用同一对腾讯云密钥调用 EdgeOne', () => {
       ]),
     });
 
-    const ctx = await teoOpsForDomain(DOMAIN_ID);
+    const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland' });
     expect(ctx.credentialSource).toBe('dnspod');
     expect(ctx.zoneId).toBe('zone-target');
+    expect(ctx.siteType).toBe('mainland');
   });
 
   it('反查到 ZoneId 后可以直接列出源站组', async () => {
@@ -132,7 +133,7 @@ describe('DNSPod 账号：复用同一对腾讯云密钥调用 EdgeOne', () => {
       DescribeOriginGroup: groupList(),
     });
 
-    const ctx = await teoOpsForDomain(DOMAIN_ID);
+    const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland' });
     const groups = await ctx.ops.list({ limit: 100 });
     expect(groups).toHaveLength(1);
     expect(groups[0].name).toBe('POOL');
@@ -151,8 +152,17 @@ describe('DNSPod 账号：复用同一对腾讯云密钥调用 EdgeOne', () => {
   });
 
   it('站点类型取值非法时拒绝', async () => {
-    stubDnspodAccount({ SecretId: 'id', SecretKey: 'key', site_type: 'global' });
-    await expect(teoOpsForDomain(DOMAIN_ID)).rejects.toMatchObject({ code: 'SITE_TYPE_INVALID' });
+    stubDnspodAccount();
+    await expect(teoOpsForDomain(DOMAIN_ID, { siteType: 'global' })).rejects.toMatchObject({
+      code: 'SITE_TYPE_INVALID',
+    });
+  });
+
+  it('站点类型写在工作流参数里，账号配置里的同名字段不再生效', async () => {
+    // 账号配置里即便有 site_type，也不应该被采用 —— 声明位置只有一处
+    stubDnspodAccount({ SecretId: 'id', SecretKey: 'key', site_type: 'intl' });
+    stubTeo({ DescribeZones: zoneList([{ ZoneId: 'zone-target', ZoneName: DOMAIN_NAME }]) });
+    await expect(teoOpsForDomain(DOMAIN_ID)).rejects.toMatchObject({ code: 'SITE_TYPE_REQUIRED' });
   });
 
   it('声明 intl 时打国际站域名，声明 mainland 时打国内站域名', async () => {
@@ -161,10 +171,10 @@ describe('DNSPod 账号：复用同一对腾讯云密钥调用 EdgeOne', () => {
       ['mainland', 'https://teo.tencentcloudapi.com'],
     ] as const) {
       requestJsonMock.mockReset();
-      stubDnspodAccount({ SecretId: 'id', SecretKey: 'key', site_type: siteType });
+      stubDnspodAccount();
       stubTeo({ DescribeZones: zoneList([{ ZoneId: 'zone-target', ZoneName: DOMAIN_NAME }]) });
 
-      const ctx = await teoOpsForDomain(DOMAIN_ID);
+      const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType });
       expect(ctx.siteType).toBe(siteType);
       expect(requestJsonMock.mock.calls[0][0]).toBe(expectedHost);
     }
@@ -178,14 +188,16 @@ describe('DNSPod 账号：复用同一对腾讯云密钥调用 EdgeOne', () => {
         { ZoneId: 'zone-root', ZoneName: 'example.com' },
       ]),
     });
-    const ctx = await teoOpsForDomain(DOMAIN_ID);
+    const ctx = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland' });
     expect(ctx.zoneId).toBe('zone-root');
   });
 
   it('域名未接入 EdgeOne 时报 ZONE_NOT_FOUND', async () => {
     stubDnspodAccount();
     stubTeo({ DescribeZones: zoneList([{ ZoneId: 'zone-other', ZoneName: 'other.com' }]) });
-    await expect(teoOpsForDomain(DOMAIN_ID)).rejects.toMatchObject({ code: 'ZONE_NOT_FOUND' });
+    await expect(teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland' })).rejects.toMatchObject({
+      code: 'ZONE_NOT_FOUND',
+    });
   });
 
   it('缺少密钥时报 CREDENTIAL_MISSING', async () => {
@@ -203,7 +215,7 @@ describe('DNSPod 账号：复用同一对腾讯云密钥调用 EdgeOne', () => {
   it('密钥没有 EdgeOne 权限时翻译成可读错误', async () => {
     stubDnspodAccount();
     stubTeo({ DescribeZones: new Error('AuthFailure: 未授权') });
-    const error = await teoOpsForDomain(DOMAIN_ID).catch((e) => e);
+    const error = await teoOpsForDomain(DOMAIN_ID, { siteType: 'mainland' }).catch((e) => e);
     expect(error).toBeInstanceOf(OriginGroupError);
     expect(error.code).toBe('EDGEONE_ACCESS_DENIED');
     expect(error.message).toMatch(/EdgeOne 权限/);

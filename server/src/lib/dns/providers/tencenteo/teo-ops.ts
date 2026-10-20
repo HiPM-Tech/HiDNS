@@ -60,7 +60,15 @@ export function parseAccountConfig(raw: unknown): Record<string, string> {
   return raw && typeof raw === 'object' ? (raw as Record<string, string>) : {};
 }
 
-export async function teoOpsForDomain(domainId: number): Promise<TeoOps> {
+export interface TeoOpsOptions {
+  /**
+   * 站点类型，仅**复用 DNSPod 凭据**时需要。
+   * EdgeOne 账号直接复用账号配置里已有的 site_type，忽略此参数。
+   */
+  siteType?: string;
+}
+
+export async function teoOpsForDomain(domainId: number, options: TeoOpsOptions = {}): Promise<TeoOps> {
   if (!Number.isFinite(domainId) || domainId <= 0) {
     throw new OriginGroupError('INVALID_ARGS', '缺少 domainId');
   }
@@ -106,13 +114,15 @@ export async function teoOpsForDomain(domainId: number): Promise<TeoOps> {
     );
   }
 
-  // 不接受默认值：国内站与国际站的调用域名不同，猜错只会得到误导性的空结果
-  const rawSiteType = config.site_type;
+  // 不接受默认值：国内站与国际站的调用域名不同，猜错只会得到误导性的空结果。
+  // 站点类型写在**工作流动作**里（siteType 参数），不写进 DNSPod 账号配置：
+  // 同一个账号下的不同域名可能落在不同站点类型上，账号级配置表达不了。
+  const rawSiteType = options.siteType;
   if (rawSiteType === undefined || String(rawSiteType).trim() === '') {
     throw new OriginGroupError(
       'SITE_TYPE_REQUIRED',
-      '复用 DNSPod 账号调用 EdgeOne 时必须显式声明站点类型（mainland 或 intl）：' +
-        '国内站与国际站是不同的调用域名，无法自动推断。请在账号配置中补上 site_type。',
+      '复用 DNSPod 账号调用 EdgeOne 时必须显式声明站点类型：在工作流动作里传 siteType=mainland 或 intl。' +
+        '国内站与国际站是不同的调用域名，无法自动推断，也不会默认成任何一个。',
     );
   }
   const siteType = normalizeSiteType(rawSiteType);
