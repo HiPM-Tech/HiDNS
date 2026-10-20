@@ -185,3 +185,48 @@
 - 守卫在门禁内、非空转（扫到 104 个文件）；类型导入与 `export * from` 已覆盖；`db/bal-extra` 不会误判
 - 规范侧：requestJson 强制成立（含新增 listZones）、extra.ts 声明机制成立、「保护由能力层承担」的调用面成立、动作名唯一性有 CI 执行点
 
+
+---
+
+## 八、评审轮 2 与轮 3：DNS 适配器改造终审
+
+### 轮 2（8ad8be6）：1 通过 / 2 有条件通过
+
+轮 1 的两条硬条件经三线独立核实**实质关闭**：
+- H1 授权前置于解析：`resolveDomainAccount`（只读域名行）→ `accountAccessLevel`（只读 created_by/team_id/enabled）→ 才 `teoOpsForDomain`（此时才碰凭据与站点），并补了「判权失败不触达适配器」的断言
+- H2 实现回迁：`origin-group-context.ts` / `origin-group-authorize.ts` 回到 `providers/tencenteo/`，`providers/**` 无一处直接 import BAL
+
+但抓到一个**我自己制造的问题**：提交说明与注释都写「未知分类按写处理（失败关闭）」，代码却是 `WRITE_ACTION_CLASSES.includes(...) ? 'write' : 'read'` —— 该常量只含 `dns.record.write`/`ext.write`，未知分类照样落 read。注释承诺的是失败关闭，代码是失败开放。
+另抓到 `NOT_FOUND` 统一过头：团队成员（有读无写）改写时得到「域名不存在」，与同一工作流 `list` 正常工作的现象自相矛盾。
+
+### 轮 3（77d8b22）：**三线一致「通过，无合入阻断条件」**
+
+| 评审线 | 结论 |
+| --- | --- |
+| 规范符合性 | 通过，无合入阻断条件 |
+| 授权正确性 | 通过，无合入阻断条件 |
+| 清理项回归 | 通过，无合入阻断条件 |
+
+关闭证据（三线各自独立核实，不采信提交说明）：
+
+| 条件 | 关闭依据 |
+| --- | --- |
+| 写类判定失败关闭 | `actionClass === 'ext.read' ? 'read' : 'write'`；`ext-guard.ts` 同款对齐；注释与代码同向 |
+| 写拒绝不再复用 NOT_FOUND | `accountAccessLevel` 三态；`none` 与「不存在」共用 NOT_FOUND（防枚举），有读无写抛 `WRITE_FORBIDDEN` |
+| enabled 先于超管短路 | 与 `routes/domains.ts` 的 `resolveDomainAccess` 同序 |
+| 顺序/脱敏/分支三类测试钉点 | 判权失败不触达适配器、`ZONE_ID_IGNORED` 不含 thirdId 与入参、EdgeOne 账号站点候选只含本域名 |
+
+三线共同确认的安全性质（均已落地并被测试钉住）：授权先于解析、防枚举、读写分流、凭据复用双向声明、提供商不直连 BAL、写判定失败关闭。
+
+### 遗留（非本轮条件、不阻断，需另行排期）
+
+1. `normalizeProviderType` 在 broker 内是防御性代码，当前不可达（别名账号在 `resolveAdapter` 处已失败）；`providerAlias.test.ts` 仍被 vitest 排除
+2. `virtual` 与 `tencenteo` 对 `ACCOUNT_NOT_FOUND` 的映射不一致（仅文案）
+3. 「写源站组」在两家提供商下口径不同（tencenteo 按账号归属 / virtual 按域名写授权）——**产品口径待定**，不是缺陷
+4. `root.ai.md` 四处过期：提供商清单 22 vs 实际 26、§315 别名映射位置、§279 index.ts 键名、§283 virtual 缺 auth.ts
+5. `capability.name` 无格式与唯一性校验；release 路径不执行命名门禁
+
+### 门禁
+
+`cd server && npx tsc --noEmit` = 0 错误；`npx vitest run` = **453 通过 / 46 文件**；`cd client && npx tsc -b` = 0 错误。
+
