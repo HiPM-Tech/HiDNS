@@ -123,6 +123,8 @@ export function Workflows() {
   const queryClient = useQueryClient();
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  // DSL 预览默认收起，避免机器标识符默认出现在界面上
+  const [showDsl, setShowDsl] = useState(false);
   const [editing, setEditing] = useState<WorkflowRecord | null>(null);
   // 每次打开对话框都递增：保证 initial 是新对象，useFormSync 才会重新回填/重置
   const [formKey, setFormKey] = useState(0);
@@ -220,26 +222,29 @@ export function Workflows() {
     saveMutation.mutate();
   };
 
+  /** 保存与 DSL 预览共用同一份构造逻辑，避免两处漂移 */
+  const buildPayload = () => ({
+    name: form.name,
+    enabled: form.enabled,
+    triggerType: form.triggerType,
+    triggerConfig:
+      form.triggerType === 'record.changed'
+        ? { recordTypes: form.recordTypes }
+        : form.triggerType === 'domain.changed'
+          ? { fields: form.domainFields }
+          : form.triggerType === 'ns.changed'
+            ? { statuses: form.nsStatuses }
+            : form.triggerType === 'whois.expiring'
+              ? form.withinDays === '' ? {} : { withinDays: Number(form.withinDays) }
+              : {},
+    // 关闭条件时发 null：undefined 会被 JSON.stringify 丢弃，服务端会保留旧条件
+    condition: toConditionNode(form.condition) ?? null,
+    actions: toDslNodes(form.rows),
+  });
+
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const payload = {
-        name: form.name,
-        enabled: form.enabled,
-        triggerType: form.triggerType,
-        triggerConfig:
-          form.triggerType === 'record.changed'
-            ? { recordTypes: form.recordTypes }
-            : form.triggerType === 'domain.changed'
-              ? { fields: form.domainFields }
-              : form.triggerType === 'ns.changed'
-                ? { statuses: form.nsStatuses }
-                : form.triggerType === 'whois.expiring'
-                  ? form.withinDays === '' ? {} : { withinDays: Number(form.withinDays) }
-                  : {},
-        // 关闭条件时发 null：undefined 会被 JSON.stringify 丢弃，服务端会保留旧条件
-        condition: toConditionNode(form.condition) ?? null,
-        actions: toDslNodes(form.rows),
-      };
+      const payload = buildPayload();
       return editing ? workflowsApi.update(editing.id, payload) : workflowsApi.create(payload);
     },
     onSuccess: () => {
@@ -284,12 +289,14 @@ export function Workflows() {
     // initial 为 null 时引用不变，useFormSync 的 effect 不会重跑，必须显式重置
     resetForm();
     setFormKey((value) => value + 1);
+    setShowDsl(false);
     setDialogOpen(true);
   }
 
   function openEdit(record: WorkflowRecord) {
     setEditing(record);
     setFormKey((value) => value + 1);
+    setShowDsl(false);
     setDialogOpen(true);
   }
 
@@ -539,7 +546,11 @@ export function Workflows() {
                         );
                         return (
                           <label className="workflow-param" key={param.key}>
-                            <span className="workflow-param__label">{label}</span>
+                            {/* 必填项要能一眼看出来：留空会在保存时被拦下，与其等报错不如先标出来 */}
+                            <span className="workflow-param__label">
+                              {label}
+                              {param.required ? <span className="workflow-param__required" title={t('common.required')}>*</span> : null}
+                            </span>
                             {control}
                           </label>
                         );
@@ -569,6 +580,14 @@ export function Workflows() {
                 {t('workflows.addAction')}
               </Button>
             </Space>
+          </Form.FormItem>
+
+          {/* DSL 预览默认收起：界面上不出现机器标识符是既有约束，需要时再展开 */}
+          <Form.FormItem label={t('workflows.dslPreview')}>
+            <Button size="small" variant="text" onClick={() => setShowDsl((prev) => !prev)}>
+              {showDsl ? t('workflows.dslHide') : t('workflows.dslShow')}
+            </Button>
+            {showDsl && <pre className="workflow-dsl-preview">{JSON.stringify(buildPayload(), null, 2)}</pre>}
           </Form.FormItem>
         </Form>
       </Dialog>

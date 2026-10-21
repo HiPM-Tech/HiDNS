@@ -67,7 +67,10 @@
             "previewValue": "New value",
             "previewOldValue": "Old value",
             "needAtLeastOneAction": "Add at least one action",
-            "missingRequired": "\"{param}\" is required for \"{action}\""
+            "missingRequired": "\"{param}\" is required for \"{action}\"",
+            "dslPreview": "Declarative config (DSL)",
+            "dslShow": "Show the DSL that will be saved",
+            "dslHide": "Hide DSL"
         },
         "about": {
             "community": "コミュニティ",
