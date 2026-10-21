@@ -1876,6 +1876,11 @@
                 "http_outbound_fetch": "Perform one outbound HTTPS request subject to the allowlist",
                 "notify_channel_send": "Send a message through configured channels",
                 "var_workflow_get": "Read a workflow variable"
+            },
+            "paramHint": {
+                "diff_digest": "Produced by the preceding plan step. Set \"Store result in variable\" there, then reference that variable here.",
+                "target": "Full declaration of the target origin servers, in the format the origin group expects.",
+                "record_id": "DNS record ID, available from the result of \"List DNS records\"."
             }
         }
     }

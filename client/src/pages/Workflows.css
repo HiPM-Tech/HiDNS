@@ -96,6 +96,14 @@
   width: 100%;
 }
 
+/* 参数说明：控件下方的一行小字，解释这个值从哪来 */
+.workflow-param__hint {
+  flex-basis: 100%;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--td-text-color-placeholder, #999);
+}
+
 /* 必填标记：不抢眼但要能看见 */
 .workflow-param__required {
   margin-left: 2px;

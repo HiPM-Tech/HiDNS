@@ -664,6 +664,9 @@ export function Workflows() {
                               {param.required ? <span className="workflow-param__required" title={t('common.required')}>*</span> : null}
                             </span>
                             {control}
+                            {/* 说明放在控件下方：像 diffDigest 这种「值不由你决定、由上一步产出」的参数，
+                                只给四个字的名字，用户不可能知道该怎么填 */}
+                            {param.hint ? <span className="workflow-param__hint">{t(param.hint)}</span> : null}
                           </label>
                         );
                       })}

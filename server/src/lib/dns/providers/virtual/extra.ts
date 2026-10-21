@@ -204,7 +204,7 @@ export const virtualOriginGroupCapability: ProviderExtraCapability = {
         { key: 'addIfMissing', label: 'workflow.param.add_if_missing', type: 'boolean', required: false },
         { key: 'allowMultiple', label: 'workflow.param.allow_multiple', type: 'boolean', required: false },
         { key: 'onPartial', label: 'workflow.param.on_partial', type: 'select', required: false, options: ['reject', 'apply'] },
-        { key: 'diffDigest', label: 'workflow.param.diff_digest', type: 'text', required: true },
+        { key: 'diffDigest', label: 'workflow.param.diff_digest', type: 'text', required: true, hint: 'workflow.paramHint.diff_digest' },
       ],
     },
   ],

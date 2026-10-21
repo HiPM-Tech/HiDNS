@@ -13,6 +13,8 @@ export interface ActionParam {
   label: string;
   type: 'text' | 'number' | 'boolean' | 'select';
   required: boolean;
+  /** i18n key：参数的补充说明（渲染在控件下方），用于解释「这个值从哪来」 */
+  hint?: string;
   options?: string[];
   /**
    * 候选来源（`/api/workflows/meta/:source`）。

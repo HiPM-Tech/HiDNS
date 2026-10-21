@@ -6,6 +6,8 @@ export interface WorkflowActionParam {
   label: string;
   type: 'text' | 'number' | 'boolean' | 'select';
   required: boolean;
+  /** i18n key：参数补充说明（解释这个值从哪来） */
+  hint?: string;
   options?: string[];
   /** 候选来源，如 'originGroups'；声明后渲染为级联下拉（只能选，不能填） */
   source?: string;

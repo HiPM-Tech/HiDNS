@@ -15,6 +15,8 @@ export interface ProviderActionParam {
   label: string;
   type: 'text' | 'number' | 'boolean' | 'select';
   required: boolean;
+  /** i18n key：参数的补充说明（渲染在控件下方） */
+  hint?: string;
   options?: string[];
   /** 候选来源（`/api/workflows/meta/:source`）；声明后前端渲染为下拉 */
   source?: string;

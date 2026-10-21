@@ -1871,6 +1871,11 @@
                 "http_outbound_fetch": "发起一次受白名单约束的 HTTPS 请求",
                 "notify_channel_send": "通过已配置的通知渠道发送消息",
                 "var_workflow_get": "读取工作流变量"
+            },
+            "paramHint": {
+                "diff_digest": "由上一步的 plan 产出。请在那个步骤填写「保存结果到变量」，这里再选择对应的变量。",
+                "target": "目标源站的完整声明，按源站组要求的格式填写。",
+                "record_id": "解析记录 ID，可从「列出解析记录」的结果中获得。"
             }
         }
     }
