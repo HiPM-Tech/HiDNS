@@ -16,7 +16,8 @@ function toId(raw: string): number {
   return Number.isFinite(value) ? value : 0;
 }
 import type { ExpressionNode } from '../workflow/expression/nodes';
-import { DomainOperations } from '../db/bal/business-adapter';
+import { DnsAccountOperations, DomainOperations, TeamOperations } from '../db/bal/business-adapter';
+import { isSuper } from '../utils/roles';
 import { buildStaticMeta, isStaticMetaSource } from '../workflow/meta';
 import { DnsProviderService } from '../service/dns-provider-service';
 import { getProviderMetaSource } from '../lib/dns/providers/meta-sources';
@@ -106,18 +107,42 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
   const source = String(req.params.source);
   const userId = Number(req.user!.userId);
 
+  // 账号候选源（设计 §3.3 明确列出，此前一直没实现）。
+  // 可见性口径与 /api/accounts 一致：超管看全部，其他人按「自己创建 + 所属团队」取。
+  if (source === 'accounts') {
+    const role = req.user!.role;
+    const raw = isSuper(role)
+      ? await DnsAccountOperations.getAll()
+      : await (async () => {
+          const teams = (await TeamOperations.getByUserId(userId)) as unknown as Array<{ id: number }>;
+          return DnsAccountOperations.getAccessibleByUserId(userId, teams.map((row) => row.id));
+        })();
+    const rows = raw as unknown as Array<{ id: number; name: string; enabled?: number | boolean }>;
+    sendSuccess(res, {
+      items: rows
+        .filter((row) => row.enabled === undefined || Boolean(row.enabled))
+        .map((row) => ({ value: String(row.id), label: String(row.name) })),
+    });
+    return;
+  }
+
   // 域名候选源：源站组等动作需要按域名定位，不能只给一个「手填域名 ID」的输入框。
   // 口径与 HTTP 读权限一致（创建者 / 直接授权行），避免下拉里出现用户读不到的域名。
+  // 带 group（账号名）时前端按账号分组展示——账号是域名的上位，分组才看得出归属。
   if (source === 'domains') {
-    const rows = (await DomainOperations.getUserAccessibleDomains(userId)) as unknown as Array<{
+    const accountFilter = toId(String(req.query.accountId ?? ''));
+    let rows = (await DomainOperations.getUserAccessibleDomains(userId)) as unknown as Array<{
       id: number;
       name: string;
       account_name?: string;
+      account_id?: number;
     }>;
+    if (accountFilter) rows = rows.filter((row) => Number(row.account_id) === accountFilter);
     sendSuccess(res, {
       items: rows.map((row) => ({
         value: String(row.id),
         label: row.account_name ? `${row.name} (${row.account_name})` : String(row.name),
+        group: row.account_name || undefined,
       })),
     });
     return;

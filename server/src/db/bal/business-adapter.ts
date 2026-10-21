@@ -1042,7 +1042,8 @@ export const DomainOperations = {
   /** 获取用户可访问的域名列表（用于令牌创建，只显示启用账号的域名*/
   async getUserAccessibleDomains(userId: number): Promise<QueryResult[]> {
     return queryInternal(
-      `SELECT d.id, d.name, da.name as account_name
+      // account_id 供工作流候选源按账号过滤/分组（domains 下拉要能看出域名归属哪个账号）
+      `SELECT d.id, d.name, da.id as account_id, da.name as account_name
        FROM domains d
        JOIN dns_accounts da ON d.account_id = da.id
        WHERE da.enabled = 1

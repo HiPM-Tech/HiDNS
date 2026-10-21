@@ -36,11 +36,30 @@ export function CascadingSelect({ param, labels, args, value, onChange }: Cascad
   const ready = (param.sourceParams ?? []).every((key) => Boolean(args[key]));
   const query = useQuery({
     queryKey: ['workflow-meta', param.source, params],
-    queryFn: () => workflowsApi.meta<Array<{ value: string; label: string }>>(param.source!, params),
+    queryFn: () =>
+      workflowsApi.meta<Array<{ value: string; label: string; group?: string }>>(param.source!, params),
     enabled: Boolean(param.source) && ready,
   });
 
-  const options = (query.data?.data?.data as { items?: Array<{ value: string; label: string }> } | undefined)?.items ?? [];
+  const items = (query.data?.data?.data as { items?: Array<{ value: string; label: string; group?: string }> } | undefined)?.items ?? [];
+
+  // 候选带 group（如域名的账号名）时按组展示：账号是域名的上位，
+  // 平铺一长串域名看不出归属，用户也就无从判断选的是哪个账号下的资源。
+  const options = useMemo(() => {
+    const groups = new Map<string, Array<{ label: string; value: string }>>();
+    const flat: Array<{ label: string; value: string }> = [];
+    for (const item of items) {
+      const option = { label: item.label, value: item.value };
+      if (item.group) {
+        if (!groups.has(item.group)) groups.set(item.group, []);
+        groups.get(item.group)!.push(option);
+      } else {
+        flat.push(option);
+      }
+    }
+    if (groups.size === 0) return flat;
+    return [...Array.from(groups, ([label, groupOptions]) => ({ label, options: groupOptions })), ...flat];
+  }, [items]);
   const nameOf = (key: string) => labels?.[key] ?? key;
   const missing = (param.sourceParams ?? []).filter((key) => !args[key]).map(nameOf).join(', ');
 
@@ -50,7 +69,7 @@ export function CascadingSelect({ param, labels, args, value, onChange }: Cascad
       disabled={!ready}
       loading={query.isLoading}
       value={value}
-      options={options.map((item) => ({ label: item.label, value: item.value }))}
+      options={options as any}
       onChange={(next) => onChange(String(next))}
     />
   );
