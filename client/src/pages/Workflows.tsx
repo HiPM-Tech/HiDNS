@@ -16,13 +16,32 @@ import {
   EMPTY_ROW,
   describeError,
   fromConditionNode,
+  formatDuration,
+  formatServerTime,
   fromDslNodes,
+  summarizeTriggerEvent,
   toConditionNode,
   toDslNodes,
   type ActionRow,
   type ConditionDraft,
 } from '../utils/workflows';
 import './Workflows.css';
+
+/** 运行状态 → TDesign Tag 主题 */
+function runStatusTheme(status?: string): 'success' | 'danger' | 'default' | 'primary' {
+  switch (status) {
+    case 'success':
+      return 'success';
+    case 'failed':
+      return 'danger';
+    case 'skipped':
+      return 'default';
+    case 'running':
+      return 'primary';
+    default:
+      return 'default';
+  }
+}
 
 /** 动作风险等级 → TDesign Tag 主题（meta 里已有 risk，此前界面完全没用上） */
 function riskTheme(risk?: string): 'success' | 'warning' | 'danger' | 'default' {
@@ -529,20 +548,42 @@ export function Workflows() {
           data={runs}
           loading={runsQuery.isLoading}
           columns={[
-            { key: 'trace_id', label: t('workflows.colTrace'), width: 240 },
-            { key: 'status', label: t('workflows.colStatus'), width: 100 },
+            {
+              key: 'status',
+              label: t('workflows.colStatus'),
+              width: 100,
+              // 服务端存的是 success / failed / skipped，直接显示原文对人没意义
+              render: (row: WorkflowRunRecord) => (
+                <Tag size="small" variant="light" theme={runStatusTheme(row.status)}>
+                  {t(`workflows.runStatus_${row.status}`)}
+                </Tag>
+              ),
+            },
             {
               key: 'started_at',
               label: t('workflows.colStarted'),
-              render: (row: WorkflowRunRecord) => {
-                // 服务端存的是 UTC 的 `YYYY-MM-DD HH:mm:ss`（无时区后缀），直接 new Date 会按本地解析
-                const raw = String(row.started_at ?? '');
-                const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw) ? `${raw.replace(' ', 'T')}Z` : raw;
-                const date = new Date(iso);
-                return Number.isNaN(date.getTime()) ? (raw || '-') : date.toLocaleString();
-              },
+              width: 180,
+              render: (row: WorkflowRunRecord) => formatServerTime(row.started_at),
             },
-            { key: 'error', label: t('workflows.colError') },
+            {
+              key: 'duration',
+              label: t('workflows.colDuration'),
+              width: 90,
+              // 耗时是判断「这次为什么超时/变慢」的第一手信息，此前完全没有
+              render: (row: WorkflowRunRecord) => formatDuration(row.started_at, row.finished_at),
+            },
+            {
+              key: 'trigger_event',
+              label: t('workflows.colTriggerEvent'),
+              // 触发事件决定了这条运行为什么发生；存的是 JSON，直接铺原文没法读
+              render: (row: WorkflowRunRecord) => summarizeTriggerEvent(row.trigger_event, (type) => t(triggerLabels.get(type) ?? type)),
+            },
+            { key: 'trace_id', label: t('workflows.colTrace'), width: 200 },
+            {
+              key: 'error',
+              label: t('workflows.colError'),
+              render: (row: WorkflowRunRecord) => (row.error ? <span className="workflow-run-error">{row.error}</span> : '-'),
+            },
           ]}
         />
       </Dialog>

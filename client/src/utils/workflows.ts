@@ -162,3 +162,52 @@ export function describeError(error: unknown): string {
   if (serverMsg) return serverMsg;
   return error instanceof Error ? error.message : String(error);
 }
+/**
+ * 服务端存的是 UTC 的 `YYYY-MM-DD HH:mm:ss`（无时区后缀），
+ * 直接 new Date 会按本地时区解析，差出整整一个时区。
+ */
+export function parseServerTime(raw?: string | null): Date | null {
+  const value = String(raw ?? '');
+  if (!value) return null;
+  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? `${value.replace(' ', 'T')}Z` : value;
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatServerTime(raw?: string | null): string {
+  const date = parseServerTime(raw);
+  return date ? date.toLocaleString() : (String(raw ?? '') || '-');
+}
+
+/** 耗时：未结束显示 …，用于区分「还在跑」和「没有记录」 */
+export function formatDuration(start?: string | null, end?: string | null): string {
+  const from = parseServerTime(start);
+  if (!from) return '-';
+  const to = parseServerTime(end);
+  if (!to) return '…';
+  const ms = to.getTime() - from.getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '-';
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+}
+
+/** 触发事件摘要：库里存的是 JSON 快照，铺原文没法读 */
+export function summarizeTriggerEvent(
+  raw: string | null | undefined,
+  labelOf: (type: string) => string,
+): string {
+  if (!raw) return '-';
+  try {
+    const event = JSON.parse(raw) as {
+      type?: string;
+      domain?: { name?: string };
+      record?: { name?: string; type?: string };
+    };
+    const parts: string[] = [];
+    if (event.type) parts.push(labelOf(String(event.type)));
+    if (event.domain?.name) parts.push(event.domain.name);
+    if (event.record?.name) parts.push(`${event.record.name}${event.record.type ? ` ${event.record.type}` : ''}`);
+    return parts.length ? parts.join(' · ') : '-';
+  } catch {
+    return '-';
+  }
+}

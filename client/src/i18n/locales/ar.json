@@ -47,7 +47,13 @@
             "colError": "خطأ",
             "risk_low": "Low risk",
             "risk_medium": "Medium risk",
-            "risk_high": "High risk"
+            "risk_high": "High risk",
+            "colDuration": "Duration",
+            "colTriggerEvent": "Trigger",
+            "runStatus_success": "Success",
+            "runStatus_failed": "Failed",
+            "runStatus_skipped": "Skipped",
+            "runStatus_running": "Running"
         },
         "common": {
             "operationFailed": "Operation failed",

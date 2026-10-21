@@ -47,7 +47,13 @@
             "colError": "錯誤",
             "risk_low": "低风险",
             "risk_medium": "中风险",
-            "risk_high": "高风险"
+            "risk_high": "高风险",
+            "colDuration": "耗时",
+            "colTriggerEvent": "触发事件",
+            "runStatus_success": "成功",
+            "runStatus_failed": "失败",
+            "runStatus_skipped": "已跳过",
+            "runStatus_running": "运行中"
         },
         "about": {
             "community": "社区喵~",
