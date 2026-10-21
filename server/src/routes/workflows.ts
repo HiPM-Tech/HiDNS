@@ -157,6 +157,8 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
     sendSuccess(res, {
       items: rows.map((row) => ({
         value: String(row.id),
+        // id 是数字主键：手动运行对话框要拿它构造合成事件，缺了会显示成 (#undefined)
+        id: Number(row.id),
         label: row.account_name ? `${row.name} (${row.account_name})` : String(row.name),
         group: row.account_name || undefined,
       })),
