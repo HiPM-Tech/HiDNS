@@ -358,6 +358,9 @@ router.get('/:id/runs', authMiddleware, adminOnly, asyncHandler(async (req: Requ
 }));
 
 const runLimiter = createLimiter(60_000, 10, '手动运行过于频繁，请稍后再试');
+// 设计 §1625：test 与 run 都必须挂限流。test 是纯校验（无副作用），
+// 但重复提交复杂 payload 仍能消耗 CPU，且可用于探测校验规则，故同样限流、额度放宽。
+const testLimiter = createLimiter(60_000, 30, '测试过于频繁，请稍后再试');
 
 router.post('/:id/run', authMiddleware, adminOnly, requireJwtAuth('workflows'), runLimiter, asyncHandler(async (req: Request, res: Response) => {
   const id = toId(req.params.id);
@@ -429,7 +432,7 @@ router.post('/:id/run', authMiddleware, adminOnly, requireJwtAuth('workflows'), 
   }
 }));
 
-router.post('/:id/test', authMiddleware, adminOnly, requireJwtAuth('workflows'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/test', authMiddleware, adminOnly, requireJwtAuth('workflows'), testLimiter, asyncHandler(async (req: Request, res: Response) => {
   const item = await loadOwnedWorkflow(req, res, toId(req.params.id));
   if (!item) return;
   const problems = validatePayload({

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { authorize, isCombinationAllowed, type AuthorizeDeps, type Principal } from '../auth';
-import type { ActionClass } from '../actions/types';
+import type { ActionClass } from '../../types/namespace';
 
 /**
  * 设计 §4.0.4 的第二层：执行前裁决。
@@ -16,7 +16,7 @@ const principal: Principal = {
   allowedDomains: '*',
 };
 
-function deps(actionClass: ActionClass, audit = vi.fn(async () => undefined)): AuthorizeDeps {
+function deps(actionClass: ActionClass, audit = vi.fn(async (_record: unknown) => undefined)): AuthorizeDeps {
   return {
     lookupAction: (name) => ({ name, actionClass, service: 'records.write', dslVisible: true }) as never,
     audit,
@@ -44,21 +44,23 @@ describe('组合裁决 isCombinationAllowed', () => {
 
 describe('authorize 执行前裁决', () => {
   it('绕过保存校验的写组合在运行期被拒，并记 denied 审计', async () => {
-    const audit = vi.fn(async () => undefined);
+    const audit = vi.fn(async (_record: unknown) => undefined);
     await expect(
       authorize('dns.record.update', principal, { domainId: 1 }, deps('dns.record.write', audit), {
-        trigger: 'domain.changed',
+        // trigger 是运行来源（event/manual/api/internal），triggerType 才是工作流触发器类型
+        trigger: 'event',
         triggerType: 'domain.changed',
       }),
     ).rejects.toMatchObject({ status: 422 });
     expect(audit).toHaveBeenCalled();
-    expect((audit.mock.calls[0][0] as { outcome: string }).outcome).toBe('denied');
+    const audited = audit.mock.calls as unknown as Array<[{ outcome: string }]>;
+    expect(audited[0][0].outcome).toBe('denied');
   });
 
   it('同样的动作换成记录变更触发器则放行', async () => {
     await expect(
       authorize('dns.record.update', principal, { domainId: 1 }, deps('dns.record.write'), {
-        trigger: 'record.changed',
+        trigger: 'event',
         triggerType: 'record.changed',
       }),
     ).resolves.toBeTruthy();
