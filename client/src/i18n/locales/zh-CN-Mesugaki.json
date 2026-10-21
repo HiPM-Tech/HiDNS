@@ -93,7 +93,12 @@
             "triggerWriteConflict": "「域名变动」触发器不能搭配记录写动作（服务端会拒绝保存）。请改用「解析记录变更」触发器，或移除这些动作：{actions}",
             "originGroupCounts": "{records} 条源站 · {references} 处引用",
             "originGroupCollapseWarning": "此工作流会把 {count} 条源站收敛为 1 条，请确认这是预期结果。",
-            "privateOriginWarning": "这是内网/回环/本地地址，服务端会拒绝该源站，请改用公网地址。"
+            "privateOriginWarning": "这是内网/回环/本地地址，服务端会拒绝该源站，请改用公网地址。",
+            "noSteps": "这次运行没有动作记录",
+            "stepsCorrupted": "步骤记录已损坏，无法解析",
+            "colSteps": "步骤",
+            "viewSteps": "查看步骤",
+            "runStepsTitle": "这次运行的每一步"
         },
         "about": {
             "community": "社区喵~",

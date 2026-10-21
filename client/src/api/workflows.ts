@@ -61,6 +61,8 @@ export interface WorkflowRunRecord {
   finished_at: string | null;
   /** 触发事件快照（JSON 字符串）；服务端一直有返回，前端此前没用 */
   trigger_event?: string | null;
+  /** 逐步执行记录（JSON 字符串）：动作、状态、耗时、脱敏实参、错误（设计 §3.6） */
+  steps?: string | null;
   /** 调用深度，用于排查「工作流调用工作流」被拒绝的情况 */
   depth?: number | null;
 }

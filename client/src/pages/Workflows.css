@@ -159,6 +159,74 @@
   white-space: pre;
 }
 
+/* 运行步骤：展开行里的逐步记录 */
+.run-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.run-steps__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--td-bg-color-container-hover, #f7f7f7);
+}
+
+.run-steps__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.run-steps__index {
+  min-width: 16px;
+  color: var(--td-text-color-placeholder, #999);
+}
+
+.run-steps__action {
+  font-weight: 600;
+}
+
+.run-steps__duration {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+
+.run-steps__input {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+  word-break: break-all;
+}
+
+.run-steps__error {
+  font-size: 12px;
+  color: var(--td-error-color, #d54941);
+  word-break: break-word;
+}
+
+.run-steps__panel {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--td-component-border, #e7e7e7);
+}
+
+.run-steps__title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.run-steps__empty {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder, #999);
+}
+
 /* 运行错误：可能很长，必须换行而不是撑破表格 */
 .workflow-run-error {
   display: inline-block;

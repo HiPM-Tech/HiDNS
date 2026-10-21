@@ -8,6 +8,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { CascadingSelect } from '../components/workflows/CascadingSelect';
 import { looksPrivateOrigin } from '../utils/origin';
 import { SuggestInput } from '../components/workflows/SuggestInput';
+import { RunSteps } from '../components/workflows/RunSteps';
 import { useI18n } from '../contexts/I18nContext';
 import { useFormSync } from '../hooks/useFormSync';
 import { useToast } from '../hooks/useToast';
@@ -141,6 +142,8 @@ export function Workflows() {
   const [dialogOpen, setDialogOpen] = useState(false);
   // DSL 预览默认收起，避免机器标识符默认出现在界面上
   const [showDsl, setShowDsl] = useState(false);
+  // 运行记录里当前查看步骤的那一行
+  const [stepsFor, setStepsFor] = useState<WorkflowRunRecord | null>(null);
   const [editing, setEditing] = useState<WorkflowRecord | null>(null);
   // 每次打开对话框都递增：保证 initial 是新对象，useFormSync 才会重新回填/重置
   const [formKey, setFormKey] = useState(0);
@@ -374,7 +377,7 @@ export function Workflows() {
           )}
           {!row.corrupted && (
             <>
-              <Button size="small" variant="text" onClick={() => setRunsFor(row)}>{t('workflows.runs')}</Button>
+              <Button size="small" variant="text" onClick={() => { setRunsFor(row); setStepsFor(null); }}>{t('workflows.runs')}</Button>
               <Button size="small" variant="text" onClick={() => setPreviewFor(row)}>{t('workflows.preview')}</Button>
               <Button size="small" variant="text" onClick={() => { setRunFor(row); setRunDomain(''); setRunDomainId(0); setRunValue(''); setRunOldValue(''); }}>{t('workflows.run')}</Button>
             </>
@@ -750,7 +753,7 @@ export function Workflows() {
       <Dialog
         dialogClassName="app-td-dialog"
         visible={Boolean(runsFor)}
-        onClose={() => setRunsFor(null)}
+        onClose={() => { setRunsFor(null); setStepsFor(null); }}
         header={t('workflows.runs')}
         width="720px"
         footer={<Button variant="outline" onClick={() => setRunsFor(null)}>{t('common.close')}</Button>}
@@ -796,8 +799,32 @@ export function Workflows() {
               label: t('workflows.colError'),
               render: (row: WorkflowRunRecord) => (row.error ? <span className="workflow-run-error">{row.error}</span> : '-'),
             },
+            {
+              key: 'steps',
+              label: t('workflows.colSteps'),
+              width: 100,
+              // TDesign 根导出的 Table 类型不含展开行属性，改用「点开看」：
+              // 选中后在表格下方展示这一步运行的逐步记录（设计 §3.6）
+              render: (row: WorkflowRunRecord) => (
+                <Button size="small" variant="text" onClick={() => setStepsFor(row)}>
+                  {t('workflows.viewSteps')}
+                </Button>
+              ),
+            },
           ]}
         />
+        {stepsFor ? (
+          <div className="run-steps__panel">
+            <div className="run-steps__title">{t('workflows.runStepsTitle')}</div>
+            <RunSteps
+              raw={stepsFor.steps}
+              labelOf={(name) => {
+                const item = actionMap.get(name);
+                return item ? t(item.label) : name;
+              }}
+            />
+          </div>
+        ) : null}
       </Dialog>
 
       <Dialog
