@@ -201,7 +201,7 @@ async function buildForPlatform(targetName) {
   // Step 4: 生成 SEA blob
   // 跨架构构建时显式关掉 useCodeCache —— 这类缓存只在同架构上可复用。
   const baseSeaConfig = JSON.parse(fs.readFileSync(path.join(root, 'sea-config.json'), 'utf-8'));
-  const resolved = resolveSeaConfig(baseSeaConfig, { isCrossArch });
+  const resolved = resolveSeaConfig(baseSeaConfig, { isCrossArch, nodePlatform: target.nodePlatform });
   let seaConfigPath = path.join(root, 'sea-config.json');
   if (resolved.modified) {
     seaConfigPath = path.join(root, 'dist', 'sea-config.cross.json');

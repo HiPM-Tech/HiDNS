@@ -10,27 +10,40 @@ const BASE = {
   useCodeCache: true,
 };
 
-test('同架构构建不改动 useCodeCache', () => {
-  const { config, modified } = resolveSeaConfig(BASE, { isCrossArch: false });
+test('同架构的 Linux 构建不改动 useCodeCache', () => {
+  const { config, modified } = resolveSeaConfig(BASE, { isCrossArch: false, nodePlatform: 'linux' });
   assert.equal(modified, false);
   assert.equal(config.useCodeCache, true);
 });
 
 test('跨架构构建必须关闭 useCodeCache', () => {
-  const { config, modified, reason } = resolveSeaConfig(BASE, { isCrossArch: true });
+  const { config, modified, reason } = resolveSeaConfig(BASE, { isCrossArch: true, nodePlatform: 'linux' });
   assert.equal(modified, true);
   assert.equal(config.useCodeCache, false);
   assert.match(String(reason), /arch specific/i);
 });
 
+test('macOS 目标即使同架构也要关闭 useCodeCache（实测启动即 segfault）', () => {
+  const { config, modified, reason } = resolveSeaConfig(BASE, { isCrossArch: false, nodePlatform: 'darwin' });
+  assert.equal(modified, true);
+  assert.equal(config.useCodeCache, false);
+  assert.match(String(reason), /macOS/);
+});
+
+test('macOS + 跨架构同样关闭', () => {
+  const { config, modified } = resolveSeaConfig(BASE, { isCrossArch: true, nodePlatform: 'darwin' });
+  assert.equal(modified, true);
+  assert.equal(config.useCodeCache, false);
+});
+
 test('不改动原对象', () => {
   const input = { ...BASE };
-  resolveSeaConfig(input, { isCrossArch: true });
+  resolveSeaConfig(input, { isCrossArch: true, nodePlatform: 'darwin' });
   assert.equal(input.useCodeCache, true, '原始配置不应被就地修改');
 });
 
 test('本来就没开 useCodeCache 时不算改动', () => {
-  const { modified } = resolveSeaConfig({ ...BASE, useCodeCache: false }, { isCrossArch: true });
+  const { modified } = resolveSeaConfig({ ...BASE, useCodeCache: false }, { isCrossArch: true, nodePlatform: 'darwin' });
   assert.equal(modified, false);
 });
 
