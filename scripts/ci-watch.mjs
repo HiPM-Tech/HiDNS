@@ -108,11 +108,23 @@ for (;;) {
   await new Promise((res) => setTimeout(res, INTERVAL * 1000));
 }
 
-const runs = listRuns();
-const failed = runs.filter((r) => r.conclusion && r.conclusion !== 'success' && r.conclusion !== 'skipped');
-if (failed.length > 0) {
-  console.log(`\n❌ ${failed.length} 个运行失败`);
+// 结论只看**每个工作流最新的一次**：历史失败（比如修复前的红）不应该继续算作当前状态。
+// 需要连历史一起看时加 --all。
+const allRuns = listRuns();
+const latestByWorkflow = new Map();
+for (const r of allRuns) {
+  const key = r.workflowName || r.name || 'workflow';
+  if (!latestByWorkflow.has(key)) latestByWorkflow.set(key, r);
+}
+const considered = flag('--all') ? allRuns : [...latestByWorkflow.values()];
+const failed = considered.filter((r) => r.conclusion && r.conclusion !== 'success' && r.conclusion !== 'skipped');
+const pendingLeft = considered.filter((r) => r.status !== 'completed');
+
+if (pendingLeft.length > 0) {
+  console.log(`\n⏳ 仍有 ${pendingLeft.length} 个最新运行未完成`);
+} else if (failed.length > 0) {
+  console.log(`\n❌ ${failed.length} 个工作流的最新运行失败：${failed.map((r) => r.workflowName || r.name).join(', ')}`);
   if (FAIL_ON_FAILURE) process.exit(1);
 } else {
-  console.log('\n✅ 最近的运行没有失败');
+  console.log(`\n✅ ${considered.length} 个工作流的最新运行均为 success`);
 }
