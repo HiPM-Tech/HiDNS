@@ -31,6 +31,10 @@ vi.mock('../../../lib/dns/providers/tencenteo/adapter', () => {
     getSiteType() {
       return 'mainland' as const;
     }
+    // 账号优先后 teoOpsForAccount 要校验作用域归属，桩必须能列站点
+    async listZones() {
+      return [{ zoneId: 'zone-1', zoneName: 'zone-one' }];
+    }
     originGroups() {
       return (this.constructor as unknown as { nextClient: unknown }).nextClient;
     }
@@ -381,7 +385,7 @@ describe('写入闸门（能力层）', () => {
 
     await expect(
       replaceHandler(outsider, {
-        domainId: 7,
+        accountId: 3, scopeId: 'zone-1',
         groupId: 'og-prod',
         target: '198.51.100.9',
         collapse: true,
@@ -393,14 +397,14 @@ describe('写入闸门（能力层）', () => {
   it('被引用的组拒绝整组覆盖，且报出引用方', async () => {
     stubAdapter(RAW_GROUP);
     await expect(
-      replaceHandler(ctx, { domainId: 7, groupId: 'og-prod', target: '198.51.100.9', collapse: true, diffDigest: 'x' }),
+      replaceHandler(ctx, { accountId: 3, scopeId: 'zone-1', groupId: 'og-prod', target: '198.51.100.9', collapse: true, diffDigest: 'x' }),
     ).rejects.toThrow(/被 1 个资源引用.*www\.example\.com/);
   });
 
   it('未被引用的普通组可写入并回传 requestId', async () => {
     const raw = { ...RAW_GROUP, References: [] };
     stubAdapter(raw);
-    const plan = (await planHandler(ctx, { domainId: 7, groupId: 'og-prod', target: '198.51.100.9' })) as {
+    const plan = (await planHandler(ctx, { accountId: 3, scopeId: 'zone-1', groupId: 'og-prod', target: '198.51.100.9' })) as {
       digest: string;
       irrecoverable: boolean;
       referenced: boolean;
@@ -409,7 +413,7 @@ describe('写入闸门（能力层）', () => {
     expect(plan.referenced).toBe(false);
 
     const result = (await replaceHandler(ctx, {
-      domainId: 7,
+      accountId: 3, scopeId: 'zone-1',
       groupId: 'og-prod',
       target: '198.51.100.9',
       collapse: true,
@@ -421,7 +425,7 @@ describe('写入闸门（能力层）', () => {
 
   it('未声明 collapse 直接拒绝', async () => {
     stubAdapter({ ...RAW_GROUP, References: [] });
-    await expect(replaceHandler(ctx, { domainId: 7, groupId: 'og-prod', target: '198.51.100.9' })).rejects.toThrow(
+    await expect(replaceHandler(ctx, { accountId: 3, scopeId: 'zone-1', groupId: 'og-prod', target: '198.51.100.9' })).rejects.toThrow(
       /collapse: true/,
     );
   });
@@ -429,13 +433,13 @@ describe('写入闸门（能力层）', () => {
   it('digest 不一致时拒绝写入', async () => {
     stubAdapter({ ...RAW_GROUP, References: [] });
     await expect(
-      replaceHandler(ctx, { domainId: 7, groupId: 'og-prod', target: '198.51.100.9', collapse: true, diffDigest: 'forged' }),
+      replaceHandler(ctx, { accountId: 3, scopeId: 'zone-1', groupId: 'og-prod', target: '198.51.100.9', collapse: true, diffDigest: 'forged' }),
     ).rejects.toThrow(/diff 与预览不一致/);
   });
 
   it('plan 结果携带引用方清单', async () => {
     stubAdapter(RAW_GROUP);
-    const plan = (await planHandler(ctx, { domainId: 7, groupId: 'og-prod', target: '198.51.100.9' })) as {
+    const plan = (await planHandler(ctx, { accountId: 3, scopeId: 'zone-1', groupId: 'og-prod', target: '198.51.100.9' })) as {
       referencing: string[];
       referenced: boolean;
     };

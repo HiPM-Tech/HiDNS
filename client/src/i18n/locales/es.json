@@ -1865,7 +1865,9 @@
                 "title": "Title",
                 "message": "Message",
                 "key": "Variable name",
-                "target": "Target origin"
+                "target": "Target origin",
+                "account_id": "Account",
+                "scope_id": "Site (scope)"
             },
             "actionDesc": {
                 "dns_record_list": "List DNS records of a domain",

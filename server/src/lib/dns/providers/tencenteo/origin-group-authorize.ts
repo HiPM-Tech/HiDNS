@@ -1,7 +1,7 @@
 import { AccountContextError, accountAccessLevel, resolveDomainAccount } from '../../account-context';
 import type { ExtraAuthorizePrincipal } from '../extra-types';
 import { OriginGroupError } from '../../origin-group-core';
-import { listTeoZones, teoOpsForDomain } from './origin-group-context';
+import { listTeoZonesByAccount, teoOpsForAccount, teoOpsForDomain } from './origin-group-context';
 
 /**
  * EdgeOne 源站组的站点级授权（实现在提供商目录内，符合 root.ai.md §310）。
@@ -29,20 +29,18 @@ export function resetZoneAuthorizationCache(): void {
 }
 
 async function zoneVisibleUnderCredentials(params: {
-  domainId: number;
   accountId: number;
   siteType: string;
   zoneId: string;
-  credentialSource: 'tencenteo' | 'dnspod';
 }): Promise<boolean> {
-  // EdgeOne 账号：zoneId 来自该域名的 third_id，本身就属于这个账号，无需再查
-  if (params.credentialSource === 'tencenteo') return true;
-
+  // 两条凭据路径都要校验。改造前 EdgeOne 账号可以直接 `return true`，
+  // 只因为 zoneId 由 domains.third_id 锚定、用户无从指定；账号优先后 scopeId 是用户入参，
+  // 那条早退会让「未校验的资源标识直接打上游」，必须删掉。
   const key = `${params.accountId}:${params.siteType}:${params.zoneId}`;
   const hit = zoneVisibility.get(key);
   if (hit !== undefined && Date.now() - hit < ZONE_CACHE_TTL_MS) return true;
 
-  const zones = await listTeoZones(params.domainId, { siteType: params.siteType });
+  const zones = await listTeoZonesByAccount(params.accountId, { siteType: params.siteType });
   if (!zones.some((zone) => zone.zoneId === params.zoneId)) return false;
   zoneVisibility.set(key, Date.now());
   return true;
@@ -68,20 +66,44 @@ export async function authorizeTencenteoOriginGroup(
   // 两者对「将来新增的写类分类」都会落成 read，等于默认放行。
   const mode = actionClass === 'ext.read' ? 'read' : 'write';
 
-  const domainId = Number(args.domainId);
-  if (!Number.isFinite(domainId) || domainId <= 0) {
-    throw new OriginGroupError('INVALID_ARGS', '缺少 domainId');
+  // 定位分支（设计 §2.5）：新契约用 accountId + scopeId，旧形态用 domainId。
+  // 两者并存 → AMBIGUOUS_LOCATION（不按优先级静默选一个）；都缺 → INVALID_ARGS。
+  const rawAccount = args.accountId;
+  const rawDomain = args.domainId;
+  const hasAccount = rawAccount !== undefined && rawAccount !== null && String(rawAccount).trim() !== '';
+  const hasDomain = rawDomain !== undefined && rawDomain !== null && String(rawDomain).trim() !== '';
+  if (hasAccount && hasDomain) {
+    throw new OriginGroupError(
+      'AMBIGUOUS_LOCATION',
+      '不能同时指定 accountId 与 domainId：请改用 accountId + scopeId',
+    );
+  }
+  if (!hasAccount && !hasDomain) {
+    throw new OriginGroupError('INVALID_ARGS', '缺少定位参数：请给出 accountId + scopeId（旧形态为 domainId）');
   }
 
   // ① 只解析到「账号」这一层，不碰凭据与站点
   let accountId: number;
-  try {
-    accountId = (await resolveDomainAccount(domainId)).accountId;
-  } catch (error) {
-    if (error instanceof AccountContextError && error.code === 'DOMAIN_NOT_FOUND') {
-      throw new OriginGroupError('NOT_FOUND', '域名不存在或无权访问');
+  let legacyDomainId: number | undefined;
+  if (hasAccount) {
+    const parsed = Number(rawAccount);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new OriginGroupError('INVALID_ARGS', 'accountId 必须是正整数');
     }
-    throw error;
+    accountId = parsed;
+  } else {
+    legacyDomainId = Number(rawDomain);
+    if (!Number.isFinite(legacyDomainId) || legacyDomainId <= 0) {
+      throw new OriginGroupError('INVALID_ARGS', '缺少 domainId');
+    }
+    try {
+      accountId = (await resolveDomainAccount(legacyDomainId)).accountId;
+    } catch (error) {
+      if (error instanceof AccountContextError && error.code === 'DOMAIN_NOT_FOUND') {
+        throw new OriginGroupError('NOT_FOUND', '域名不存在或无权访问');
+      }
+      throw error;
+    }
   }
 
   // ② 判权。分三态，只在「完全无权」与「不存在」之间做等价（防枚举）；
@@ -98,18 +120,41 @@ export async function authorizeTencenteoOriginGroup(
     );
   }
 
-  // ③ 鉴权通过后才解析凭据与站点；此后的错误只可能属于调用者有权访问的资源
-  const siteType = String(args.siteType ?? '').trim() || undefined;
-  const zoneIdArg = String(args.zoneId ?? '').trim() || undefined;
-  const ctx = await teoOpsForDomain(domainId, { siteType, zoneId: zoneIdArg });
+  // ③ 写类动作的旧形态拒绝。必须**早于任何凭据解析**：解析会抛可区分他人资源的错误串
+  // （PROVIDER_MISMATCH 带提供商类型、CREDENTIAL_REUSE_NOT_DECLARED 带账号类型），
+  // 若放在解析之后，未授权者仍能把 accountId/domainId 变成枚举器。
+  if (mode === 'write' && legacyDomainId !== undefined) {
+    throw new OriginGroupError(
+      'LEGACY_WRITE_REJECTED',
+      '源站组的写动作要求新契约：请改用 accountId + scopeId（设计 §904）；' +
+        '旧形态的 domainId 仅保留给只读动作',
+    );
+  }
 
-  const visible = await zoneVisibleUnderCredentials({
-    domainId,
-    accountId: ctx.accountId,
-    siteType: ctx.siteType,
-    zoneId: ctx.zoneId,
-    credentialSource: ctx.credentialSource,
-  });
+  // ④ 鉴权通过后才解析凭据与站点；此后的错误只可能属于调用者有权访问的资源
+  const siteType = String(args.siteType ?? '').trim() || undefined;
+  const ctx =
+    legacyDomainId !== undefined
+      ? await teoOpsForDomain(legacyDomainId, {
+          siteType,
+          zoneId: String(args.zoneId ?? '').trim() || undefined,
+        })
+      : await teoOpsForAccount(accountId, {
+          siteType,
+          zoneId: String(args.scopeId ?? '').trim() || undefined,
+        });
+
+  // 作用域归属校验：两条路径各查一次，不重复。
+  // - 账号路径：teoOpsForAccount 内部已经做过 `scopeId ∈ listZones(account)`，此处不再重复；
+  // - 旧路径：teoOpsForDomain 由 third_id 锚定但**不校验**，必须在这里查（带 60s 缓存）。
+  const visible =
+    legacyDomainId === undefined
+      ? true
+      : await zoneVisibleUnderCredentials({
+          accountId: ctx.accountId,
+          siteType: ctx.siteType,
+          zoneId: ctx.zoneId,
+        });
   if (!visible) {
     throw new OriginGroupError('ZONE_FORBIDDEN', `该凭据看不到 EdgeOne 站点 ${ctx.zoneId}，拒绝操作`);
   }

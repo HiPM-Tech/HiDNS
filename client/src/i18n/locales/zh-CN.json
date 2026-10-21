@@ -1860,7 +1860,9 @@
                 "title": "标题",
                 "message": "消息内容",
                 "key": "变量名",
-                "target": "目标源站"
+                "target": "目标源站",
+                "account_id": "账号",
+                "scope_id": "站点（作用域）"
             },
             "actionDesc": {
                 "dns_record_list": "列出指定域名下的解析记录",
