@@ -6,6 +6,7 @@ import type { WorkflowRecord, WorkflowActionMeta, WorkflowRunRecord } from '../a
 import { Table } from '../components/Table';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { CascadingSelect } from '../components/workflows/CascadingSelect';
+import { SuggestInput } from '../components/workflows/SuggestInput';
 import { useI18n } from '../contexts/I18nContext';
 import { useFormSync } from '../hooks/useFormSync';
 import { useToast } from '../hooks/useToast';
@@ -556,6 +557,14 @@ export function Workflows() {
                             placeholder={label}
                             value={argValue}
                             options={param.options.map((option) => ({ label: option, value: option }))}
+                            onChange={setArg}
+                          />
+                        ) : param.suggestSource ? (
+                          // 可自由输入 + 候选建议：域名这类参数常见值有限，但不该限制用户只能选
+                          <SuggestInput
+                            source={param.suggestSource}
+                            value={argValue}
+                            placeholder={label}
                             onChange={setArg}
                           />
                         ) : arg?.kind === 'ref' ? (

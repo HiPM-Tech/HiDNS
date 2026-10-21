@@ -7,8 +7,10 @@ export interface WorkflowActionParam {
   type: 'text' | 'number' | 'boolean' | 'select';
   required: boolean;
   options?: string[];
-  /** 候选来源，如 'originGroups'；声明后渲染为级联下拉 */
+  /** 候选来源，如 'originGroups'；声明后渲染为级联下拉（只能选，不能填） */
   source?: string;
+  /** 联想来源；声明后渲染为可自由输入 + 候选建议（设计 §3.1 的 `[...]`） */
+  suggestSource?: string;
   /** 拉取候选取自同动作的哪些实参，如 ['domainId']；缺一个就禁用下拉 */
   sourceParams?: string[];
   /** 传了才带上、缺了也不禁用下拉的可选实参 */

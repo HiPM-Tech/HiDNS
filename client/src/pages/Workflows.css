@@ -86,6 +86,16 @@
   font-size: 12px;
 }
 
+/* 联想输入：撑满参数格 */
+.workflow-suggest {
+  width: 100%;
+}
+
+.workflow-suggest .t-auto-complete,
+.workflow-suggest .t-input {
+  width: 100%;
+}
+
 /* 必填标记：不抢眼但要能看见 */
 .workflow-param__required {
   margin-left: 2px;

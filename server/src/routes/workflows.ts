@@ -126,6 +126,22 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
     return;
   }
 
+  // 域名名称联想源（设计 §3.1 的 `[...]` 形态）：dns.record.* 的 domain 参数要的是**域名名称**，
+  // 不是 ID；这里返回名称作为 value，label 带上账号便于区分同名域。
+  if (source === 'domainNames') {
+    const rows = (await DomainOperations.getUserAccessibleDomains(userId)) as unknown as Array<{
+      name: string;
+      account_name?: string;
+    }>;
+    sendSuccess(res, {
+      items: rows.map((row) => ({
+        value: String(row.name),
+        label: row.account_name ? `${row.name} (${row.account_name})` : String(row.name),
+      })),
+    });
+    return;
+  }
+
   // 域名候选源：源站组等动作需要按域名定位，不能只给一个「手填域名 ID」的输入框。
   // 口径与 HTTP 读权限一致（创建者 / 直接授权行），避免下拉里出现用户读不到的域名。
   // 带 group（账号名）时前端按账号分组展示——账号是域名的上位，分组才看得出归属。
