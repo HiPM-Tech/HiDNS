@@ -10,6 +10,7 @@ import {
   type OriginGroup,
 } from './origin-group';
 import { teoOpsForAccount, teoOpsForDomain, type TeoOps } from './origin-group-context';
+import { attachResolvedTarget } from '../../../resolved-target';
 import { authorizeTencenteoOriginGroup } from './origin-group-authorize';
 
 /**
@@ -67,13 +68,32 @@ async function loadGroup(args: Record<string, unknown>): Promise<TeoOps & { grou
   return { ...ctx, group };
 }
 
+/**
+ * 把「这次解析到了哪个账号/站点」旁挂到返回值上（审计用，不进 DSL 可见返回值）。
+ * 契约形态由入参决定：带 accountId 是新契约，只有 domainId 是旧形态。
+ */
+function withTarget<T>(value: T, ctx: TeoOps, args: Record<string, unknown>, groupId?: string): T {
+  const accountRaw = args.accountId;
+  const isNew = accountRaw !== undefined && accountRaw !== null && String(accountRaw).trim() !== '';
+  return attachResolvedTarget(value, {
+    contract: isNew ? 'v2' : 'v1-legacy',
+    accountId: ctx.accountId,
+    scopeId: ctx.zoneId,
+    siteType: ctx.siteType,
+    groupId,
+  });
+}
+
 const handlers: Record<string, ProviderActionHandler> = {
   'ext.tencenteo.originGroup.list': async (args) => {
-    const { ops } = await teoOpsForArgs(args);
-    return ops.list({});
+    const ctx = await teoOpsForArgs(args);
+    return withTarget(await ctx.ops.list({}), ctx, args);
   },
 
-  'ext.tencenteo.originGroup.get': async (args) => (await loadGroup(args)).group,
+  'ext.tencenteo.originGroup.get': async (args) => {
+    const ctx = await loadGroup(args);
+    return withTarget(ctx.group, ctx, args, ctx.group.groupId);
+  },
 
   'ext.tencenteo.originGroup.plan': async (args) => {
     const ctx = await loadGroup(args);
@@ -83,7 +103,7 @@ const handlers: Record<string, ProviderActionHandler> = {
       type: 'IP_DOMAIN',
     };
     const plan = planCollapse(group, target, locationOf(ctx));
-    return {
+    return withTarget({
       ...plan,
       irrecoverable: hasIrrecoverableData(plan.removed),
       referenced: group.references.length > 0,
@@ -92,7 +112,7 @@ const handlers: Record<string, ProviderActionHandler> = {
       credentialSource,
       zoneId,
       siteType,
-    };
+    }, ctx, args, group.groupId);
   },
 
   'ext.tencenteo.originGroup.replace': async (args) => {
@@ -107,7 +127,9 @@ const handlers: Record<string, ProviderActionHandler> = {
     };
     const plan = planCollapse(group, target, locationOf(ctx));
 
-    if (plan.noop) return { skipped: true, reason: 'already-collapsed', plan, credentialSource, zoneId, siteType };
+    if (plan.noop) {
+      return withTarget({ skipped: true, reason: 'already-collapsed', plan, credentialSource, zoneId, siteType }, ctx, args, group.groupId);
+    }
 
     // 被引用中的源站组不得整组覆盖：坍缩会立刻改变这些域名的回源行为。
     // 这是"写入前的最后一道闸门"，不依赖调用方自律。
@@ -142,15 +164,20 @@ const handlers: Record<string, ProviderActionHandler> = {
       after.records[0].record === target.record;
     if (!ok) throw new OriginGroupError('VERIFY_FAILED', '写入后校验失败');
 
-    return {
-      collapsedFrom: plan.collapsedFrom,
-      target,
-      references: plan.preservedReferences,
-      requestId: requestId ?? null,
-      credentialSource,
-      zoneId,
-      siteType,
-    };
+    return withTarget(
+      {
+        collapsedFrom: plan.collapsedFrom,
+        target,
+        references: plan.preservedReferences,
+        requestId: requestId ?? null,
+        credentialSource,
+        zoneId,
+        siteType,
+      },
+      ctx,
+      args,
+      group.groupId,
+    );
   },
 };
 

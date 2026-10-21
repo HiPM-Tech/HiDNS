@@ -7,7 +7,7 @@ import { evaluate, createEvalState } from './expression/evaluator';
 import { LIMITS } from './expression/nodes';
 import type { Dispatcher } from './dispatch';
 import type { Principal } from './auth';
-import { digestArgs, redactArgs, type WorkflowRunStep } from './run-steps';
+import { digestArgs, redactArgs, takeResolvedTarget, type WorkflowRunStep } from './run-steps';
 
 const log = createLogger('Workflow').sub('Engine');
 
@@ -253,7 +253,9 @@ export class WorkflowEngine {
             signal,
             resource: { domainId: event.domain.id, domainName: event.domain.name },
           });
-          steps.push({ action, status: 'success', durationMs: now() - stepStarted, input, inputDigest });
+          // 解析结果走侧通道：handler 旁挂在返回值上，这里取走后一并删除，不进 DSL 可见返回值
+          const resolvedTarget = takeResolvedTarget(result);
+          steps.push({ action, status: 'success', durationMs: now() - stepStarted, input, inputDigest, resolvedTarget });
           return result;
         } catch (error) {
           steps.push({

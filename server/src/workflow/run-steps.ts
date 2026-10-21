@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { ResolvedTarget } from '../lib/resolved-target';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('Workflow').sub('Steps');
@@ -27,6 +28,8 @@ export interface WorkflowRunStep {
   input: Record<string, unknown>;
   /** 原始实参的摘要哈希（设计 §1598 的「哈希」），用于比对两次运行是否传入相同参数 */
   inputDigest: string;
+  /** 解析后的目标位置与所用契约（设计 §904 §4）；动作未提供时缺省 */
+  resolvedTarget?: ResolvedTarget;
   error?: string;
 }
 
@@ -88,3 +91,5 @@ export function serializeSteps(steps: WorkflowRunStep[] | undefined): string | n
     return null;
   }
 }
+
+export { attachResolvedTarget, takeResolvedTarget, type ResolvedTarget } from '../lib/resolved-target';
