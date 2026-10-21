@@ -11,7 +11,7 @@ import {
 import { createLogger } from '../lib/logger';
 import { sendError, sendSuccess } from '../utils/http';
 import { accountAccessLevelForRoute, resolveDomainAccount } from '../lib/dns/account-context';
-import { isOriginGroupCapableAccount, listTeoZonesByAccount } from '../lib/dns/providers/tencenteo/origin-group-context';
+import { isOriginGroupCapableAccount } from '../lib/dns/providers/registry';
 import { buildMigrationReport } from '../workflow/migration-report';
 
 function toId(raw: string): number {
@@ -337,6 +337,25 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
  * 范围：只返回调用者自己的 workflow（超管需显式 ?all=true），
  * 候选 scope 经账号可见性后才生成——否则这个端点本身就是「遍历他人账号 + 站点列表」的工具。
  */
+/**
+ * 通过**候选源注册表**列站点，而不是直接 import 某个提供商的私有模块。
+ * 核心路由只按 source 名转发——这条纪律写在本文件上方，自己也不能破例。
+ */
+async function listZonesViaSource(
+  accountId: number,
+  options: { siteType?: string },
+): Promise<Array<{ zoneId: string; zoneName: string }>> {
+  const source = getProviderMetaSource('edgeoneZones');
+  if (!source) return [];
+  const adapter = await DnsProviderService.getAdapterByAccount(accountId);
+  const items = await source.resolve({
+    accountId,
+    adapter,
+    params: options.siteType ? { siteType: options.siteType } : {},
+  });
+  return items.map((item) => ({ zoneId: item.value, zoneName: String(item.label) }));
+}
+
 router.get('/migration-report', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const userId = Number(req.user!.userId);
   const own = await listByOwner(userId);
@@ -344,7 +363,7 @@ router.get('/migration-report', authMiddleware, adminOnly, asyncHandler(async (r
     resolveDomainAccount,
     // 角色词表桥接：accountAccessLevel 内部按 'super_admin' 判定，喂数值 3 会把超管判成 none
     accountLevel: (accountId) => accountAccessLevelForRoute({ accountId, userId, role: req.user?.role }),
-    listZones: (accountId, options) => listTeoZonesByAccount(accountId, options),
+    listZones: (accountId, options) => listZonesViaSource(accountId, options),
   });
   sendSuccess(res, { total: report.length, items: report });
 }));

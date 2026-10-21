@@ -10,6 +10,8 @@ const DNSNEKO_RECORD_TYPES: RecordType[] = [
 import * as Adapters from './index';
 import type { ProviderExtraCapability } from './extra-types';
 import { tencenteoOriginGroupCapability } from './tencenteo/extra';
+import { mayReuseCredentials } from './credential-sharing';
+import { normalizeProviderType } from '../providerAlias';
 import { virtualOriginGroupCapability } from './virtual/extra';
 import { isVirtualProviderEnabled } from './availability';
 import { findSharingInconsistencies, listSharingParticipants } from './credential-sharing';
@@ -426,5 +428,21 @@ export function getProviderInfoList(): ProviderInfo[] {
 export function getOriginGroupCapability(providerType: string): boolean {
   return (providerDefinitionMap.get(providerType)?.extraCapabilities ?? []).some((capability) =>
     capability.name.endsWith('.originGroup'),
+  );
+}
+
+/**
+ * 该账号是否**可操作源站组**：原生支持 ∪ 被允许复用凭据。
+ *
+ * 必须包含复用这一支：DNSPod 账号（providerType = 'dnspod'）能操作源站组，
+ * 是因为它声明了复用腾讯云凭据——漏掉这支会让唯一能用源站组的用户群在 UI 里失去入口。
+ *
+ * 放在注册表而不是提供商目录：这是**通用能力谓词**，候选源、执行路径、路由都要用；
+ * 留在 tencenteo 目录会让路由反向 import 某个提供商的私有模块（分层倒置）。
+ */
+export function isOriginGroupCapableAccount(providerType: string): boolean {
+  return (
+    getOriginGroupCapability(providerType) ||
+    mayReuseCredentials('tencenteo', normalizeProviderType(providerType))
   );
 }

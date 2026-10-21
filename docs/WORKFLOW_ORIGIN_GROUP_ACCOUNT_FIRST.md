@@ -312,3 +312,23 @@ if (mode === 'write' && level !== 'write') throw new OriginGroupError('WRITE_FOR
 | 设计 §3.6 / §4（运行记录） | 步骤记录新增 `contract`（`'v2'` 或 `'v1-legacy'`）与 `resolvedTarget` |
 | 设计 §1701（勘误） | `registry.ts` 行号 `:12` / `:22` 实际是 `:17` / `:27` |
 | docs/api.md | `migration-report` 端点；`accounts` / `edgeoneZones` 的新入参；步骤字段 |
+
+## 9. 实现阶段的偏离记录（评审后回写）
+
+实现与本文提案不完全一致的地方，逐条记录理由，避免后来者以为是疏忽。
+
+| 编号 | 提案怎么写的 | 实际怎么做的 | 理由 |
+|---|---|---|---|
+| D1 | §0.2 抽 `BUILTIN_META_SOURCES` 常量 | 门禁改为扫描路由里的 `source === '...'` 分支 | 目标达成且少一处漂移源；常量本身也要与路由同步 |
+| D2 | §0.2 注册源改声明式数组 | 仍是 `registerProviderMetaSource` 副作用 | 门禁已不依赖注册表，env 问题从另一侧解决 |
+| D3 | §2.6 `listTeoZones` 改签名 | 新增 `listTeoZonesByAccount`，旧签名保留 | §3.2 的旧只读路径仍需要域名版 |
+| D4 | R7 `domainName` 改名 `scopeName` | **已改名** | 账号路径下该字段存的是站点名，原名语义错位 |
+| D5 | §2.1 只用 URL 查询串 | 参数声明新增 `sourceQuery: Record<string,string>` | 类型化比拼 URL 安全，且能随候选请求一起发 |
+| D6 | §2.6 归属校验在钩子里统一走 `listZones` | **下沉进 `teoOpsForAccount`** | 一处实现同时服务候选源与执行路径；**不变量：该函数的 scope 归属校验不得删除**，加缓存或改签名要保留 |
+| D7 | —（提案未提） | 路由不再 import 提供商私有模块：谓词移到 `providers/registry.ts`，站点列表走候选源注册表 | 与本文件上方「核心路由只按 source 名转发」的纪律一致 |
+
+另外两处实现选择（非偏离，值得记录）：
+
+- **账号路径与旧路径各校验一次，不重复**：`teoOpsForAccount` 内部已做 `scopeId ∈ listZones`，钩子只对 legacy 分支再查。
+- **站点可见性缓存抽到 `tencenteo/zone-visibility-cache.ts`**：两条路径共用 60s 缓存。改造前 tencenteo 账号零次 `DescribeZones`，改造后每次动作都要打（1000 站点即 10 次），不加缓存会撞上游限流，且失败会拖挂全部源站组动作。
+

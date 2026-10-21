@@ -309,12 +309,5 @@ export async function listTeoZonesByAccount(
   return teo.listZones();
 }
 
-/**
- * 该账号是否**可操作源站组**：原生支持 ∪ 被允许复用凭据。
- *
- * 必须包含复用这一支：DNSPod 账号（providerType = 'dnspod'）能操作源站组，
- * 是因为它声明了复用腾讯云凭据——漏掉这支会让唯一能用源站组的用户群在 UI 里失去入口。
- */
-export function isOriginGroupCapableAccount(providerType: string): boolean {
-  return getOriginGroupCapability(providerType) || mayReuseCredentials('tencenteo', normalizeProviderType(providerType));
-}
+export { isOriginGroupCapableAccount } from '../registry';
+
