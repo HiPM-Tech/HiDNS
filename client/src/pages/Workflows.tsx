@@ -20,6 +20,7 @@ import {
   fromConditionNode,
   formatDuration,
   formatServerTime,
+  findInvalidVarName,
   findMissingRequiredArg,
   fromDslNodes,
   summarizeTriggerEvent,
@@ -216,6 +217,9 @@ export function Workflows() {
    */
   const validateRows = (): string | null => {
     // 不强制「至少一个动作」：既有用例与产品行为允许先存空壳再补动作，这里只管住必填项被静默丢弃
+    const invalidVar = findInvalidVarName(form.rows);
+    if (invalidVar) return t('workflows.invalidVarName', { name: invalidVar });
+
     const missing = findMissingRequiredArg(form.rows, (action) => actionMap.get(action));
     if (!missing) return null;
     const item = actionMap.get(missing.action);
@@ -571,6 +575,11 @@ export function Workflows() {
                         );
                         const arg = row.args[param.key];
                         const argValue = arg?.value ?? '';
+                        // 前面步骤声明过的变量可以在这里被引用（例如 plan 产出的 diffDigest）
+                        const availableVars = form.rows
+                          .slice(0, index)
+                          .map((item) => item.saveAs)
+                          .filter((item): item is string => Boolean(item));
                         // 分开两个 setter：TDesign 的 onChange 第二参是 context，
                         // 给 setArg 加「类型」参数会与控件签名冲突（tsc -b 会报 TS2322）。
                         const setArg = (value: unknown) =>
@@ -617,7 +626,11 @@ export function Workflows() {
                         ) : arg?.kind === 'ref' ? (
                           // 引用事件字段：值要到运行时才有，界面上只展示引用了什么
                           <Space size="small">
-                            <Tag theme="primary" variant="light">{t(CONDITION_FIELD_LABEL_KEYS[argValue] ?? argValue)}</Tag>
+                            <Tag theme="primary" variant="light">
+                              {argValue.startsWith('vars.')
+                                ? t('workflows.varRefLabel', { name: argValue.slice('vars.'.length) })
+                                : t(CONDITION_FIELD_LABEL_KEYS[argValue] ?? argValue)}
+                            </Tag>
                             <Button size="small" variant="text" onClick={() => setArg('')}>
                               {t('workflows.clearRef')}
                             </Button>
@@ -628,10 +641,16 @@ export function Workflows() {
                             <Select
                               size="small"
                               placeholder={t('workflows.useEventValue')}
-                              options={EVENT_REF_PATHS.map((path) => ({
-                                label: t(CONDITION_FIELD_LABEL_KEYS[path] ?? path),
-                                value: path,
-                              }))}
+                              options={[
+                                ...EVENT_REF_PATHS.map((path) => ({
+                                  label: t(CONDITION_FIELD_LABEL_KEYS[path] ?? path),
+                                  value: path,
+                                })),
+                                ...availableVars.map((name) => ({
+                                  label: t('workflows.varRefLabel', { name }),
+                                  value: `vars.${name}`,
+                                })),
+                              ]}
                               onChange={(value: any) => setArgRef(value)}
                               style={{ minWidth: 160 }}
                             />
@@ -662,6 +681,15 @@ export function Workflows() {
                           </p>
                         </>
                       ) : null}
+                      {/* 把这一步的返回值存进变量：后续步骤才能引用它（如 plan 的 diffDigest 供 replace 使用） */}
+                      <label className="workflow-param">
+                        <span className="workflow-param__label">{t('workflows.saveAs')}</span>
+                        <Input
+                          value={row.saveAs ?? ''}
+                          placeholder={t('workflows.saveAsPlaceholder')}
+                          onChange={(value) => patch({ ...row, saveAs: String(value) || undefined })}
+                        />
+                      </label>
                     </div>
                     <Button size="small" variant="text" theme="danger" onClick={() => updateField('rows', form.rows.filter((_, i) => i !== index))}>
                       {t('common.delete')}

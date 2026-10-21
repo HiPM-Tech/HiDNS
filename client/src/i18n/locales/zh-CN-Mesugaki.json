@@ -85,7 +85,11 @@
             "condKind_literal": "常量",
             "condKind_call": "动作调用",
             "condKind_assign": "变量赋值",
-            "negateCondition": "取反（条件不满足时才触发）"
+            "negateCondition": "取反（条件不满足时才触发）",
+            "saveAs": "保存结果到变量",
+            "saveAsPlaceholder": "可选，如 plan",
+            "varRefLabel": "变量 {name}",
+            "invalidVarName": "变量名「{name}」不合法：只能包含字母、数字、下划线，且不能以数字开头"
         },
         "about": {
             "community": "社区喵~",

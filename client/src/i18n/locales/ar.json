@@ -85,7 +85,11 @@
             "condKind_literal": "Constant",
             "condKind_call": "Action call",
             "condKind_assign": "Variable assignment",
-            "negateCondition": "Negate (trigger when the condition is false)"
+            "negateCondition": "Negate (trigger when the condition is false)",
+            "saveAs": "Store result in variable",
+            "saveAsPlaceholder": "Optional, e.g. plan",
+            "varRefLabel": "Variable {name}",
+            "invalidVarName": "Invalid variable name \"{name}\": use letters, digits and underscores, not starting with a digit"
         },
         "common": {
             "operationFailed": "Operation failed",

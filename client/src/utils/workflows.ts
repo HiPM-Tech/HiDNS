@@ -31,6 +31,8 @@ export interface ArgValue {
 export interface ActionRow {
   action: string;
   args: Record<string, ArgValue>;
+  /** 把这一步的返回值存进工作流变量；后续步骤可用 ref(vars.<key>) 引用 */
+  saveAs?: string;
 }
 
 export const EMPTY_ROW: ActionRow = { action: '', args: {} };
@@ -198,21 +200,38 @@ export function toDslNodes(rows: ActionRow[]): WorkflowDslNode[] {
           ? { kind: 'ref', path: value.value }
           : { kind: 'literal', value: value.value };
       }
-      return { kind: 'call', action: row.action, args };
+      const call: WorkflowDslNode = { kind: 'call', action: row.action, args };
+      // 有变量名时包一层 assign：求值器会执行 call 并把结果写进 vars
+      return row.saveAs ? { kind: 'assign', key: row.saveAs, value: call } : call;
     });
+}
+
+/** 把 DSL 的 args 解析成表单值；literal 与 ref 两种形状统一处理，避免两处各写一遍 */
+function parseArgs(rawArgs: unknown): Record<string, ArgValue> {
+  const args: Record<string, ArgValue> = {};
+  if (!rawArgs || typeof rawArgs !== 'object') return args;
+  const entries = Object.entries(rawArgs as Record<string, { kind?: string; value?: unknown; path?: unknown }>);
+  for (const [key, value] of entries) {
+    if (!value || typeof value !== 'object') continue;
+    args[key] = value.kind === 'ref'
+      ? { kind: 'ref', value: String(value.path ?? '') }
+      : { kind: 'literal', value: String(value.value ?? '') };
+  }
+  return args;
 }
 
 export function fromDslNodes(nodes: WorkflowDslNode[] | undefined): ActionRow[] {
   if (!Array.isArray(nodes) || nodes.length === 0) return [{ ...EMPTY_ROW }];
   return nodes.map((node) => {
-    const args: Record<string, ArgValue> = {};
-    const rawArgs = (node.args ?? {}) as Record<string, { kind?: string; value?: unknown; path?: unknown }>;
-    for (const [key, value] of Object.entries(rawArgs)) {
-      if (!value || typeof value !== 'object') continue;
-      if (value.kind === 'ref') args[key] = { kind: 'ref', value: String(value.path ?? '') };
-      else args[key] = { kind: 'literal', value: String(value.value ?? '') };
+    // assign(call)：这一步把动作结果存进变量，表单上用 saveAs 表达
+    if (node.kind === 'assign') {
+      const inner = (node as unknown as { value?: WorkflowDslNode }).value;
+      const key = String((node as unknown as { key?: unknown }).key ?? '');
+      if (inner && inner.kind === 'call') {
+        return { action: String(inner.action ?? ''), args: parseArgs(inner.args), saveAs: key };
+      }
     }
-    return { action: String(node.action ?? ''), args };
+    return { action: String(node.action ?? ''), args: parseArgs(node.args) };
   });
 }
 
@@ -294,6 +313,19 @@ export function findMissingRequiredArg(
         return { action: row.action, param: param.key };
       }
     }
+  }
+  return null;
+}
+
+/** 变量名规则与服务端 assign 求值一致：不能含点号，也不能是原型链关键字 */
+const FORBIDDEN_VAR_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+export function findInvalidVarName(rows: ActionRow[]): string | null {
+  for (const row of rows) {
+    const name = (row.saveAs ?? '').trim();
+    if (!name) continue;
+    if (FORBIDDEN_VAR_KEYS.has(name)) return name;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return name;
   }
   return null;
 }

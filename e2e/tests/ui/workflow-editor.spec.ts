@@ -23,6 +23,13 @@ test.describe('工作流编辑器可读性', () => {
     await expect(page.getByText('取反（条件不满足时才触发）')).toBeVisible();
   });
 
+  test('每个动作步骤都能把结果存进变量', async ({ page }) => {
+    await page.goto('/dash/workflows');
+    await page.getByText('新建工作流').click();
+    // plan → replace 这类链路依赖它：replace 需要 plan 产出的 diffDigest
+    await expect(page.getByText('保存结果到变量')).toBeVisible();
+  });
+
   test('编辑器提供 DSL 预览入口且默认收起', async ({ page }) => {
     await page.goto('/dash/workflows');
     await page.getByText('新建工作流').click();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findMissingRequiredArg, formatDuration, fromConditionNode, fromDslNodes, parseServerTime, summarizeTriggerEvent, toConditionNode, toDslNodes } from './workflows';
+import { findInvalidVarName, findMissingRequiredArg, formatDuration, fromConditionNode, fromDslNodes, parseServerTime, summarizeTriggerEvent, toConditionNode, toDslNodes } from './workflows';
 
 describe('parseServerTime', () => {
   it('把无时区后缀的服务端时间按 UTC 解析', () => {
@@ -241,5 +241,49 @@ describe('条件取反（logic/not）', () => {
   it('not 的操作数不是 1 个时整节点保留', () => {
     const node = { kind: 'logic', op: 'not', args: [compare('A'), compare('AAAA')] };
     expect(fromConditionNode(node as never).raw).toBe(node);
+  });
+});
+
+describe('动作结果存变量（assign）', () => {
+  it('有 saveAs 时包一层 assign', () => {
+    const nodes = toDslNodes([
+      { action: 'dns.domain.list', args: {}, saveAs: 'plan' },
+      { action: 'dns.domain.list', args: {} },
+    ]);
+    expect(nodes[0]).toMatchObject({ kind: 'assign', key: 'plan' });
+    expect((nodes[0] as unknown as { value: { kind: string } }).value.kind).toBe('call');
+    // 没有 saveAs 的保持 call
+    expect(nodes[1]).toMatchObject({ kind: 'call' });
+  });
+
+  it('assign(call) 能还原成带 saveAs 的行', () => {
+    const rows = fromDslNodes([
+      { kind: 'assign', key: 'plan', value: { kind: 'call', action: 'dns.domain.list', args: {} } },
+    ]);
+    expect(rows[0].action).toBe('dns.domain.list');
+    expect(rows[0].saveAs).toBe('plan');
+  });
+
+  it('变量引用能往返', () => {
+    const rows = fromDslNodes([
+      { kind: 'call', action: 'notify.channel.send', args: { message: { kind: 'ref', path: 'vars.plan' } } },
+    ]);
+    expect(rows[0].args.message).toEqual({ kind: 'ref', value: 'vars.plan' });
+  });
+});
+
+describe('findInvalidVarName', () => {
+  it('合法变量名通过', () => {
+    expect(findInvalidVarName([{ action: 'a', args: {}, saveAs: 'plan_1' }])).toBeNull();
+    expect(findInvalidVarName([{ action: 'a', args: {} }])).toBeNull();
+  });
+
+  it('含点号或非法字符被拒', () => {
+    expect(findInvalidVarName([{ action: 'a', args: {}, saveAs: 'a.b' }])).toBe('a.b');
+    expect(findInvalidVarName([{ action: 'a', args: {}, saveAs: '1abc' }])).toBe('1abc');
+  });
+
+  it('原型链关键字被拒', () => {
+    expect(findInvalidVarName([{ action: 'a', args: {}, saveAs: '__proto__' }])).toBe('__proto__');
   });
 });
