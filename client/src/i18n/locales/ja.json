@@ -89,7 +89,8 @@
             "saveAs": "Store result in variable",
             "saveAsPlaceholder": "Optional, e.g. plan",
             "varRefLabel": "Variable {name}",
-            "invalidVarName": "Invalid variable name \"{name}\": use letters, digits and underscores, not starting with a digit"
+            "invalidVarName": "Invalid variable name \"{name}\": use letters, digits and underscores, not starting with a digit",
+            "triggerWriteConflict": "The \"domain changed\" trigger cannot be combined with record-write actions (the server rejects such workflows). Switch to the record-changed trigger, or remove: {actions}"
         },
         "about": {
             "community": "コミュニティ",

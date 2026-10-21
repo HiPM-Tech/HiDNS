@@ -89,7 +89,8 @@
             "saveAs": "保存结果到变量",
             "saveAsPlaceholder": "可选，如 plan",
             "varRefLabel": "变量 {name}",
-            "invalidVarName": "变量名「{name}」不合法：只能包含字母、数字、下划线，且不能以数字开头"
+            "invalidVarName": "变量名「{name}」不合法：只能包含字母、数字、下划线，且不能以数字开头",
+            "triggerWriteConflict": "「域名变动」触发器不能搭配记录写动作（服务端会拒绝保存）。请改用「解析记录变更」触发器，或移除这些动作：{actions}"
         },
         "about": {
             "community": "社区",

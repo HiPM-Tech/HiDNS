@@ -96,6 +96,14 @@
   width: 100%;
 }
 
+/* 触发器与动作冲突提示：说明为什么选不了，而不是只把选项灰掉 */
+.workflow-conflict {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--td-warning-color, #e37318);
+}
+
 /* 参数说明：控件下方的一行小字，解释这个值从哪来 */
 .workflow-param__hint {
   flex-basis: 100%;

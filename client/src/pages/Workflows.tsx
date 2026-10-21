@@ -207,6 +207,16 @@ export function Workflows() {
   const allowlist = (allowlistQuery.data?.data?.data as { items?: string[] } | undefined)?.items ?? [];
 
   const actionMap = useMemo(() => new Map(actions.map((item) => [item.value, item])), [actions]);
+
+  // 设计 §4.0 / §1153：域名变动触发器不得搭配记录写动作。服务端保存时会 422 拒绝，
+  // 但那对用户来说太晚了——配完点保存才被告知，前面的功夫白费。这里在界面上先拦住。
+  const WRITE_CLASSES = ['dns.record.write', 'ext.write'];
+  const isWriteAction = (name: string) => {
+    const cls = actionMap.get(name)?.actionClass;
+    return Boolean(cls && WRITE_CLASSES.includes(cls));
+  };
+  const conflictingRows = form.rows.filter((row) => row.action && isWriteAction(row.action));
+  const triggerBlocksWrite = form.triggerType === 'domain.changed';
   // 列表里的触发器列原来直接打印 row.triggerType（record.changed），这里换成可读名称
   const triggerLabels = useMemo(() => new Map(triggers.map((item) => [item.value, item.label])), [triggers]);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['workflows'] });
@@ -434,8 +444,20 @@ export function Workflows() {
             <Select
               value={form.triggerType}
               onChange={(value) => updateField('triggerType', String(value))}
-              options={triggers.map((item) => ({ label: t(item.label || item.value), value: item.value }))}
+              options={triggers.map((item) => ({
+                label: t(item.label || item.value),
+                value: item.value,
+                // 已选了记录写动作时，域名变动触发器直接禁用，而不是让人选了再被拒
+                disabled: item.value === 'domain.changed' && conflictingRows.length > 0,
+              }))}
             />
+            {triggerBlocksWrite && conflictingRows.length > 0 ? (
+              <div className="workflow-conflict">
+                {t('workflows.triggerWriteConflict', {
+                  actions: conflictingRows.map((row) => t(actionMap.get(row.action)?.label ?? row.action)).join('、'),
+                })}
+              </div>
+            ) : null}
           </Form.FormItem>
           {form.triggerType === 'record.changed' && (
             <Form.FormItem label={t('workflows.recordTypes')}>
@@ -565,6 +587,8 @@ export function Workflows() {
                       placeholder={t('workflows.pickAction')}
                       options={actions
                         .filter((item) => item.dslVisible)
+                        // 域名变动触发器下不列出记录写动作（设计 §1153）
+                        .filter((item) => !(triggerBlocksWrite && WRITE_CLASSES.includes(item.actionClass)))
                         .map((item) => ({ label: t(item.label || item.value), value: item.value }))}
                       onChange={(value) => patch({ action: String(value), args: {} })}
                     />
