@@ -33,6 +33,9 @@ const root = path.resolve(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf-8'));
 const version = pkg.version;
 
+import { MIN_SECURE_NODE_VERSION, NODE_SEA_VERSION, isAtLeast } from './lib/node-version.mjs';
+
+
 /** 平台构建目标 */
 const TARGETS = {
   win: {
@@ -40,7 +43,7 @@ const TARGETS = {
     nodeArch: 'x64',
     binaryName: `HiDNS-${version}-win-x64.exe`,
     seaNodeBinary: [ // Node.js 24 LTS SEA 二进制下载 URL
-      `https://nodejs.org/dist/v24.16.0/win-x64/node.exe`,
+      `https://nodejs.org/dist/${NODE_SEA_VERSION}/win-x64/node.exe`,
     ],
   },
   'win-arm64': {
@@ -48,7 +51,7 @@ const TARGETS = {
     nodeArch: 'arm64',
     binaryName: `HiDNS-${version}-win-arm64.exe`,
     seaNodeBinary: [
-      `https://nodejs.org/dist/v24.16.0/win-arm64/node.exe`,
+      `https://nodejs.org/dist/${NODE_SEA_VERSION}/win-arm64/node.exe`,
     ],
   },
   linux: {
@@ -56,7 +59,7 @@ const TARGETS = {
     nodeArch: 'x64',
     binaryName: `HiDNS-${version}-linux-x64`,
     seaNodeBinary: [
-      `https://nodejs.org/dist/v24.16.0/node-v24.16.0-linux-x64.tar.gz`,
+      `https://nodejs.org/dist/${NODE_SEA_VERSION}/node-${NODE_SEA_VERSION}-linux-x64.tar.gz`,
     ],
   },
   'linux-arm64': {
@@ -64,7 +67,7 @@ const TARGETS = {
     nodeArch: 'arm64',
     binaryName: `HiDNS-${version}-linux-arm64`,
     seaNodeBinary: [
-      `https://nodejs.org/dist/v24.16.0/node-v24.16.0-linux-arm64.tar.gz`,
+      `https://nodejs.org/dist/${NODE_SEA_VERSION}/node-${NODE_SEA_VERSION}-linux-arm64.tar.gz`,
     ],
   },
   macos: {
@@ -72,7 +75,7 @@ const TARGETS = {
     nodeArch: 'arm64',
     binaryName: `HiDNS-${version}-macos-arm64`,
     seaNodeBinary: [
-      `https://nodejs.org/dist/v24.16.0/node-v24.16.0-darwin-arm64.tar.gz`,
+      `https://nodejs.org/dist/${NODE_SEA_VERSION}/node-${NODE_SEA_VERSION}-darwin-arm64.tar.gz`,
     ],
   },
   'macos-x64': {
@@ -80,7 +83,7 @@ const TARGETS = {
     nodeArch: 'x64',
     binaryName: `HiDNS-${version}-macos-x64`,
     seaNodeBinary: [
-      `https://nodejs.org/dist/v24.16.0/node-v24.16.0-darwin-x64.tar.gz`,
+      `https://nodejs.org/dist/${NODE_SEA_VERSION}/node-${NODE_SEA_VERSION}-darwin-x64.tar.gz`,
     ],
   },
 };
@@ -231,9 +234,17 @@ async function buildForPlatform(targetName) {
     nodeBinaryPath = downloadedBinary;
     console.log(`   🔄 Cross-arch build: ${process.arch} → ${target.nodeArch}`);
   } else {
-    // 同架构构建：使用本地 Node.js
+    // 同架构构建：使用本地 Node.js。
+    // 但必须卡安全底线——本地若跑的是旧版 Node，打出来的二进制会把旧版带进发布产物，
+    // 这正是本次 CVE 的传播路径（本机 Node 22 会静默产出带洞的 SEA）。
+    if (!isAtLeast(process.version, MIN_SECURE_NODE_VERSION)) {
+      throw new Error(
+        `本地 Node ${process.version} 低于安全底线 ${MIN_SECURE_NODE_VERSION}；` +
+          '请升级本地 Node，或用交叉构建目标（会下载固定版本）来产出发布二进制',
+      );
+    }
     nodeBinaryPath = process.execPath;
-    console.log(`\n📦 Using local Node.js runtime: ${nodeBinaryPath}`);
+    console.log(`\n📦 Using local Node.js runtime: ${nodeBinaryPath} (${process.version})`);
   }
 
   // 复制 Node.js 运行时到输出二进制

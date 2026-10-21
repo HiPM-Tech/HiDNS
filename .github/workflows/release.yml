@@ -63,6 +63,12 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  # 打包进发布产物的 Node.js 运行时版本。
+  # 必须 ≥ v24.22.1（2026-10-20 安全版本），它修复了 CVE-2026-111497（Brotli RCE）、
+  # CVE-2026-105483 / CVE-2026-106069（TLS 主机名校验绕过）、
+  # CVE-2026-106074（randomUUID/randomInt 熵缓存写进 SEA 快照）。
+  # 与 server/scripts/build-sea.mjs 的 NODE_SEA_VERSION 保持一致。
+  NODE_SEA_VERSION: v24.22.1
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
@@ -81,7 +87,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -165,7 +171,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
@@ -183,10 +189,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path "release-dist"
 
           # Download Node.js 20
-          $nodeUrl = "https://nodejs.org/dist/v24.16.0/node-v24.16.0-win-x64.zip"
+          $nodeUrl = "https://nodejs.org/dist/$env:NODE_SEA_VERSION/node-$env:NODE_SEA_VERSION-win-x64.zip"
           Invoke-WebRequest -Uri $nodeUrl -OutFile "node.zip"
           Expand-Archive -Path "node.zip" -DestinationPath "release-dist" -Force
-          Rename-Item -Path "release-dist/node-v24.16.0-win-x64" -NewName "nodejs" -Force
+          Rename-Item -Path "release-dist/node-$env:NODE_SEA_VERSION-win-x64" -NewName "nodejs" -Force
 
           # Copy files
           New-Item -ItemType Directory -Force -Path "release-dist/server"
@@ -243,7 +249,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
@@ -261,10 +267,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path "release-dist"
 
           # Download Node.js 20 ARM64
-          $nodeUrl = "https://nodejs.org/dist/v24.16.0/node-v24.16.0-win-arm64.zip"
+          $nodeUrl = "https://nodejs.org/dist/$env:NODE_SEA_VERSION/node-$env:NODE_SEA_VERSION-win-arm64.zip"
           Invoke-WebRequest -Uri $nodeUrl -OutFile "node.zip"
           Expand-Archive -Path "node.zip" -DestinationPath "release-dist" -Force
-          Rename-Item -Path "release-dist/node-v24.16.0-win-arm64" -NewName "nodejs" -Force
+          Rename-Item -Path "release-dist/node-$env:NODE_SEA_VERSION-win-arm64" -NewName "nodejs" -Force
 
           # Copy files
           New-Item -ItemType Directory -Force -Path "release-dist/server"
@@ -321,7 +327,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
@@ -338,10 +344,10 @@ jobs:
           mkdir -p release-dist
 
           # Download Node.js 20 x64
-          NODE_URL="https://nodejs.org/dist/v24.16.0/node-v24.16.0-linux-x64.tar.xz"
+          NODE_URL="https://nodejs.org/dist/${NODE_SEA_VERSION}/node-${NODE_SEA_VERSION}-linux-x64.tar.xz"
           curl -L $NODE_URL -o node.tar.xz
           tar -xf node.tar.xz -C release-dist
-          mv release-dist/node-v24.16.0-linux-x64 release-dist/nodejs
+          mv "release-dist/node-${NODE_SEA_VERSION}-linux-x64" release-dist/nodejs
 
           # Copy files
           mkdir -p release-dist/server
@@ -393,7 +399,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
@@ -410,10 +416,10 @@ jobs:
           mkdir -p release-dist
 
           # Download Node.js 20 ARM64
-          NODE_URL="https://nodejs.org/dist/v24.16.0/node-v24.16.0-linux-arm64.tar.xz"
+          NODE_URL="https://nodejs.org/dist/${NODE_SEA_VERSION}/node-${NODE_SEA_VERSION}-linux-arm64.tar.xz"
           curl -L $NODE_URL -o node.tar.xz
           tar -xf node.tar.xz -C release-dist
-          mv release-dist/node-v24.16.0-linux-arm64 release-dist/nodejs
+          mv "release-dist/node-${NODE_SEA_VERSION}-linux-arm64" release-dist/nodejs
 
           # Copy files
           mkdir -p release-dist/server
@@ -466,7 +472,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
@@ -483,10 +489,10 @@ jobs:
           mkdir -p release-dist
 
           # Download Node.js 24 x64 for macOS
-          NODE_URL="https://nodejs.org/dist/v24.16.0/node-v24.16.0-darwin-x64.tar.xz"
+          NODE_URL="https://nodejs.org/dist/${NODE_SEA_VERSION}/node-${NODE_SEA_VERSION}-darwin-x64.tar.xz"
           curl -L $NODE_URL -o node.tar.xz
           tar -xf node.tar.xz -C release-dist
-          mv release-dist/node-v24.16.0-darwin-x64 release-dist/nodejs
+          mv "release-dist/node-${NODE_SEA_VERSION}-darwin-x64" release-dist/nodejs
 
           # Copy files
           mkdir -p release-dist/server
@@ -539,7 +545,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
@@ -556,10 +562,10 @@ jobs:
           mkdir -p release-dist
 
           # Download Node.js 24 ARM64 for macOS
-          NODE_URL="https://nodejs.org/dist/v24.16.0/node-v24.16.0-darwin-arm64.tar.xz"
+          NODE_URL="https://nodejs.org/dist/${NODE_SEA_VERSION}/node-${NODE_SEA_VERSION}-darwin-arm64.tar.xz"
           curl -L $NODE_URL -o node.tar.xz
           tar -xf node.tar.xz -C release-dist
-          mv release-dist/node-v24.16.0-darwin-arm64 release-dist/nodejs
+          mv "release-dist/node-${NODE_SEA_VERSION}-darwin-arm64" release-dist/nodejs
 
           # Copy files
           mkdir -p release-dist/server
@@ -609,7 +615,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Build server
@@ -644,7 +650,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Build server
@@ -678,7 +684,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Build server
@@ -712,7 +718,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Build server

@@ -2,6 +2,11 @@
 
 ## [2.2.0] - 2026-10-21（未发布）
 
+### 🔒 安全
+- **运行时升级到 Node.js v24.22.1**: 发布产物（SEA 单文件与启动包）此前打包的是 **v24.16.0**，受 [2026-10 安全公告](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases) 中以下条目影响——`CVE-2026-111497`（high，Brotli 解码越界写可致 RCE，出站 HTTP 会解压响应）、`CVE-2026-105483` / `CVE-2026-106069`（high，TLS 证书主机名校验可被绕过，影响全部上游 API 调用）、`CVE-2026-105482`（high，`dns.resolve` 遇含 NUL 的名字会截断）、`CVE-2026-106074`（medium，`randomUUID`/`randomInt` 的熵缓存会被写进 SEA 快照，导致每个进程重复相同的随机值——本项目正是以 SEA 形态分发）。现已统一到修复版本 **v24.22.1**
+- **Node 版本收敛为单一来源**: 此前 `build-sea.mjs` 与 `release.yml` 里各硬编码 6 处与 12 处版本号，升级时极易漏改一处。现统一为 `server/scripts/lib/node-version.mjs` 的 `NODE_SEA_VERSION` 与工作流 `env.NODE_SEA_VERSION`，并新增守卫测试——版本低于安全底线、或两处不一致，CI 直接失败
+- **`engines.node` 提升到 `>=24.22.1`**: 低于该版本的本地环境会收到警告，避免用带洞的运行时开发与自测
+
 ### ✨ 新功能
 - **工作流引擎**: 新增声明式工作流（DSL + 9 类节点 `literal/ref/compare/logic/arith/concat/cond/call/assign`，不使用 `eval`/`Function`/`vm`）、动作注册表与命名空间门禁、表达式求值预算、事件触发与手动运行、运行记录与保留策略；配套新增工作流页面（列表 / 编辑器 / 运行记录）与出站 HTTP 白名单
 - **事件广播按收件人定向**: 域名、记录、账号、团队、隧道、服务监控、设置等事件不再全局广播，改为按「谁能读这个资源」精确投递（超管 / 创建者 / 团队成员 / 授权行），收件人为空时跳过并记 warn，不回退全局广播
