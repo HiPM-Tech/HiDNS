@@ -84,7 +84,8 @@
             "condKind_ref": "字段引用",
             "condKind_literal": "常量",
             "condKind_call": "动作调用",
-            "condKind_assign": "变量赋值"
+            "condKind_assign": "变量赋值",
+            "negateCondition": "取反（条件不满足时才触发）"
         },
         "about": {
             "community": "社区喵~",

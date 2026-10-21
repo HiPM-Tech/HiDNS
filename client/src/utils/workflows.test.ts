@@ -147,6 +147,7 @@ describe('条件的多条件组合', () => {
     const two = toConditionNode({
       enabled: true,
       join: 'or',
+      negate: false,
       rows: [
         { field: 'event.record.type', op: '==', value: 'A' },
         { field: 'event.record.type', op: '==', value: 'AAAA' },
@@ -155,7 +156,7 @@ describe('条件的多条件组合', () => {
     expect(two).toMatchObject({ kind: 'logic', op: 'or' });
     expect((two as unknown as { args: unknown[] }).args).toHaveLength(2);
 
-    const one = toConditionNode({ enabled: true, join: 'and', rows: [{ field: 'event.record.type', op: '==', value: 'A' }] });
+    const one = toConditionNode({ enabled: true, join: 'and', negate: false, rows: [{ field: 'event.record.type', op: '==', value: 'A' }] });
     expect(one).toMatchObject({ kind: 'compare' });
   });
 
@@ -169,12 +170,76 @@ describe('条件的多条件组合', () => {
     expect(draft.raw).toBe(node);
   });
 
-  it('not 节点不在表单能力内，原样保留', () => {
-    const node = { kind: 'logic', op: 'not', args: [compare('event.record.type', '==', 'A')] };
+  it('表单表达不了的根节点（如算术）原样保留', () => {
+    // not 现在已支持取反，这条改用 arith 覆盖 raw 兜底路径
+    const node = { kind: 'arith', op: '+', args: [] };
     expect(fromConditionNode(node as never).raw).toBe(node);
   });
 
   it('关闭条件时不产出任何节点', () => {
-    expect(toConditionNode({ enabled: false, join: 'and', rows: [] })).toBeUndefined();
+    expect(toConditionNode({ enabled: false, join: 'and', negate: false, rows: [] })).toBeUndefined();
+  });
+});
+
+describe('条件取反（logic/not）', () => {
+  const compare = (value: unknown) => ({
+    kind: 'compare',
+    op: '==',
+    left: { kind: 'ref', path: 'event.record.type' },
+    right: { kind: 'literal', value },
+  });
+
+  it('取反时包一层 not', () => {
+    const node = toConditionNode({
+      enabled: true,
+      join: 'and',
+      negate: true,
+      rows: [{ field: 'event.record.type', op: '==', value: 'A' }],
+    });
+    expect(node).toMatchObject({ kind: 'logic', op: 'not' });
+    expect((node as unknown as { args: unknown[] }).args).toHaveLength(1);
+  });
+
+  it('不取反时不包 not', () => {
+    const node = toConditionNode({
+      enabled: true,
+      join: 'and',
+      negate: false,
+      rows: [{ field: 'event.record.type', op: '==', value: 'A' }],
+    });
+    expect(node).toMatchObject({ kind: 'compare' });
+  });
+
+  it('not(compare) 还原成一行并标记取反', () => {
+    const draft = fromConditionNode({ kind: 'logic', op: 'not', args: [compare('A')] } as never);
+    expect(draft.raw).toBeUndefined();
+    expect(draft.negate).toBe(true);
+    expect(draft.rows).toHaveLength(1);
+  });
+
+  it('not(and(...)) 还原成多行 + 取反', () => {
+    const draft = fromConditionNode({
+      kind: 'logic',
+      op: 'not',
+      args: [{ kind: 'logic', op: 'and', args: [compare('A'), compare('AAAA')] }],
+    } as never);
+    expect(draft.negate).toBe(true);
+    expect(draft.join).toBe('and');
+    expect(draft.rows).toHaveLength(2);
+  });
+
+  it('双层取反抵消', () => {
+    const draft = fromConditionNode({
+      kind: 'logic',
+      op: 'not',
+      args: [{ kind: 'logic', op: 'not', args: [compare('A')] }],
+    } as never);
+    expect(draft.negate).toBe(false);
+    expect(draft.rows).toHaveLength(1);
+  });
+
+  it('not 的操作数不是 1 个时整节点保留', () => {
+    const node = { kind: 'logic', op: 'not', args: [compare('A'), compare('AAAA')] };
+    expect(fromConditionNode(node as never).raw).toBe(node);
   });
 });

@@ -84,7 +84,8 @@
             "condKind_ref": "Field reference",
             "condKind_literal": "Constant",
             "condKind_call": "Action call",
-            "condKind_assign": "Variable assignment"
+            "condKind_assign": "Variable assignment",
+            "negateCondition": "Negate (trigger when the condition is false)"
         },
         "about": {
             "community": "Comunidad",

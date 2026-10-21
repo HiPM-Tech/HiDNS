@@ -434,6 +434,28 @@ describe('执行引擎', () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
+  it('not 取反：条件为真时不执行、为假时执行', async () => {
+    const notCondition = {
+      kind: 'logic',
+      op: 'not',
+      args: [
+        { kind: 'compare', op: '==', left: { kind: 'ref', path: 'event.record.type' }, right: { kind: 'literal', value: 'A' } },
+      ],
+    };
+
+    // 事件 type=A → 内层为真 → 取反后为假 → 跳过
+    const skipDispatch = vi.fn(async () => 'ok');
+    const skipped = await engine([wf({ condition: notCondition } as never)], skipDispatch).handleEvent(event('A'));
+    expect(skipped[0].status).toBe('skipped');
+    expect(skipDispatch).not.toHaveBeenCalled();
+
+    // 事件 type=AAAA → 内层为假 → 取反后为真 → 执行
+    const runDispatch = vi.fn(async () => 'ok');
+    const ran = await engine([wf({ condition: notCondition } as never)], runDispatch).handleEvent(event('AAAA'));
+    expect(ran[0].status).toBe('success');
+    expect(runDispatch).toHaveBeenCalled();
+  });
+
   it('ref 参数按事件值解析后传给动作', async () => {
     const dispatch = vi.fn(async () => 'ok');
     const runs = await engine([wf()], dispatch).handleEvent(event('A'));

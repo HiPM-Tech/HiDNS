@@ -490,6 +490,12 @@ export function Workflows() {
                       onChange={(value) => updateField('condition', { ...form.condition, join: String(value) as 'and' | 'or' })}
                     />
                   )}
+                  <Checkbox
+                    checked={form.condition.negate}
+                    onChange={(value) => updateField('condition', { ...form.condition, negate: Boolean(value) })}
+                  >
+                    {t('workflows.negateCondition')}
+                  </Checkbox>
                   {form.condition.rows.map((conditionRow, index) => {
                     const patchRow = (next: Partial<typeof conditionRow>) => {
                       const rows = form.condition.rows.map((item, i) => (i === index ? { ...item, ...next } : item));

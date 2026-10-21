@@ -45,6 +45,8 @@ export interface ConditionDraft {
   enabled: boolean;
   /** 多条条件之间的连接方式；只有一条时无意义 */
   join: 'and' | 'or';
+  /** 取反：整组条件的结果取非（对应 logic/not） */
+  negate: boolean;
   rows: ConditionRow[];
   /** 无法用表单无损表达的条件（logic 里混了 arith/cond/ref 等）：原样保留以免保存时被删除 */
   raw?: WorkflowDslNode;
@@ -59,6 +61,7 @@ export const EMPTY_CONDITION_ROW: ConditionRow = {
 export const EMPTY_CONDITION: ConditionDraft = {
   enabled: false,
   join: 'and',
+  negate: false,
   rows: [{ ...EMPTY_CONDITION_ROW }],
 };
 
@@ -137,31 +140,51 @@ export function toConditionNode(draft: ConditionDraft): WorkflowDslNode | undefi
     left: { kind: 'ref', path: row.field },
     right: toLiteral(fieldOf(row.field), row.op, row.value),
   }));
-  if (nodes.length === 1) return nodes[0];
-  // 两条以上用 logic 连接；求值器要求 args 至少 2 个，正好由这里保证
-  return { kind: 'logic', op: draft.join, args: nodes };
+  // 一条用 compare、多条用 logic 连接；求值器要求 and/or 至少 2 个操作数，正好由这里保证
+  const inner: WorkflowDslNode =
+    nodes.length === 1 ? nodes[0] : { kind: 'logic', op: draft.join, args: nodes };
+  // 取反包在最外层；求值器要求 not 恰有 1 个操作数
+  return draft.negate ? { kind: 'logic', op: 'not', args: [inner] } : inner;
+}
+
+interface ParsedCondition {
+  join: 'and' | 'or';
+  negate: boolean;
+  rows: ConditionRow[];
+}
+
+/** 递归解析：compare / logic(and|or) / logic(not)；任一环节无法无损表达就整体放弃 */
+function parseConditionNode(node: WorkflowDslNode): ParsedCondition | null {
+  const single = parseCompareNode(node);
+  if (single) return { join: 'and', negate: false, rows: [single] };
+
+  if (node.kind !== 'logic') return null;
+  const rawArgs = (node as unknown as { args?: unknown }).args;
+  const args = Array.isArray(rawArgs) ? (rawArgs as WorkflowDslNode[]) : [];
+
+  // not：求值器要求恰 1 个操作数；嵌套的取反按层翻转，两层抵消
+  if (node.op === 'not') {
+    if (args.length !== 1) return null;
+    const inner = parseConditionNode(args[0]);
+    return inner ? { ...inner, negate: !inner.negate } : null;
+  }
+
+  if (node.op !== 'and' && node.op !== 'or') return null;
+  if (args.length < 2) return null;
+  const rows = args.map((arg) => parseCompareNode(arg));
+  if (!rows.every((row): row is ConditionRow => row !== null)) return null;
+  return { join: node.op, negate: false, rows };
 }
 
 export function fromConditionNode(node: WorkflowDslNode | null | undefined): ConditionDraft {
   if (!node) return { ...EMPTY_CONDITION, rows: [{ ...EMPTY_CONDITION_ROW }] };
 
-  const single = parseCompareNode(node);
-  if (single) return { enabled: true, join: 'and', rows: [single] };
-
-  // and/or 组合：每个操作数都必须能无损表达，否则整节点保留 raw。
-  // 求值器要求 and/or 至少 2 个操作数，not 恰 1 个——not 不在表单能力内。
-  if (node.kind === 'logic' && (node.op === 'and' || node.op === 'or')) {
-    const rawArgs = (node as unknown as { args?: unknown }).args;
-    const args = Array.isArray(rawArgs) ? (rawArgs as WorkflowDslNode[]) : [];
-    if (args.length >= 2) {
-      const parsed = args.map((arg) => parseCompareNode(arg));
-      if (parsed.every((row): row is ConditionRow => row !== null)) {
-        return { enabled: true, join: node.op, rows: parsed };
-      }
-    }
+  const parsed = parseConditionNode(node);
+  if (!parsed) {
+    // 整节点保留，避免「打开编辑→保存」把看不懂的条件改写成空字面量
+    return { enabled: true, join: 'and', negate: false, rows: [{ ...EMPTY_CONDITION_ROW }], raw: node };
   }
-
-  return { enabled: true, join: 'and', rows: [{ ...EMPTY_CONDITION_ROW }], raw: node };
+  return { enabled: true, ...parsed };
 }
 
 export function toDslNodes(rows: ActionRow[]): WorkflowDslNode[] {
