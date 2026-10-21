@@ -11,6 +11,9 @@ node_modules/
 server/dist/
 client/dist/
 
+# CI watcher state
+.cache/
+
 # E2E artifacts
 e2e/.auth/
 e2e/test-results/

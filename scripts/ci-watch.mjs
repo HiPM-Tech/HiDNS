@@ -16,6 +16,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
@@ -27,6 +29,9 @@ const opt = (name, fallback) => {
 const WATCH = flag('--watch');
 const FAIL_ON_FAILURE = flag('--fail-on-failure');
 const LIMIT = Number(opt('--limit', '8'));
+// 状态文件：记住上次看到过哪些 run，用来只报「新增」的运行。
+// 持续监听时这才是有效信息——每次都把同样的 8 条重播一遍没有意义。
+const STATE_PATH = opt('--state', join(process.cwd(), '.cache', 'ci-watch-state.json'));
 const INTERVAL = Number(opt('--interval', '20'));
 const MAX_WAIT_MIN = Number(opt('--max-wait', '120'));
 
@@ -61,13 +66,33 @@ function failedJobs(id) {
 
 const ICON = { success: '✅', failure: '❌', cancelled: '⚪', skipped: '⏭️' };
 
-function render(runs) {
+function loadSeen() {
+  try {
+    if (!existsSync(STATE_PATH)) return new Set();
+    const data = JSON.parse(readFileSync(STATE_PATH, 'utf8'));
+    return new Set(Array.isArray(data.seen) ? data.seen : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveSeen(ids) {
+  try {
+    mkdirSync(dirname(STATE_PATH), { recursive: true });
+    writeFileSync(STATE_PATH, JSON.stringify({ seen: [...ids].slice(-200), updatedAt: new Date().toISOString() }, null, 2));
+  } catch {
+    /* 状态文件写不了不影响主流程 */
+  }
+}
+
+function render(runs, seen = new Set()) {
   const lines = [];
   for (const r of runs) {
     const state = r.status === 'completed' ? (ICON[r.conclusion] || '?') : '⏳';
     const raw = r.workflowName || r.name || 'workflow';
     const name = (raw.length > 36 ? `${raw.slice(0, 33)}...` : raw).padEnd(36);
-    lines.push(`${state} ${name} ${r.headSha.slice(0, 7)}  ${r.headBranch}  ${r.status}/${r.conclusion || '-'}`);
+    const isNew = seen.size > 0 && !seen.has(r.databaseId);
+    lines.push(`${isNew ? '🆕 ' : ''}${state} ${name} ${r.headSha.slice(0, 7)}  ${r.headBranch}  ${r.status}/${r.conclusion || '-'}`);
     if (r.status === 'completed' && r.conclusion && r.conclusion !== 'success') {
       for (const j of failedJobs(r.databaseId)) {
         const steps = j.failedSteps.length ? ` （失败步骤：${j.failedSteps.join(', ')}）` : '';
@@ -80,6 +105,7 @@ function render(runs) {
 
 const started = Date.now();
 let lastSignature = '';
+const seen = loadSeen();
 
 for (;;) {
   let runs;
@@ -92,10 +118,13 @@ for (;;) {
 
   const signature = runs.map((r) => `${r.databaseId}:${r.status}:${r.conclusion}`).join('|');
   if (signature !== lastSignature) {
-    console.log(`\n[${new Date().toISOString()}] ${runs.filter((r) => r.status !== 'completed').length} 个运行中`);
-    console.log(render(runs));
+    const newRuns = runs.filter((r) => !seen.has(r.databaseId));
+    console.log(`\n[${new Date().toISOString()}] ${runs.filter((r) => r.status !== 'completed').length} 个运行中，本次新增 ${newRuns.length} 条`);
+    console.log(render(runs, seen));
     lastSignature = signature;
   }
+  for (const r of runs) seen.add(r.databaseId);
+  saveSeen(seen);
 
   const pending = runs.filter((r) => r.status !== 'completed');
   if (pending.length === 0) break;
