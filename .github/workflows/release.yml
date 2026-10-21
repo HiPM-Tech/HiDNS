@@ -767,6 +767,25 @@ jobs:
             exit 1
           fi
           kill $PID 2>/dev/null || true
+
+      # 决定性实验：用同一个 node、同样流程构建一个「只打印一行」的最小 SEA。
+      # 它也崩 → 是 macOS 上 SEA/注入本身的问题，与我们的 bundle 无关；
+      # 它能跑 → 是我们的 bundle（13MB blob / node:sqlite 等）触发的。
+      - name: Diagnose minimal SEA
+        if: failure()
+        run: |
+          cd server
+          echo 'console.log("SEA_MIN_OK")' > /tmp/mini.cjs
+          cat > /tmp/mini-sea.json <<EOF
+          {"main":"/tmp/mini.cjs","output":"/tmp/mini.blob","disableExperimentalSEAWarning":true,"useSnapshot":false,"useCodeCache":false}
+          EOF
+          node --experimental-sea-config /tmp/mini-sea.json
+          cp "$(command -v node)" /tmp/mini-bin
+          codesign --remove-signature /tmp/mini-bin || true
+          npx postject /tmp/mini-bin NODE_SEA_BLOB /tmp/mini.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA_BLOB
+          codesign --force --sign - /tmp/mini-bin
+          echo '--- 最小 SEA 运行 ---'
+          /tmp/mini-bin; echo "mini exit=$?"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
