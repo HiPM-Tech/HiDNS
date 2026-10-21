@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { redactArgs, serializeSteps } from '../run-steps';
+import { digestArgs, redactArgs, serializeSteps } from '../run-steps';
 
 describe('运行步骤参数脱敏', () => {
   it('键名像凭据的整条遮掉', () => {
@@ -36,7 +36,29 @@ describe('serializeSteps', () => {
   });
 
   it('正常序列化', () => {
-    const json = serializeSteps([{ action: 'a.b.c', status: 'success', durationMs: 5, input: { x: 1 } }]);
+    const json = serializeSteps([{ action: 'a.b.c', status: 'success', durationMs: 5, input: { x: 1 }, inputDigest: 'abc' }]);
     expect(JSON.parse(String(json))[0].action).toBe('a.b.c');
+  });
+});
+
+describe('digestArgs', () => {
+  it('相同参数得到相同摘要', () => {
+    expect(digestArgs({ a: 1, b: 'x' })).toBe(digestArgs({ a: 1, b: 'x' }));
+  });
+
+  it('参数不同则摘要不同', () => {
+    expect(digestArgs({ a: 1 })).not.toBe(digestArgs({ a: 2 }));
+  });
+
+  it('摘要不含原始值，长度固定', () => {
+    const digest = digestArgs({ password: 'super-secret' });
+    expect(digest).toHaveLength(16);
+    expect(digest).not.toContain('super-secret');
+  });
+
+  it('无法序列化时返回占位而不是抛错', () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(digestArgs(circular)).toBe('unhashable');
   });
 });

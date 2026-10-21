@@ -7,7 +7,7 @@ import { evaluate, createEvalState } from './expression/evaluator';
 import { LIMITS } from './expression/nodes';
 import type { Dispatcher } from './dispatch';
 import type { Principal } from './auth';
-import { redactArgs, type WorkflowRunStep } from './run-steps';
+import { digestArgs, redactArgs, type WorkflowRunStep } from './run-steps';
 
 const log = createLogger('Workflow').sub('Engine');
 
@@ -242,6 +242,7 @@ export class WorkflowEngine {
       const call = async (action: string, args: Record<string, unknown>) => {
         const stepStarted = now();
         const input = redactArgs(args);
+        const inputDigest = digestArgs(args);
         try {
           const result = await this.deps.dispatch(action, principal, args, {
           trigger,
@@ -252,7 +253,7 @@ export class WorkflowEngine {
             signal,
             resource: { domainId: event.domain.id, domainName: event.domain.name },
           });
-          steps.push({ action, status: 'success', durationMs: now() - stepStarted, input });
+          steps.push({ action, status: 'success', durationMs: now() - stepStarted, input, inputDigest });
           return result;
         } catch (error) {
           steps.push({
@@ -260,6 +261,7 @@ export class WorkflowEngine {
             status: 'failed',
             durationMs: now() - stepStarted,
             input,
+            inputDigest,
             error: (error as Error).message,
           });
           throw error;
