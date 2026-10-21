@@ -409,4 +409,40 @@ describe('执行引擎', () => {
     engine([wf()]);
     expect(bus.subscriberCount()).toBe(0);
   });
+
+  // ── 多条件组合与 ref 参数：前端编辑器产出的就是这两种形状，这里钉住契约 ──
+  const andCondition = (domainName: string) => ({
+    kind: 'logic',
+    op: 'and',
+    args: [
+      { kind: 'compare', op: '==', left: { kind: 'ref', path: 'event.record.type' }, right: { kind: 'literal', value: 'A' } },
+      { kind: 'compare', op: '==', left: { kind: 'ref', path: 'event.domain.name' }, right: { kind: 'literal', value: domainName } },
+    ],
+  });
+
+  it('and 组合两个条件都为真时执行动作', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const runs = await engine([wf({ condition: andCondition('example.com') } as never)], dispatch).handleEvent(event('A'));
+    expect(runs[0].status).toBe('success');
+    expect(dispatch).toHaveBeenCalled();
+  });
+
+  it('and 组合任一条件为假时标记 skipped 且不派发', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const runs = await engine([wf({ condition: andCondition('other.com') } as never)], dispatch).handleEvent(event('A'));
+    expect(runs[0].status).toBe('skipped');
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('ref 参数按事件值解析后传给动作', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const runs = await engine([wf()], dispatch).handleEvent(event('A'));
+    expect(runs[0].status).toBe('success');
+    expect(dispatch).toHaveBeenCalledWith(
+      'dns.record.update',
+      expect.anything(),
+      expect.objectContaining({ value: '1.2.3.4' }),
+      expect.anything(),
+    );
+  });
 });
