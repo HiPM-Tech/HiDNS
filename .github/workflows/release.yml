@@ -696,103 +696,6 @@ jobs:
           path: server/dist/sea/HiDNS-*-linux-arm64*
           retention-days: 7
 
-  build-sea-macos-arm:
-    name: Build macOS ARM SEA Binary
-    if: inputs.build_sea == true
-    runs-on: macos-latest
-    timeout-minutes: 45
-    needs: prepare
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-          run_install: false
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
-      - name: Build server
-        run: pnpm --filter dnsmgr-server build
-      - name: Build client
-        run: pnpm --filter dnsmgr-client build
-      - name: Build SEA binary
-        run: |
-          cd server
-          pnpm sea:macos
-      - name: Smoke test macOS binary
-        run: |
-          cd server/dist/sea
-          BIN=$(ls HiDNS-*-macos-arm* | head -1)
-          if [ -z "$BIN" ]; then echo "找不到产物 HiDNS-*-macos-arm*"; ls -1; exit 1; fi
-          chmod +x "$BIN"
-
-          # 1) 签名必须有效：无签名的 Mach-O 会被内核在 execve 阶段直接杀掉
-          codesign --verify --verbose=2 "$BIN"
-
-          # 2) 架构必须与目标一致（防止 node 下载错架构）
-          echo "Mach-O 架构：$(file -b "$BIN")"
-
-          # 3) blob 段必须存在：注入静默失败时二进制看起来是完整的，但一跑就崩
-          otool -l "$BIN" | grep -q NODE_SEA_BLOB || { echo "SEA blob 段缺失，注入失败"; exit 1; }
-
-          # 4) 运行冒烟只有在 runner 与目标同架构时才有意义。
-          #    x64 二进制在 arm64 runner 上要靠 Rosetta，实测直接 Segmentation fault，
-          #    那是执行环境的问题、不是产物的问题，所以这里显式跳过并说明。
-          RUNNER_ARCH=$(uname -m)
-          if [ "$RUNNER_ARCH" != "arm64" ]; then
-            echo "⏭️  runner 为 $RUNNER_ARCH、目标为 arm64，跨架构无法运行，已跳过启动冒烟（签名与架构已校验）"
-            exit 0
-          fi
-
-          PORT=3399 "./$BIN" > /tmp/smoke.log 2>&1 &
-          PID=$!
-          for i in $(seq 1 40); do
-            curl -sf http://127.0.0.1:3399/api/init/status > /dev/null && break
-            sleep 1
-          done
-          if ! curl -sf http://127.0.0.1:3399/api/init/status; then
-            echo '❌ macOS binary failed to start'
-            echo '--- smoke.log ---'
-            cat /tmp/smoke.log 2>/dev/null || echo '(空)'
-            echo '--- 最近的崩溃报告 ---'
-            CR=$(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1)
-            if [ -n "$CR" ]; then echo "文件: $CR"; head -c 6000 "$CR"; else echo '(没有 .ips，可能是信号直接终止)'; fi
-            echo '--- Mach-O 段布局 ---'
-            otool -l "$BIN" | grep -E 'segname|filesize|fileoff' | head -40
-            exit 1
-          fi
-          kill $PID 2>/dev/null || true
-
-      # 决定性实验：用同一个 node、同样流程构建一个「只打印一行」的最小 SEA。
-      # 它也崩 → 是 macOS 上 SEA/注入本身的问题，与我们的 bundle 无关；
-      # 它能跑 → 是我们的 bundle（13MB blob / node:sqlite 等）触发的。
-      - name: Diagnose minimal SEA
-        if: failure()
-        run: |
-          cd server
-          echo 'console.log("SEA_MIN_OK")' > /tmp/mini.cjs
-          cat > /tmp/mini-sea.json <<EOF
-          {"main":"/tmp/mini.cjs","output":"/tmp/mini.blob","disableExperimentalSEAWarning":true,"useSnapshot":false,"useCodeCache":false}
-          EOF
-          node --experimental-sea-config /tmp/mini-sea.json
-          cp "$(command -v node)" /tmp/mini-bin
-          codesign --remove-signature /tmp/mini-bin || true
-          npx postject /tmp/mini-bin NODE_SEA_BLOB /tmp/mini.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA_BLOB
-          codesign --force --sign - /tmp/mini-bin
-          echo '--- 最小 SEA 运行 ---'
-          /tmp/mini-bin; echo "mini exit=$?"
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sea-macos-arm
-          path: server/dist/sea/HiDNS-*-macos-arm*
-          retention-days: 7
-
   build-sea-windows-arm:
     name: Build Windows ARM64 SEA Binary
     if: inputs.build_sea == true
@@ -828,87 +731,6 @@ jobs:
           path: server/dist/sea/HiDNS-*.exe
           retention-days: 7
 
-  build-sea-macos-x64:
-    name: Build macOS Intel SEA Binary
-    if: inputs.build_sea == true
-    runs-on: macos-latest
-    timeout-minutes: 45
-    needs: prepare
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-          run_install: false
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
-      - name: Build server
-        run: pnpm --filter dnsmgr-server build
-      - name: Build client
-        run: pnpm --filter dnsmgr-client build
-      - name: Build SEA binary
-        run: |
-          cd server
-          pnpm sea:macos-x64
-      - name: Smoke test macOS binary
-        run: |
-          cd server/dist/sea
-          BIN=$(ls HiDNS-*-macos-x64* | head -1)
-          if [ -z "$BIN" ]; then echo "找不到产物 HiDNS-*-macos-x64*"; ls -1; exit 1; fi
-          chmod +x "$BIN"
-
-          # 1) 签名必须有效：无签名的 Mach-O 会被内核在 execve 阶段直接杀掉
-          codesign --verify --verbose=2 "$BIN"
-
-          # 2) 架构必须与目标一致（防止 node 下载错架构）
-          echo "Mach-O 架构：$(file -b "$BIN")"
-
-          # 3) blob 段必须存在：注入静默失败时二进制看起来是完整的，但一跑就崩
-          otool -l "$BIN" | grep -q NODE_SEA_BLOB || { echo "SEA blob 段缺失，注入失败"; exit 1; }
-
-          # 4) 运行冒烟只有在 runner 与目标同架构时才有意义。
-          #    x64 二进制在 arm64 runner 上要靠 Rosetta，实测直接 Segmentation fault，
-          #    那是执行环境的问题、不是产物的问题，所以这里显式跳过并说明。
-          RUNNER_ARCH=$(uname -m)
-          if [ "$RUNNER_ARCH" != "x86_64" ]; then
-            echo "⏭️  runner 为 $RUNNER_ARCH、目标为 x86_64，跨架构无法运行，已跳过启动冒烟（签名与架构已校验）"
-            exit 0
-          fi
-
-          PORT=3398 "./$BIN" > /tmp/smoke.log 2>&1 &
-          PID=$!
-          for i in $(seq 1 40); do
-            curl -sf http://127.0.0.1:3398/api/init/status > /dev/null && break
-            sleep 1
-          done
-          if ! curl -sf http://127.0.0.1:3398/api/init/status; then
-            echo '❌ macOS binary failed to start'
-            echo '--- smoke.log ---'
-            cat /tmp/smoke.log 2>/dev/null || echo '(空)'
-            echo '--- 最近的崩溃报告 ---'
-            CR=$(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1)
-            if [ -n "$CR" ]; then echo "文件: $CR"; head -c 6000 "$CR"; else echo '(没有 .ips，可能是信号直接终止)'; fi
-            echo '--- Mach-O 段布局 ---'
-            otool -l "$BIN" | grep -E 'segname|filesize|fileoff' | head -40
-            exit 1
-          fi
-          kill $PID 2>/dev/null || true
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sea-macos-x64
-          path: server/dist/sea/HiDNS-*-macos-x64*
-          retention-days: 7
-
-  # ============================================================================
-  # 阶段 3: 并行构建 Docker AMD64 & ARM64
-  # ============================================================================
   build-docker-amd64:
     name: Build Docker AMD64
     if: inputs.build_docker == true
@@ -1106,9 +928,9 @@ jobs:
   # ============================================================================
   create-release:
     name: Create GitHub Release
-    needs: [prepare, build-windows, build-windows-arm, build-linux-x64, build-linux-arm64, build-macos-intel, build-macos-arm, build-sea-windows, build-sea-windows-arm, build-sea-linux-x64, build-sea-linux-arm64, build-sea-macos-arm, build-sea-macos-x64, merge-docker]
+    needs: [prepare, build-windows, build-windows-arm, build-linux-x64, build-linux-arm64, build-macos-intel, build-macos-arm, build-sea-windows, build-sea-windows-arm, build-sea-linux-x64, build-sea-linux-arm64, merge-docker]
     # build-only 模式只跑构建与冒烟，不创建任何 Release / Tag
-    if: always() && inputs.release_type != 'build-only' && (needs.build-windows.result == 'success' || needs.build-windows-arm.result == 'success' || needs.build-linux-x64.result == 'success' || needs.build-linux-arm64.result == 'success' || needs.build-macos-intel.result == 'success' || needs.build-macos-arm.result == 'success' || needs.build-sea-windows.result == 'success' || needs.build-sea-windows-arm.result == 'success' || needs.build-sea-linux-x64.result == 'success' || needs.build-sea-linux-arm64.result == 'success' || needs.build-sea-macos-arm.result == 'success' || needs.build-sea-macos-x64.result == 'success' || needs.merge-docker.result == 'success')
+    if: always() && inputs.release_type != 'build-only' && (needs.build-windows.result == 'success' || needs.build-windows-arm.result == 'success' || needs.build-linux-x64.result == 'success' || needs.build-linux-arm64.result == 'success' || needs.build-macos-intel.result == 'success' || needs.build-macos-arm.result == 'success' || needs.build-sea-windows.result == 'success' || needs.build-sea-windows-arm.result == 'success' || needs.build-sea-linux-x64.result == 'success' || needs.build-sea-linux-arm64.result == 'success' || needs.merge-docker.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -1192,19 +1014,6 @@ jobs:
           name: sea-linux-arm64
           path: ./artifacts
 
-      - name: Download SEA macOS ARM artifact
-        if: needs.build-sea-macos-arm.result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          name: sea-macos-arm
-          path: ./artifacts
-
-      - name: Download SEA macOS x64 artifact
-        if: needs.build-sea-macos-x64.result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          name: sea-macos-x64
-          path: ./artifacts
 
       - name: Generate release notes
         id: changelog
@@ -1335,7 +1144,6 @@ jobs:
             ./artifacts/HiDNS-*.exe
             ./artifacts/HiDNS-*-linux-x64
             ./artifacts/HiDNS-*-linux-arm64
-            ./artifacts/HiDNS-*-macos-*
             ./artifacts/checksums.txt
 
   # ============================================================================
@@ -1348,7 +1156,7 @@ jobs:
   # ============================================================================
   build-only-summary:
     name: Build-only Summary
-    needs: [prepare, build-windows, build-windows-arm, build-linux-x64, build-linux-arm64, build-macos-intel, build-macos-arm, build-sea-windows, build-sea-windows-arm, build-sea-linux-x64, build-sea-linux-arm64, build-sea-macos-arm, build-sea-macos-x64, build-docker-amd64, build-docker-arm64, merge-docker]
+    needs: [prepare, build-windows, build-windows-arm, build-linux-x64, build-linux-arm64, build-macos-intel, build-macos-arm, build-sea-windows, build-sea-windows-arm, build-sea-linux-x64, build-sea-linux-arm64, build-docker-amd64, build-docker-arm64, merge-docker]
     if: always() && inputs.release_type == 'build-only'
     runs-on: ubuntu-latest
     steps:
@@ -1380,8 +1188,6 @@ jobs:
           row "Windows ARM64 SEA"  "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-windows-arm.result }}"
           row "Linux x64 SEA"      "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-linux-x64.result }}"
           row "Linux ARM64 SEA"    "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-linux-arm64.result }}"
-          row "macOS ARM64 SEA"    "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-macos-arm.result }}"
-          row "macOS x64 SEA"      "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-macos-x64.result }}"
           # build-only 不推送镜像，merge-docker 会被跳过；这里看两个构建作业本身
           docker_result="success"
           if [ "${{ needs.build-docker-amd64.result }}" != "success" ] || [ "${{ needs.build-docker-arm64.result }}" != "success" ]; then
