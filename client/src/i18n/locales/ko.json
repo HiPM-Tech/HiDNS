@@ -44,7 +44,10 @@
             "colTrace": "추적 ID",
             "colStatus": "상태",
             "colStarted": "시작 시각",
-            "colError": "오류"
+            "colError": "오류",
+            "risk_low": "Low risk",
+            "risk_medium": "Medium risk",
+            "risk_high": "High risk"
         },
         "common": {
             "operationFailed": "Operation failed",

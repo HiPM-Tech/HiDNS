@@ -44,7 +44,10 @@
             "colTrace": "ID de trace",
             "colStatus": "Statut",
             "colStarted": "Début",
-            "colError": "Erreur"
+            "colError": "Erreur",
+            "risk_low": "Low risk",
+            "risk_medium": "Medium risk",
+            "risk_high": "High risk"
         },
         "common": {
             "operationFailed": "Operation failed",

@@ -44,7 +44,10 @@
             "condition": "Condition",
             "conditionValue": "Value",
             "preview": "Preview (…)",
-            "waitingForEvent": "No real event yet; preview appears after the first trigger"
+            "waitingForEvent": "No real event yet; preview appears after the first trigger",
+            "risk_low": "Low risk",
+            "risk_medium": "Medium risk",
+            "risk_high": "High risk"
         },
         "common": {
             "operationFailed": "Operation failed",

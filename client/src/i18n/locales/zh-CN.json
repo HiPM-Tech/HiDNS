@@ -44,7 +44,10 @@
             "condition": "执行条件",
             "conditionValue": "条件值",
             "preview": "预览 (…)",
-            "waitingForEvent": "尚无真实事件，等待触发后即可预览"
+            "waitingForEvent": "尚无真实事件，等待触发后即可预览",
+            "risk_low": "低风险",
+            "risk_medium": "中风险",
+            "risk_high": "高风险"
         },
         "about": {
             "community": "社区",

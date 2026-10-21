@@ -44,7 +44,10 @@
             "colTrace": "ID de traza",
             "colStatus": "Estado",
             "colStarted": "Inicio",
-            "colError": "Error"
+            "colError": "Error",
+            "risk_low": "Low risk",
+            "risk_medium": "Medium risk",
+            "risk_high": "High risk"
         },
         "about": {
             "community": "Comunidad",

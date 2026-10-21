@@ -24,6 +24,20 @@ import {
 } from '../utils/workflows';
 import './Workflows.css';
 
+/** 动作风险等级 → TDesign Tag 主题（meta 里已有 risk，此前界面完全没用上） */
+function riskTheme(risk?: string): 'success' | 'warning' | 'danger' | 'default' {
+  switch (risk) {
+    case 'low':
+      return 'success';
+    case 'medium':
+      return 'warning';
+    case 'high':
+      return 'danger';
+    default:
+      return 'default';
+  }
+}
+
 interface MetaItem {
   value: string;
   label?: string;
@@ -238,7 +252,23 @@ export function Workflows() {
         ),
     },
     { key: 'triggerType', label: t('workflows.trigger'), width: 180, render: (row: WorkflowRecord) => t(triggerLabels.get(row.triggerType) ?? row.triggerType) },
-    { key: 'actions', label: t('workflows.actions'), width: 100, render: (row: WorkflowRecord) => String(row.actions?.length ?? 0) },
+    {
+      key: 'actions',
+      label: t('workflows.actions'),
+      width: 260,
+      // 只给个数字看不出这条工作流到底干什么，这里直接列出动作链路（机器名回落到原始值，不隐藏异常）
+      render: (row: WorkflowRecord) => {
+        const list = (row.actions ?? []) as Array<{ action?: string }>;
+        if (list.length === 0) return '-';
+        return list
+          .map((node) => {
+            const name = String(node.action ?? '');
+            const item = actionMap.get(name);
+            return item ? t(item.label) : name || '?';
+          })
+          .join(' → ');
+      },
+    },
     { key: 'enabled', label: t('workflows.enabled'), width: 100, render: (row: WorkflowRecord) => (row.enabled ? t('common.enabled') : t('common.disabled')) },
     {
       key: 'op',
@@ -457,9 +487,19 @@ export function Workflows() {
                           </label>
                         );
                       })}
-                      {meta?.description ? (
-                        // 光有动作名不够：用户需要知道这一步到底会做什么，尤其是 plan/replace 这种成对的
-                        <p className="workflow-action-desc">{t(meta.description)}</p>
+                      {meta ? (
+                        // 光有动作名不够：用户需要知道这一步到底会做什么，尤其是 plan/replace 这种成对的。
+                        // 同时给出机器名与风险等级——机器名用于对日志和审计，风险等级用于判断要不要写进生产工作流。
+                        <>
+                          {meta.description ? <p className="workflow-action-desc">{t(meta.description)}</p> : null}
+                          {/* 机器名只放在 title 里：界面上不出现标识符（既有用例明确约束），
+                              但要能对日志与审计时悬停查到。 */}
+                          <p className="workflow-action-meta" title={meta.value}>
+                            <Tag size="small" variant="light" theme={riskTheme(meta.risk)}>
+                              {t(`workflows.risk_${meta.risk}`)}
+                            </Tag>
+                          </p>
+                        </>
                       ) : null}
                     </div>
                     <Button size="small" variant="text" theme="danger" onClick={() => updateField('rows', form.rows.filter((_, i) => i !== index))}>

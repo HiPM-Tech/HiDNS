@@ -44,7 +44,10 @@
             "colTrace": "トレース ID",
             "colStatus": "ステータス",
             "colStarted": "開始時刻",
-            "colError": "エラー"
+            "colError": "エラー",
+            "risk_low": "Low risk",
+            "risk_medium": "Medium risk",
+            "risk_high": "High risk"
         },
         "about": {
             "community": "コミュニティ",

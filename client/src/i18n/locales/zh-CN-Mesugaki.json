@@ -44,7 +44,10 @@
             "colTrace": "追蹤 ID",
             "colStatus": "狀態",
             "colStarted": "開始時間",
-            "colError": "錯誤"
+            "colError": "錯誤",
+            "risk_low": "低风险",
+            "risk_medium": "中风险",
+            "risk_high": "高风险"
         },
         "about": {
             "community": "社区喵~",

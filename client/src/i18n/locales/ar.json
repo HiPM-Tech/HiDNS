@@ -44,7 +44,10 @@
             "colTrace": "معرّف التتبع",
             "colStatus": "الحالة",
             "colStarted": "البداية",
-            "colError": "خطأ"
+            "colError": "خطأ",
+            "risk_low": "Low risk",
+            "risk_medium": "Medium risk",
+            "risk_high": "High risk"
         },
         "common": {
             "operationFailed": "Operation failed",

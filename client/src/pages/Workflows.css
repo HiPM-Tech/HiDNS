@@ -71,6 +71,21 @@
   color: var(--td-text-color-secondary, #666);
 }
 
+/* 机器名 + 风险等级：机器名用于对日志/审计，风险等级用于判断能不能上生产 */
+.workflow-action-meta {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder, #999);
+}
+
+.workflow-action-meta code {
+  font-size: 12px;
+}
+
 .workflow-param {
   display: flex;
   flex-direction: column;

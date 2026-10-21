@@ -44,7 +44,10 @@
             "colTrace": "ID de rastreio",
             "colStatus": "Status",
             "colStarted": "Início",
-            "colError": "Erro"
+            "colError": "Erro",
+            "risk_low": "Low risk",
+            "risk_medium": "Medium risk",
+            "risk_high": "High risk"
         },
         "common": {
             "operationFailed": "Operation failed",
