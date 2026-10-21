@@ -917,7 +917,8 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          push: true
+          # build-only 是「构建测试」，不应该往 ghcr.io 推任何东西
+          push: ${{ inputs.release_type != 'build-only' }}
           tags: ${{ steps.docker-tags.outputs.tag }}
           labels: |
             org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
@@ -974,7 +975,7 @@ jobs:
         with:
           context: .
           platforms: linux/arm64
-          push: true
+          push: ${{ inputs.release_type != 'build-only' }}
           tags: ${{ steps.docker-tags.outputs.tag }}
           labels: |
             org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
@@ -994,7 +995,8 @@ jobs:
     name: Create Release Multi-Arch Manifest
     runs-on: ubuntu-latest
     needs: [prepare, build-docker-amd64, build-docker-arm64]
-    if: always() && needs.build-docker-amd64.result == 'success' && needs.build-docker-arm64.result == 'success'
+    # build-only 不推送镜像，清单合并无从谈起
+    if: always() && inputs.release_type != 'build-only' && needs.build-docker-amd64.result == 'success' && needs.build-docker-arm64.result == 'success'
     permissions:
       contents: read
       packages: write
@@ -1307,7 +1309,7 @@ jobs:
   # ============================================================================
   build-only-summary:
     name: Build-only Summary
-    needs: [prepare, build-windows, build-windows-arm, build-linux-x64, build-linux-arm64, build-macos-intel, build-macos-arm, build-sea-windows, build-sea-windows-arm, build-sea-linux-x64, build-sea-linux-arm64, build-sea-macos-arm, build-sea-macos-x64, merge-docker]
+    needs: [prepare, build-windows, build-windows-arm, build-linux-x64, build-linux-arm64, build-macos-intel, build-macos-arm, build-sea-windows, build-sea-windows-arm, build-sea-linux-x64, build-sea-linux-arm64, build-sea-macos-arm, build-sea-macos-x64, build-docker-amd64, build-docker-arm64, merge-docker]
     if: always() && inputs.release_type == 'build-only'
     runs-on: ubuntu-latest
     steps:
@@ -1341,7 +1343,12 @@ jobs:
           row "Linux ARM64 SEA"    "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-linux-arm64.result }}"
           row "macOS ARM64 SEA"    "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-macos-arm.result }}"
           row "macOS x64 SEA"      "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-macos-x64.result }}"
-          row "Docker 镜像"        "$(flag '${{ inputs.build_docker }}')"       "${{ needs.merge-docker.result }}"
+          # build-only 不推送镜像，merge-docker 会被跳过；这里看两个构建作业本身
+          docker_result="success"
+          if [ "${{ needs.build-docker-amd64.result }}" != "success" ] || [ "${{ needs.build-docker-arm64.result }}" != "success" ]; then
+            docker_result="failure"
+          fi
+          row "Docker 镜像（仅构建，不推送）" "$(flag '${{ inputs.build_docker }}')" "$docker_result"
 
           if [ $fail -ne 0 ]; then
             echo "" >> $GITHUB_STEP_SUMMARY

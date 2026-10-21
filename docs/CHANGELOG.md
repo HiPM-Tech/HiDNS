@@ -24,6 +24,7 @@
 - **源站组同步按地址族**: `origin-group-sync.ts` 只替换对应地址族的记录，A 与 AAAA 可一次写完，族内多条 v4/v6 按旧值精确匹配
 - **站点可见性核验缓存**: 站点可见性结果缓存 60 秒，避免每个源站组动作都打一次 `DescribeZones`
 - **读与写的准入分开**: 账号权限改为三态（`none` / `read` / `write`），「有读无写」返回可区分的 `WRITE_FORBIDDEN` 而不是笼统的「域名不存在」
+- **build-only 不再推送任何镜像**: 该模式的语义是「构建测试」，原先 Docker 两个平台仍会 `push: true` 到 ghcr.io、并合并多架构清单。现在 `push` 由 `release_type != 'build-only'` 控制，`merge-docker` 在 build-only 下整体跳过；汇总作业改为看两个镜像构建作业本身，而不是看被跳过的清单合并
 - **发版工作流支持「只构建不发布」**: `release_type` 新增 `build-only` 选项——跑完 `Release Gate`（lint/类型检查/两套单测）、各平台构建与 macOS 冒烟后直接结束，不创建 Release / Tag；`Build-only Summary` 会逐目标列出结果，被请求的目标有一个没成功即判失败
 - **跨架构 SEA 的 V8 code cache**: `sea-config.json` 里 `useCodeCache: true`，而 V8 code cache 与平台+架构绑定。macOS Intel 二进制是在 arm64 runner 上交叉构建的，缓存与目标不匹配会导致启动即崩。现改为跨架构构建时自动关闭 `useCodeCache`（同架构构建保持开启）
 - **macOS 首次运行提示**: Release 正文新增说明——下载的二进制带 quarantine 标记时会提示「无法验证开发者」，给出 `xattr -dr com.apple.quarantine` 的处置命令，避免被误判成包坏了
