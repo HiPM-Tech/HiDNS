@@ -32,6 +32,10 @@ const LIMIT = Number(opt('--limit', '8'));
 // 状态文件：记住上次看到过哪些 run，用来只报「新增」的运行。
 // 持续监听时这才是有效信息——每次都把同样的 8 条重播一遍没有意义。
 const STATE_PATH = opt('--state', join(process.cwd(), '.cache', 'ci-watch-state.json'));
+// --logs N：失败时直接把该作业失败步骤的最后 N 行打出来，省得再手工 gh run view
+const LOG_TAIL = Number(opt('--logs', '0'));
+// --workflow 名称子串：只关心某个工作流时用，例如 --workflow release
+const WORKFLOW_FILTER = opt('--workflow', '');
 const INTERVAL = Number(opt('--interval', '20'));
 const MAX_WAIT_MIN = Number(opt('--max-wait', '120'));
 
@@ -45,7 +49,35 @@ function listRuns() {
     '--limit', String(LIMIT),
     '--json', 'databaseId,name,status,conclusion,headSha,headBranch,createdAt,url,workflowName',
   ]);
-  return JSON.parse(json);
+  const runs = JSON.parse(json);
+  if (!WORKFLOW_FILTER) return runs;
+  const needle = WORKFLOW_FILTER.toLowerCase();
+  return runs.filter((r) => `${r.workflowName || ''} ${r.name || ''}`.toLowerCase().includes(needle));
+}
+
+/** 抓取某次运行里失败步骤的日志尾部，按「作业 / 步骤」分组 */
+function failedLogTail(id, tail) {
+  try {
+    const out = gh(['run', 'view', String(id), '--log-failed']);
+    const byJob = new Map();
+    for (const line of out.split('\n')) {
+      if (!line.trim()) continue;
+      const m = line.match(/^([^\t]+)\t([^\t]+)\t\S+\s(.*)$/);
+      if (!m) continue;
+      const [, job, step, text] = m;
+      const key = `${job} / ${step}`;
+      if (!byJob.has(key)) byJob.set(key, []);
+      byJob.get(key).push(text);
+    }
+    const result = [];
+    for (const [key, lines] of byJob) {
+      result.push(`     ┌ ${key}`);
+      for (const l of lines.slice(-tail)) result.push(`     │ ${l}`);
+    }
+    return result;
+  } catch {
+    return [];
+  }
 }
 
 function failedJobs(id) {
@@ -98,6 +130,7 @@ function render(runs, seen = new Set()) {
         const steps = j.failedSteps.length ? ` （失败步骤：${j.failedSteps.join(', ')}）` : '';
         lines.push(`     ↳ ${j.name} => ${j.conclusion}${steps}`);
       }
+      if (LOG_TAIL > 0) lines.push(...failedLogTail(r.databaseId, LOG_TAIL));
     }
   }
   return lines.join('\n');
