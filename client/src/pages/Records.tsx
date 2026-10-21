@@ -205,7 +205,19 @@ export function Records() {
   const hasProxyMode = currentProvider?.capabilities?.dns?.proxiable === true;
 
   const columns = useMemo(() => [
-    { key: 'name', label: t('common.host'), width: 220, render: (r: DnsRecord) => <span className="record-mono record-mono--strong" title={r.name}>{r.name}</span> },
+    {
+      key: 'name',
+      label: t('common.host'),
+      width: 220,
+      // 顺带把记录 ID 挂在主机名后面：工作流的 recordId 参数要填它，
+      // 而此前界面上任何地方都看不到这个值，等于那三个动作无从配置。
+      render: (r: DnsRecord) => (
+        <span className="record-mono record-mono--strong" title={r.name}>
+          {r.name}
+          {r.id ? <span className="record-id"> #{r.id}</span> : null}
+        </span>
+      ),
+    },
     { key: 'type', label: t('common.type'), width: 80, render: (r: DnsRecord) => <Tag theme="primary" variant="light">{r.type}</Tag> },
     {
       key: 'value', label: t('common.value'), width: 250,

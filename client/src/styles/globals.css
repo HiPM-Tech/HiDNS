@@ -1194,6 +1194,14 @@ body.app-has-background .servicemonitor-tabs-wrapper {
   font-family: "Source Code Pro", Consolas, Monaco, monospace;
 }
 
+/* 记录 ID：工作流的 recordId 参数要填它，弱化显示但必须能看到 */
+.record-id {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--td-text-color-placeholder);
+}
+
 .record-mono--strong {
   color: var(--td-text-color-primary);
   font-weight: 600;

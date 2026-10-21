@@ -1878,7 +1878,7 @@
             "paramHint": {
                 "diff_digest": "Produced by the preceding plan step. Set \"Store result in variable\" there, then reference that variable here.",
                 "target": "Full declaration of the target origin servers, in the format the origin group expects.",
-                "record_id": "DNS record ID, available from the result of \"List DNS records\"."
+                "record_id": "DNS record ID — the #number shown after the host name in the domain's record list."
             }
         }
     }
