@@ -24,6 +24,7 @@
 - **源站组同步按地址族**: `origin-group-sync.ts` 只替换对应地址族的记录，A 与 AAAA 可一次写完，族内多条 v4/v6 按旧值精确匹配
 - **站点可见性核验缓存**: 站点可见性结果缓存 60 秒，避免每个源站组动作都打一次 `DescribeZones`
 - **读与写的准入分开**: 账号权限改为三态（`none` / `read` / `write`），「有读无写」返回可区分的 `WRITE_FORBIDDEN` 而不是笼统的「域名不存在」
+- **macOS 产物不可用**: SEA 构建脚本对 Mach-O 注入后**从未重新签名**，而注入会破坏 nodejs.org 自带的 ad-hoc 签名，macOS 内核在 execve 阶段直接杀掉进程（表现为双击无反应或「已损坏」）。现已补 `codesign --remove-signature` → 注入 → `codesign --sign -` → `codesign --verify` 的完整流程，并在 macOS SEA 作业里加「构建完必须能启动」的冒烟门禁；`create-release` 也加了产物完整性校验，请求了某平台却构建失败时中止发布，不再发出残缺版本
 - **CI 门禁修复**: 工作流长期跑在 Node 20，而代码依赖 `node:sqlite`（Node ≥ 22.5），Test Suite 在 `check:actions` 处必红；统一到 Node 24。同时修掉多处「显示绿但什么都没做」：E2E job（`e2e` 不在 pnpm workspace，`--filter` 空匹配即退出 0）、12 个测试文件不在门禁内（其中 8 个 `node:test` 文件无任何执行入口）、server 侧没有 lint 脚本、push 到 main 时 `commit-checks` 整体被跳过（trufflehog 密钥扫描因此从未在 main 上跑过）、数据库矩阵 8 步只有 1 步能真正失败、`release.yml` 完全没有测试门禁
 - **密钥显示开关收窄**: `showDnsProviderSecrets` 此前是全局开关，管理员打开后账号所属团队成员也能拿到明文 `SecretId/SecretKey`；现改为「仅管理员身份 + 开关同时成立」才返回明文
 

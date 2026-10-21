@@ -230,7 +230,8 @@ async function buildForPlatform(targetName) {
     const extractDir = path.join(buildDir, 'node-extracted');
     if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true });
     fs.mkdirSync(extractDir, { recursive: true });
-    execSync(`tar xzf "${nodeBinaryPath}" -C "${extractDir}"`, { stdio: 'inherit' });
+    // 用 xf 而不是 xzf：让 tar 自己识别压缩格式（nodejs.org 同时提供 .tar.gz 与 .tar.xz）
+    execSync(`tar xf "${nodeBinaryPath}" -C "${extractDir}"`, { stdio: 'inherit' });
     const dirs = fs.readdirSync(extractDir);
     const nodeDir = dirs.find(d => d.startsWith('node-v'));
     if (!nodeDir) throw new Error('Could not find node directory in extracted tarball');
@@ -279,17 +280,42 @@ async function buildForPlatform(targetName) {
 
   // Step 6: postject 注入 blob
   const fuse = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
+  const isMacTarget = target.nodePlatform === 'darwin';
   const postjectArgs = [
     outputBinary,
     'NODE_SEA_BLOB',
     blobPath,
     `--sentinel-fuse ${fuse}`,
   ];
-  if (process.platform === 'darwin') {
+  if (isMacTarget) {
     postjectArgs.push('--macho-segment-name NODE_SEA_BLOB');
   }
 
+  // macOS：注入前必须先去掉 nodejs.org 自带的 ad-hoc 签名。
+  // 直接往已签名的 Mach-O 里写数据会让签名失效，内核在 execve 阶段就会杀掉进程
+  // （表现为双击没反应 / 「已损坏，无法打开」/ killed: 9）。
+  // 官方 SEA 流程就是：remove-signature → postject → 重新 ad-hoc 签名。
+  if (isMacTarget && process.platform === 'darwin') {
+    console.log('\n🔏 Removing existing Mach-O signature (required before injection)');
+    try {
+      execSync(`codesign --remove-signature "${outputBinary}"`, { stdio: 'pipe' });
+      console.log('   ✅ Signature removed');
+    } catch (err) {
+      // 未签名时该命令会失败，属于预期情况
+      console.warn(`   ⚠️  remove-signature skipped: ${err.message.split('\n')[0]}`);
+    }
+  }
+
   run(`npx postject ${postjectArgs.join(' ')}`, 'Injecting SEA blob');
+
+  // macOS：注入后必须重新 ad-hoc 签名，否则产物不可执行。
+  if (isMacTarget && process.platform === 'darwin') {
+    run(`codesign --force --sign - "${outputBinary}"`, 'Ad-hoc signing');
+    run(`codesign --verify --verbose=2 "${outputBinary}"`, 'Verifying signature');
+    console.log('   ✅ Signed and verified');
+  } else if (isMacTarget) {
+    console.warn('   ⚠️  macOS target built on a non-macOS host: signature steps skipped, the binary will NOT run on macOS');
+  }
 
   // 清理临时文件
   const filesToClean = ['dist/bundle.cjs', 'dist/sea-prep.blob', 'dist/embedded-client.js'];

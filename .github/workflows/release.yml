@@ -445,6 +445,7 @@ jobs:
     name: Build macOS Intel Package
     if: inputs.build_macos_intel == true
     runs-on: macos-latest
+    timeout-minutes: 45
     needs: prepare
     steps:
       - name: Checkout repository
@@ -475,7 +476,7 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           mkdir -p release-dist
 
-          # Download Node.js 20 x64 for macOS
+          # Download Node.js 24 x64 for macOS
           NODE_URL="https://nodejs.org/dist/v24.16.0/node-v24.16.0-darwin-x64.tar.xz"
           curl -L $NODE_URL -o node.tar.xz
           tar -xf node.tar.xz -C release-dist
@@ -515,6 +516,7 @@ jobs:
     name: Build macOS ARM Package
     if: inputs.build_macos_arm == true
     runs-on: macos-latest
+    timeout-minutes: 45
     needs: prepare
     steps:
       - name: Checkout repository
@@ -545,7 +547,7 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           mkdir -p release-dist
 
-          # Download Node.js 20 ARM64 for macOS
+          # Download Node.js 24 ARM64 for macOS
           NODE_URL="https://nodejs.org/dist/v24.16.0/node-v24.16.0-darwin-arm64.tar.xz"
           curl -L $NODE_URL -o node.tar.xz
           tar -xf node.tar.xz -C release-dist
@@ -688,6 +690,7 @@ jobs:
     name: Build macOS ARM SEA Binary
     if: inputs.build_sea == true
     runs-on: macos-latest
+    timeout-minutes: 45
     needs: prepare
     steps:
       - name: Checkout repository
@@ -711,6 +714,21 @@ jobs:
         run: |
           cd server
           pnpm sea:macos
+      - name: Smoke test macOS binary
+        run: |
+          cd server/dist/sea
+          BIN=$(ls HiDNS-*-macos-arm | head -1)
+          chmod +x "$BIN"
+          # 签名必须有效，否则 macOS 内核会在 execve 阶段直接杀掉进程
+          codesign --verify --verbose=2 "$BIN"
+          PORT=3399 "./$BIN" > /tmp/smoke.log 2>&1 &
+          PID=$!
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:3399/api/init/status > /dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:3399/api/init/status || { echo 'macOS binary failed to start'; cat /tmp/smoke.log; exit 1; }
+          kill $PID 2>/dev/null || true
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -757,6 +775,7 @@ jobs:
     name: Build macOS Intel SEA Binary
     if: inputs.build_sea == true
     runs-on: macos-latest
+    timeout-minutes: 45
     needs: prepare
     steps:
       - name: Checkout repository
@@ -780,6 +799,21 @@ jobs:
         run: |
           cd server
           pnpm sea:macos-x64
+      - name: Smoke test macOS binary
+        run: |
+          cd server/dist/sea
+          BIN=$(ls HiDNS-*-macos-x64 | head -1)
+          chmod +x "$BIN"
+          # 签名必须有效，否则 macOS 内核会在 execve 阶段直接杀掉进程
+          codesign --verify --verbose=2 "$BIN"
+          PORT=3398 "./$BIN" > /tmp/smoke.log 2>&1 &
+          PID=$!
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:3398/api/init/status > /dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:3398/api/init/status || { echo 'macOS binary failed to start'; cat /tmp/smoke.log; exit 1; }
+          kill $PID 2>/dev/null || true
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -1163,6 +1197,34 @@ jobs:
           cd ./artifacts
           sha256sum * > checksums.txt
           cat checksums.txt
+
+      # 请求了某个平台却没产出，就不要静默发一个残缺的 Release。
+      # v2.1.5 就是这样：macOS Intel 包与 macOS ARM 二进制的作业被取消，
+      # 发布页上直接没有这两个文件，使用者以为「macOS 分支坏了」。
+      - name: Verify requested artifacts are present
+        run: |
+          fail=0
+          check() {
+            if [ "$1" = "true" ] && [ "$2" != "success" ]; then
+              echo "::error::已请求 $3，但对应作业结果为 $2"
+              fail=1
+            fi
+          }
+          check "${{ inputs.build_macos_intel }}" "${{ needs.build-macos-intel.result }}" "macOS Intel 启动包"
+          check "${{ inputs.build_macos_arm }}"   "${{ needs.build-macos-arm.result }}"   "macOS ARM 启动包"
+          check "${{ inputs.build_exe }}"         "${{ needs.build-windows.result }}"     "Windows x64 包"
+          check "${{ inputs.build_linux_x64 }}"   "${{ needs.build-linux-x64.result }}"   "Linux x64 包"
+          check "${{ inputs.build_linux_arm64 }}" "${{ needs.build-linux-arm64.result }}" "Linux ARM64 包"
+          if [ "${{ inputs.build_sea }}" = "true" ]; then
+            for f in HiDNS-*-macos-x64 HiDNS-*-macos-arm64; do
+              ls ./artifacts/$f > /dev/null 2>&1 || { echo "::error::缺少 macOS SEA 二进制: $f"; fail=1; }
+            done
+          fi
+          if [ $fail -ne 0 ]; then
+            echo "::error::产物不完整，已中止发布（不要发出残缺版本）"
+            exit 1
+          fi
+          echo "✅ 请求的产物均已产出"
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
