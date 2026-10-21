@@ -166,6 +166,40 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
     return;
   }
 
+  // 指定域名的解析记录候选源（设计 §3.3）：recordId 这类参数不该让用户手填 ID。
+  // 用域名名称而不是 domainId 作为入参，因为 dns.record.* 动作的参数就是 domain（名称）。
+  if (source === 'records') {
+    const domainName = String(req.query.domain ?? '').trim();
+    if (!domainName) {
+      sendError(res, '请先选择域名', 422);
+      return;
+    }
+    // 归属校验：不得用他人域名的账号凭据去上游拉数据
+    const accessible = (await DomainOperations.getUserAccessibleDomains(userId)) as unknown as Array<{
+      id: number;
+      name: string;
+    }>;
+    const target = accessible.find((row) => String(row.name) === domainName);
+    if (!target) {
+      sendError(res, '域名不存在', 404);
+      return;
+    }
+    try {
+      const page = await DnsProviderService.getRecords(Number(target.id), { pageSize: 100 });
+      const items = (page.list ?? []).map((record) => ({
+        value: String(record.RecordId),
+        // 主机名 + 类型 + 值：只给 ID 用户没法判断选的是哪一条
+        label: `${record.Name || '@'} ${record.Type} → ${record.Value}`,
+      }));
+      sendSuccess(res, { items });
+    } catch (error) {
+      // 上游失败必须把原因说出来（凭据错、限流、域名未托管……），
+      // 统一吞成 500 会让用户只看到 Internal server error，无从判断。
+      sendError(res, error instanceof Error ? error.message : String(error), 502);
+    }
+    return;
+  }
+
   // 无 DB 依赖的候选源由纯函数提供，便于单测
   if (isStaticMetaSource(source)) {
     sendSuccess(res, { items: buildStaticMeta(source) });
