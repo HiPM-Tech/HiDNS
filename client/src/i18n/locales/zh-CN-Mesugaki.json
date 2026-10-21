@@ -72,7 +72,19 @@
             "dslShow": "查看将要保存的 DSL",
             "dslHide": "收起 DSL",
             "useEventValue": "使用事件字段",
-            "clearRef": "清除引用"
+            "clearRef": "清除引用",
+            "addCondition": "添加条件",
+            "joinAnd": "并且",
+            "joinOr": "或者",
+            "condKind_logic": "逻辑组合",
+            "condKind_cond": "条件分支",
+            "condKind_arith": "算术运算",
+            "condKind_concat": "字符串拼接",
+            "condKind_compare": "比较",
+            "condKind_ref": "字段引用",
+            "condKind_literal": "常量",
+            "condKind_call": "动作调用",
+            "condKind_assign": "变量赋值"
         },
         "about": {
             "community": "社区喵~",

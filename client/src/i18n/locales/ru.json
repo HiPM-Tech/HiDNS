@@ -72,7 +72,19 @@
             "dslShow": "Show the DSL that will be saved",
             "dslHide": "Hide DSL",
             "useEventValue": "Use event value",
-            "clearRef": "Clear reference"
+            "clearRef": "Clear reference",
+            "addCondition": "Add condition",
+            "joinAnd": "AND",
+            "joinOr": "OR",
+            "condKind_logic": "Logic group",
+            "condKind_cond": "Conditional branch",
+            "condKind_arith": "Arithmetic",
+            "condKind_concat": "String concat",
+            "condKind_compare": "Comparison",
+            "condKind_ref": "Field reference",
+            "condKind_literal": "Constant",
+            "condKind_call": "Action call",
+            "condKind_assign": "Variable assignment"
         },
         "common": {
             "operationFailed": "Operation failed",

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findMissingRequiredArg, formatDuration, fromDslNodes, parseServerTime, summarizeTriggerEvent, toDslNodes } from './workflows';
+import { findMissingRequiredArg, formatDuration, fromConditionNode, fromDslNodes, parseServerTime, summarizeTriggerEvent, toConditionNode, toDslNodes } from './workflows';
 
 describe('parseServerTime', () => {
   it('把无时区后缀的服务端时间按 UTC 解析', () => {
@@ -113,5 +113,68 @@ describe('toDslNodes / fromDslNodes', () => {
       { kind: 'call', action: 'dns.record.update', args: { value: { kind: 'ref', path: 'event.record.value' } } },
     ]);
     expect(rows[0].args.value).toEqual({ kind: 'ref', value: 'event.record.value' });
+  });
+});
+
+describe('条件的多条件组合', () => {
+  const compare = (path: string, op: string, value: unknown) => ({
+    kind: 'compare',
+    op,
+    left: { kind: 'ref', path },
+    right: { kind: 'literal', value },
+  });
+
+  it('单条 compare 还原成一行，不带 logic', () => {
+    const draft = fromConditionNode(compare('event.record.type', '==', 'A') as never);
+    expect(draft.raw).toBeUndefined();
+    expect(draft.rows).toHaveLength(1);
+    expect(draft.rows[0]).toEqual({ field: 'event.record.type', op: '==', value: 'A' });
+  });
+
+  it('and 组合还原成多行并保留连接方式', () => {
+    const node = {
+      kind: 'logic',
+      op: 'and',
+      args: [compare('event.record.type', '==', 'A'), compare('event.domain.name', '==', 'example.com')],
+    };
+    const draft = fromConditionNode(node as never);
+    expect(draft.raw).toBeUndefined();
+    expect(draft.join).toBe('and');
+    expect(draft.rows).toHaveLength(2);
+  });
+
+  it('两行序列化成 logic，一行序列化成 compare', () => {
+    const two = toConditionNode({
+      enabled: true,
+      join: 'or',
+      rows: [
+        { field: 'event.record.type', op: '==', value: 'A' },
+        { field: 'event.record.type', op: '==', value: 'AAAA' },
+      ],
+    });
+    expect(two).toMatchObject({ kind: 'logic', op: 'or' });
+    expect((two as unknown as { args: unknown[] }).args).toHaveLength(2);
+
+    const one = toConditionNode({ enabled: true, join: 'and', rows: [{ field: 'event.record.type', op: '==', value: 'A' }] });
+    expect(one).toMatchObject({ kind: 'compare' });
+  });
+
+  it('logic 里混了表单表达不了的节点时整节点保留', () => {
+    const node = {
+      kind: 'logic',
+      op: 'and',
+      args: [compare('event.record.type', '==', 'A'), { kind: 'arith', op: '+', args: [] }],
+    };
+    const draft = fromConditionNode(node as never);
+    expect(draft.raw).toBe(node);
+  });
+
+  it('not 节点不在表单能力内，原样保留', () => {
+    const node = { kind: 'logic', op: 'not', args: [compare('event.record.type', '==', 'A')] };
+    expect(fromConditionNode(node as never).raw).toBe(node);
+  });
+
+  it('关闭条件时不产出任何节点', () => {
+    expect(toConditionNode({ enabled: false, join: 'and', rows: [] })).toBeUndefined();
   });
 });

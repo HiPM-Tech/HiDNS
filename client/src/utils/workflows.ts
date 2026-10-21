@@ -35,20 +35,31 @@ export interface ActionRow {
 
 export const EMPTY_ROW: ActionRow = { action: '', args: {} };
 
-export interface ConditionDraft {
-  enabled: boolean;
+export interface ConditionRow {
   field: string;
   op: string;
   value: string;
-  /** 非 compare 根节点（logic/cond/...）：编辑器无法表达，原样保留以免保存时被删除 */
+}
+
+export interface ConditionDraft {
+  enabled: boolean;
+  /** 多条条件之间的连接方式；只有一条时无意义 */
+  join: 'and' | 'or';
+  rows: ConditionRow[];
+  /** 无法用表单无损表达的条件（logic 里混了 arith/cond/ref 等）：原样保留以免保存时被删除 */
   raw?: WorkflowDslNode;
 }
 
-export const EMPTY_CONDITION: ConditionDraft = {
-  enabled: false,
+export const EMPTY_CONDITION_ROW: ConditionRow = {
   field: CONDITION_FIELDS[0].path,
   op: '==',
   value: '',
+};
+
+export const EMPTY_CONDITION: ConditionDraft = {
+  enabled: false,
+  join: 'and',
+  rows: [{ ...EMPTY_CONDITION_ROW }],
 };
 
 export function fieldOf(path: string): ConditionField {
@@ -74,35 +85,21 @@ export function toLiteral(field: ConditionField, op: string, raw: string): Workf
   return { kind: 'literal', value: raw };
 }
 
-export function toConditionNode(draft: ConditionDraft): WorkflowDslNode | undefined {
-  if (!draft.enabled) return undefined;
-  // 无法用表单表达的条件原样回传，不能因为「编辑了一下」就把它删掉
-  if (draft.raw) return draft.raw;
-  if (!draft.field) return undefined;
-  return {
-    kind: 'compare',
-    op: draft.op,
-    left: { kind: 'ref', path: draft.field },
-    right: toLiteral(fieldOf(draft.field), draft.op, draft.value),
-  };
-}
-
-export function fromConditionNode(node: WorkflowDslNode | null | undefined): ConditionDraft {
-  if (!node) return { ...EMPTY_CONDITION };
+/** 单条 compare 节点 → 表单行；无法无损往返时返回 null */
+function parseCompareNode(node: WorkflowDslNode): ConditionRow | null {
+  if (node.kind !== 'compare') return null;
   const leftNode = (node.left ?? {}) as { kind?: string; path?: string };
   const rightNode = (node.right ?? {}) as { kind?: string; value?: unknown };
-
-  // 只有「表单能无损表达」的条件才结构化：
-  //   compare + 左值为白名单字段的 ref + 右值为标量 literal
-  // 其余（logic/cond/... 根节点、右值是 ref/concat/arith、左路径不在白名单）
-  // 一律整节点保留，否则「打开编辑→保存」会把原节点改写成 literal ""。
   const fieldDef = CONDITION_FIELDS.find((field) => field.path === leftNode.path);
+  if (leftNode.kind !== 'ref' || !fieldDef) return null;
+  if (rightNode.kind !== 'literal') return null;
+
   // 只判形状不够：重建字面量走 toLiteral，类型由**字段类型**决定。
   // 原字面量类型与字段类型不一致时（如 string 字段配 boolean 字面量），
   // 往返会把值改写，因此这里要求类型一致才允许结构化。
   const matchesFieldType = (value: unknown): boolean => {
-    if (fieldDef?.type === 'number') return typeof value === 'number' && Number.isFinite(value);
-    if (fieldDef?.type === 'boolean') return typeof value === 'boolean';
+    if (fieldDef.type === 'number') return typeof value === 'number' && Number.isFinite(value);
+    if (fieldDef.type === 'boolean') return typeof value === 'boolean';
     return typeof value === 'string';
   };
   // 字符串元素还要能被逗号文本无损表示：含逗号 / 首尾空格 / 空串都会被
@@ -111,32 +108,60 @@ export function fromConditionNode(node: WorkflowDslNode | null | undefined): Con
     if (typeof value !== 'string') return true;
     return value !== '' && value.trim() === value && !value.includes(',');
   };
-  // `in` 的右值是标量数组：元素类型 + 文本可逆性都要满足
   const valueTypeOk = Array.isArray(rightNode.value)
     ? node.op === 'in' && rightNode.value.every((item) => matchesFieldType(item) && roundTripSafe(item))
     : node.op === 'in'
       ? false // in 的右值必须是数组，标量会被 toLiteral 改写成 [x]
       : rightNode.value === null
-        ? fieldDef?.type === 'number'
+        ? fieldDef.type === 'number'
         : matchesFieldType(rightNode.value);
-  const lossless =
-    node.kind === 'compare' &&
-    leftNode.kind === 'ref' &&
-    fieldDef !== undefined &&
-    rightNode.kind === 'literal' &&
-    valueTypeOk;
+  if (!valueTypeOk) return null;
 
-  if (!lossless) {
-    return { ...EMPTY_CONDITION, enabled: true, raw: node };
-  }
   const rawValue = rightNode.value;
-  const value = Array.isArray(rawValue) ? rawValue.join(', ') : String(rawValue ?? '');
   return {
-    enabled: true,
     field: leftNode.path ?? CONDITION_FIELDS[0].path,
     op: String(node.op ?? '=='),
-    value,
+    value: Array.isArray(rawValue) ? rawValue.join(', ') : String(rawValue ?? ''),
   };
+}
+
+export function toConditionNode(draft: ConditionDraft): WorkflowDslNode | undefined {
+  if (!draft.enabled) return undefined;
+  // 无法用表单表达的条件原样回传，不能因为「编辑了一下」就把它删掉
+  if (draft.raw) return draft.raw;
+  const rows = (draft.rows ?? []).filter((row) => row.field);
+  if (rows.length === 0) return undefined;
+  const nodes: WorkflowDslNode[] = rows.map((row) => ({
+    kind: 'compare',
+    op: row.op,
+    left: { kind: 'ref', path: row.field },
+    right: toLiteral(fieldOf(row.field), row.op, row.value),
+  }));
+  if (nodes.length === 1) return nodes[0];
+  // 两条以上用 logic 连接；求值器要求 args 至少 2 个，正好由这里保证
+  return { kind: 'logic', op: draft.join, args: nodes };
+}
+
+export function fromConditionNode(node: WorkflowDslNode | null | undefined): ConditionDraft {
+  if (!node) return { ...EMPTY_CONDITION, rows: [{ ...EMPTY_CONDITION_ROW }] };
+
+  const single = parseCompareNode(node);
+  if (single) return { enabled: true, join: 'and', rows: [single] };
+
+  // and/or 组合：每个操作数都必须能无损表达，否则整节点保留 raw。
+  // 求值器要求 and/or 至少 2 个操作数，not 恰 1 个——not 不在表单能力内。
+  if (node.kind === 'logic' && (node.op === 'and' || node.op === 'or')) {
+    const rawArgs = (node as unknown as { args?: unknown }).args;
+    const args = Array.isArray(rawArgs) ? (rawArgs as WorkflowDslNode[]) : [];
+    if (args.length >= 2) {
+      const parsed = args.map((arg) => parseCompareNode(arg));
+      if (parsed.every((row): row is ConditionRow => row !== null)) {
+        return { enabled: true, join: node.op, rows: parsed };
+      }
+    }
+  }
+
+  return { enabled: true, join: 'and', rows: [{ ...EMPTY_CONDITION_ROW }], raw: node };
 }
 
 export function toDslNodes(rows: ActionRow[]): WorkflowDslNode[] {

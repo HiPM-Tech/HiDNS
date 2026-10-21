@@ -14,6 +14,7 @@ import {
   CONDITION_FIELDS,
   CONDITION_OPS,
   EMPTY_CONDITION,
+  EMPTY_CONDITION_ROW,
   EMPTY_ROW,
   describeError,
   fromConditionNode,
@@ -471,27 +472,67 @@ export function Workflows() {
               />
               {form.condition.enabled && form.condition.raw && (
                 <div className="workflow-condition-advanced">
-                  {t('workflows.advancedCondition')}: {form.condition.raw.kind}
+                  {/* 表单表达不了的条件（logic 里混了算术/三元等）原样保留，只给出人能看的形态 */}
+                  {t('workflows.advancedCondition')}: {t(`workflows.condKind_${form.condition.raw.kind}`)}
                 </div>
               )}
               {form.condition.enabled && !form.condition.raw && (
-                <div className="workflow-condition-row">
-                  <Select
-                    value={form.condition.field}
-                    options={CONDITION_FIELDS.map((field) => ({ label: t(CONDITION_FIELD_LABEL_KEYS[field.path] ?? field.path), value: field.path }))}
-                    onChange={(value) => updateField('condition', { ...form.condition, field: String(value) })}
-                  />
-                  <Select
-                    value={form.condition.op}
-                    options={CONDITION_OPS.map((op) => ({ label: op, value: op }))}
-                    onChange={(value) => updateField('condition', { ...form.condition, op: String(value) })}
-                  />
-                  <Input
-                    value={form.condition.value}
-                    placeholder={form.condition.op === 'in' ? t('workflows.inHint') : t('workflows.conditionValue')}
-                    onChange={(value) => updateField('condition', { ...form.condition, value: String(value) })}
-                  />
-                </div>
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  {/* 多条条件才需要连接方式；一条时显示反而让人以为有别的含义 */}
+                  {form.condition.rows.length > 1 && (
+                    <Select
+                      value={form.condition.join}
+                      style={{ width: 120 }}
+                      options={[
+                        { label: t('workflows.joinAnd'), value: 'and' },
+                        { label: t('workflows.joinOr'), value: 'or' },
+                      ]}
+                      onChange={(value) => updateField('condition', { ...form.condition, join: String(value) as 'and' | 'or' })}
+                    />
+                  )}
+                  {form.condition.rows.map((conditionRow, index) => {
+                    const patchRow = (next: Partial<typeof conditionRow>) => {
+                      const rows = form.condition.rows.map((item, i) => (i === index ? { ...item, ...next } : item));
+                      updateField('condition', { ...form.condition, rows });
+                    };
+                    return (
+                      <div className="workflow-condition-row" key={index}>
+                        <Select
+                          value={conditionRow.field}
+                          options={CONDITION_FIELDS.map((field) => ({ label: t(CONDITION_FIELD_LABEL_KEYS[field.path] ?? field.path), value: field.path }))}
+                          onChange={(value) => patchRow({ field: String(value) })}
+                        />
+                        <Select
+                          value={conditionRow.op}
+                          options={CONDITION_OPS.map((op) => ({ label: op, value: op }))}
+                          onChange={(value) => patchRow({ op: String(value) })}
+                        />
+                        <Input
+                          value={conditionRow.value}
+                          placeholder={conditionRow.op === 'in' ? t('workflows.inHint') : t('workflows.conditionValue')}
+                          onChange={(value) => patchRow({ value: String(value) })}
+                        />
+                        {form.condition.rows.length > 1 && (
+                          <Button
+                            size="small"
+                            variant="text"
+                            theme="danger"
+                            onClick={() => updateField('condition', { ...form.condition, rows: form.condition.rows.filter((_, i) => i !== index) })}
+                          >
+                            {t('common.delete')}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <Button
+                    size="small"
+                    variant="outline"
+                    onClick={() => updateField('condition', { ...form.condition, rows: [...form.condition.rows, { ...EMPTY_CONDITION_ROW }] })}
+                  >
+                    {t('workflows.addCondition')}
+                  </Button>
+                </Space>
               )}
             </Space>
           </Form.FormItem>
