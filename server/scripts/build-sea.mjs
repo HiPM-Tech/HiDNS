@@ -191,13 +191,27 @@ async function buildForPlatform(targetName) {
 
   run(bundleCmd, 'Bundling with esbuild');
 
+  // 目标架构与当前架构是否不同（含平台），必须在生成 blob 之前算出来：
+  // V8 code cache 是与平台+架构绑定的，跨架构时若仍写进 blob，
+  // 目标机器启动会因反序列化失败而直接崩（macOS Intel 二进制就是在 arm64 runner 上交叉构建的）。
+  const isCrossArch = process.arch !== target.nodeArch || process.platform !== target.nodePlatform;
+
   // Step 4: 生成 SEA blob
-  run('node --experimental-sea-config sea-config.json', 'Generating SEA blob');
+  // 跨架构构建时显式关掉 useCodeCache —— 这类缓存只在同架构上可复用。
+  const baseSeaConfig = JSON.parse(fs.readFileSync(path.join(root, 'sea-config.json'), 'utf-8'));
+  const seaConfig = { ...baseSeaConfig };
+  let seaConfigPath = path.join(root, 'sea-config.json');
+  if (isCrossArch && seaConfig.useCodeCache) {
+    seaConfig.useCodeCache = false;
+    seaConfigPath = path.join(root, 'dist', 'sea-config.cross.json');
+    fs.writeFileSync(seaConfigPath, JSON.stringify(seaConfig, null, 2));
+    console.log('   ⚠️  Cross-arch build: useCodeCache disabled (code cache is arch-specific)');
+  }
+  run(`node --experimental-sea-config "${seaConfigPath}"`, 'Generating SEA blob');
 
   // Step 5: 获取目标架构的 Node.js 运行时
   // - 如果目标架构与当前架构相同，直接复制本地 Node.js
   // - 如果不同（跨架构构建），从 seaNodeBinary 下载目标架构的 Node.js
-  const isCrossArch = process.arch !== target.nodeArch || process.platform !== target.nodePlatform;
   let nodeBinaryPath;
   if (isCrossArch && target.seaNodeBinary?.length > 0) {
     // 跨架构构建：下载目标架构的 Node.js 运行时
