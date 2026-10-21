@@ -152,7 +152,10 @@ for (;;) {
   const signature = runs.map((r) => `${r.databaseId}:${r.status}:${r.conclusion}`).join('|');
   if (signature !== lastSignature) {
     const newRuns = runs.filter((r) => !seen.has(r.databaseId));
-    console.log(`\n[${new Date().toISOString()}] ${runs.filter((r) => r.status !== 'completed').length} 个运行中，本次新增 ${newRuns.length} 条`);
+    const pendingCount = runs.filter((r) => r.status !== 'completed').length;
+    // 区分「出现新运行」与「已有运行状态推进」，否则状态变化也会被说成「新增 0 条」，读起来像没变化。
+    const headline = newRuns.length > 0 ? `本次新增 ${newRuns.length} 条` : '已有运行状态更新';
+    console.log(`\n[${new Date().toISOString()}] ${pendingCount} 个运行中，${headline}`);
     console.log(render(runs, seen));
     lastSignature = signature;
   }
