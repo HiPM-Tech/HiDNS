@@ -324,9 +324,32 @@ async function buildForPlatform(targetName) {
   run(`npx postject ${postjectArgs.join(' ')}`, 'Injecting SEA blob');
 
   // macOS：注入后必须重新 ad-hoc 签名，否则产物不可执行。
+  //
+  // 另外带上 JIT 相关 entitlements：注入后的二进制在新版 macOS（实测 macOS 26）上
+  // 会以 EXC_BAD_ACCESS 在 V8 初始化阶段崩掉，而纯 ad-hoc 签名不带任何 entitlement。
+  // V8 需要分配可执行内存（JIT），这里显式声明，避免被系统拒绝后解引用空指针。
   if (isMacTarget && process.platform === 'darwin') {
-    run(`codesign --force --sign - "${outputBinary}"`, 'Ad-hoc signing');
+    const entitlementsPath = path.join(buildDir, 'entitlements.plist');
+    fs.writeFileSync(
+      entitlementsPath,
+      [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+        '<plist version="1.0"><dict>',
+        '  <key>com.apple.security.cs.allow-jit</key><true/>',
+        '  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>',
+        '  <key>com.apple.security.cs.disable-library-validation</key><true/>',
+        '</dict></plist>',
+      ].join('\n'),
+    );
+    run(`codesign --force --sign - --entitlements "${entitlementsPath}" "${outputBinary}"`, 'Ad-hoc signing with JIT entitlements');
     run(`codesign --verify --verbose=2 "${outputBinary}"`, 'Verifying signature');
+    try {
+      const ent = execSync(`codesign -d --entitlements - "${outputBinary}" 2>&1`, { encoding: 'utf8' });
+      console.log('   ✅ Entitlements:', ent.replace(/\s+/g, ' ').trim().slice(0, 200));
+    } catch {
+      console.warn('   ⚠️  无法读取 entitlements');
+    }
     console.log('   ✅ Signed and verified');
   } else if (isMacTarget) {
     console.warn('   ⚠️  macOS target built on a non-macOS host: signature steps skipped, the binary will NOT run on macOS');
