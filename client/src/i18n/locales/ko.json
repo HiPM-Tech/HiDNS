@@ -591,7 +591,8 @@
                 "security": "보안",
                 "notifications": "알림",
                 "access": "액세스",
-                "network": "네트워크"
+                "network": "네트워크",
+                "workflow": "워크플로"
             },
             "notifications": {
                 "title": "알림 채널",
@@ -748,7 +749,15 @@
             "securityPolicyDesc": "시스템 수준 보안 정책 설정 구성",
             "require2FASystemDisabled": "시스템에 의해 비활성화됨",
             "twoFADisabledStatus": "비활성화됨",
-            "twoFAEnabledStatus": "활성화됨"
+            "twoFAEnabledStatus": "활성화됨",
+            "workflow": {
+                "allowlistTitle": "워크플로 아웃바운드 허용 목록",
+                "allowlistHint": "워크플로가 접근할 수 있는 호스트 이름. 정확히 일치하거나 *. 접두사 와일드카드. 스킴, 포트, 경로는 넣지 마세요.",
+                "allowlistPlaceholder": "예: api.ipify.org 또는 *.cloudflare.com",
+                "allowlistFailClosed": "비어 있으면 모든 아웃바운드 요청이 차단됩니다(fail-closed). 사설 주소는 항상 거부되며 여기서 허용할 수 없습니다.",
+                "saved": "허용 목록이 저장되었습니다",
+                "saveFailed": "저장 실패"
+            }
         },
         "nav": {
             "settings": "설정"

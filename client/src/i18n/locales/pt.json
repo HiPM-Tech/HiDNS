@@ -592,7 +592,8 @@
                 "security": "Segurança",
                 "notifications": "Notificações",
                 "access": "Acesso",
-                "network": "Rede"
+                "network": "Rede",
+                "workflow": "Fluxo de trabalho"
             },
             "notifications": {
                 "title": "Canais de Notificação",
@@ -748,7 +749,15 @@
             "securityPolicy": "Política de segurança",
             "securityPolicyDesc": "Configurar as configurações de política de segurança em nível de sistema",
             "twoFADisabledStatus": "Desativado",
-            "twoFAEnabledStatus": "Ativado"
+            "twoFAEnabledStatus": "Ativado",
+            "workflow": {
+                "allowlistTitle": "Lista de permissões de saída de workflows",
+                "allowlistHint": "Hosts que os workflows podem acessar. Correspondência exata ou curinga *. como prefixo. Apenas nomes de host, sem esquema, porta ou caminho.",
+                "allowlistPlaceholder": "ex.: api.ipify.org ou *.cloudflare.com",
+                "allowlistFailClosed": "Uma lista vazia bloqueia todas as requisições de saída (fail-closed). Endereços privados são sempre rejeitados e não podem ser liberados aqui.",
+                "saved": "Lista salva",
+                "saveFailed": "Falha ao salvar"
+            }
         },
         "domains": {
             "title": "Domínios",

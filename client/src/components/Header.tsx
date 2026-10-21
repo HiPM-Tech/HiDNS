@@ -79,6 +79,7 @@ export function Header({ collapsed, avatarImage, onMenuClick, onToggleCollapse }
     '/dash/system/access': t('system.tabs.access'),
     '/dash/system/network': t('system.tabs.network'),
     '/dash/system/notifications': t('system.tabs.notifications'),
+    '/dash/system/workflow': t('system.tabs.workflow'),
   };
   const pageKey = segments.length ? segments[segments.length - 1] : '';
   const pageTitle = pageTitleMap[normalizedPath]

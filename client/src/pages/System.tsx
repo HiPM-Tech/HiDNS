@@ -5,9 +5,10 @@ import { DatabaseTab } from './system/DatabaseTab';
 import { SecurityTab } from './system/SecurityTab';
 import { AccessTab } from './system/AccessTab';
 import { NetworkTab } from './system/NetworkTab';
+import { WorkflowTab } from './system/WorkflowTab';
 import { NotificationChannels } from '../components/NotificationChannels';
 
-type SystemTab = 'overview' | 'database' | 'security' | 'access' | 'network' | 'notifications';
+type SystemTab = 'overview' | 'database' | 'security' | 'access' | 'network' | 'notifications' | 'workflow';
 
 interface SystemProps {
   activeTab: SystemTab;
@@ -28,6 +29,7 @@ export function System({ activeTab }: SystemProps) {
       {activeTab === 'access' && <AccessTab />}
       {activeTab === 'network' && <NetworkTab />}
       {activeTab === 'notifications' && <NotificationChannels />}
+      {activeTab === 'workflow' && <WorkflowTab />}
     </div>
   );
 }

@@ -592,7 +592,8 @@
                 "security": "Security",
                 "access": "Access",
                 "network": "Network",
-                "notifications": "Notifications"
+                "notifications": "Notifications",
+                "workflow": "Workflow"
             },
             "notifications": {
                 "title": "Notification Channels",
@@ -748,7 +749,15 @@
             "oauthSaveFailed": "Failed to save OAuth config",
             "oidcAutoDiscover": "Auto Fetch via OIDC",
             "oidcDiscoverSuccess": "OIDC configuration fetched",
-            "oidcDiscoverFailed": "Failed to fetch OIDC configuration"
+            "oidcDiscoverFailed": "Failed to fetch OIDC configuration",
+            "workflow": {
+                "allowlistTitle": "Workflow outbound allowlist",
+                "allowlistHint": "Hostnames workflows may reach. Exact match or a *. prefix wildcard. Entries must be bare hostnames — no scheme, port or path.",
+                "allowlistPlaceholder": "e.g. api.ipify.org or *.cloudflare.com",
+                "allowlistFailClosed": "An empty list blocks all outbound requests (fail-closed), not the opposite. Private addresses are always rejected and cannot be allowed here.",
+                "saved": "Allowlist saved",
+                "saveFailed": "Failed to save"
+            }
         },
         "domains": {
             "title": "Domains",
@@ -1578,11 +1587,11 @@
             "scopeLevelRead": "Read Only",
             "scopeLevelWrite": "Read/Write",
             "scopeModule": {
-              "ns_monitor": "NS Monitor",
-              "domain_management": "Domain Management",
-              "renewal_management": "Renewal Management",
-              "log_query": "Audit Logs",
-              "service_monitor": "Service Monitor"
+                "ns_monitor": "NS Monitor",
+                "domain_management": "Domain Management",
+                "renewal_management": "Renewal Management",
+                "log_query": "Audit Logs",
+                "service_monitor": "Service Monitor"
             },
             "oauthScopeEditTitle": "Edit Authorization Scope",
             "oauthScopeEditDesc": "Comma-separated list of permission scopes",

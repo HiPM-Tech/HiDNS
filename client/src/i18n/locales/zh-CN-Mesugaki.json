@@ -1124,7 +1124,8 @@
                 "network": "网络",
                 "notifications": "通知",
                 "overview": "概览",
-                "security": "安全"
+                "security": "安全",
+                "workflow": "工作流"
             },
             "threshold": "阈值",
             "title": "系统管理",
@@ -1137,7 +1138,15 @@
             "unlockPlaceholder": "输入用户名或邮箱",
             "verifyAndViewJwt": "验证并查看",
             "versionDesc": "当前系统版本详情",
-            "versionInfo": "版本信息"
+            "versionInfo": "版本信息",
+            "workflow": {
+                "allowlistTitle": "工作流出站白名单",
+                "allowlistHint": "填写允许工作流访问的主机名，精确匹配或 *. 前缀通配。条目只能是纯主机名，不要带 https:// 、端口或路径。",
+                "allowlistPlaceholder": "例如 api.ipify.org 或 *.cloudflare.com",
+                "allowlistFailClosed": "留空表示禁止一切出站请求（fail-closed），而不是允许全部。内网地址（127/8、10/8、172.16/12、192.168/16、169.254/16、::1、fc00::/7）始终被拒绝，白名单无法放开。",
+                "saved": "白名单已保存",
+                "saveFailed": "保存失败"
+            }
         },
         "teams": {
             "addMember": "添加成员",

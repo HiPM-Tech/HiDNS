@@ -592,7 +592,8 @@
                 "security": "الأمان",
                 "notifications": "الإشعارات",
                 "access": "الوصول",
-                "network": "الشبكة"
+                "network": "الشبكة",
+                "workflow": "سير العمل"
             },
             "notifications": {
                 "title": "قنوات الإشعارات",
@@ -748,7 +749,15 @@
             "securityPolicy": "سياسة الأمان",
             "securityPolicyDesc": "تكوين إعدادات سياسة الأمان على مستوى النظام",
             "twoFADisabledStatus": "معطل",
-            "twoFAEnabledStatus": "مفعل"
+            "twoFAEnabledStatus": "مفعل",
+            "workflow": {
+                "allowlistTitle": "قائمة السماح الصادرة لسير العمل",
+                "allowlistHint": "أسماء المضيفين التي يمكن لسير العمل الوصول إليها. مطابقة تامة أو بدل *. في البداية. أدخل أسماء مضيفين فقط دون بروتوكول أو منفذ أو مسار.",
+                "allowlistPlaceholder": "مثال: api.ipify.org أو *.cloudflare.com",
+                "allowlistFailClosed": "القائمة الفارغة تمنع كل الطلبات الصادرة (fail-closed). العناوين الخاصة مرفوضة دائمًا ولا يمكن السماح بها هنا.",
+                "saved": "تم حفظ القائمة",
+                "saveFailed": "تعذر الحفظ"
+            }
         },
         "domains": {
             "title": "النطاقات",

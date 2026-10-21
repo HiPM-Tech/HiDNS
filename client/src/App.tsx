@@ -85,6 +85,7 @@ function App() {
                           <Route path="dash/system/access" element={<Suspense fallback={<RouteFallback />}><System activeTab="access" /></Suspense>} />
                           <Route path="dash/system/network" element={<Suspense fallback={<RouteFallback />}><System activeTab="network" /></Suspense>} />
                           <Route path="dash/system/notifications" element={<Suspense fallback={<RouteFallback />}><System activeTab="notifications" /></Suspense>} />
+                          <Route path="dash/system/workflow" element={<Suspense fallback={<RouteFallback />}><System activeTab="workflow" /></Suspense>} />
                         </Route>
                       </Route>
                     </Route>

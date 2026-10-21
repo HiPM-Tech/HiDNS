@@ -562,7 +562,8 @@
                 "overview": "概要",
                 "security": "セキュリティ",
                 "network": "ネットワーク",
-                "access": "アクセス"
+                "access": "アクセス",
+                "workflow": "ワークフロー"
             },
             "threshold": "しきい値",
             "title": "システム管理",
@@ -609,7 +610,15 @@
             "unbindOauth": "紐付け解除",
             "updateBackgroundImage": "背景画像を更新",
             "twoFADisabledStatus": "オフ",
-            "twoFAEnabledStatus": "オン"
+            "twoFAEnabledStatus": "オン",
+            "workflow": {
+                "allowlistTitle": "ワークフロー送信許可リスト",
+                "allowlistHint": "ワークフローがアクセスできるホスト名。完全一致または *. 前方一致。スキーム・ポート・パスは含めないでください。",
+                "allowlistPlaceholder": "例: api.ipify.org または *.cloudflare.com",
+                "allowlistFailClosed": "空の場合はすべての送信リクエストを拒否します（fail-closed）。プライベートアドレスは常に拒否され、ここでは許可できません。",
+                "saved": "許可リストを保存しました",
+                "saveFailed": "保存に失敗しました"
+            }
         },
         "domains": {
             "tabs": {

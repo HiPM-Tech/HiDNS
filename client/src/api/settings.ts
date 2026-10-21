@@ -31,6 +31,10 @@ export const settingsApi = {
   getLoginAttemptStats: () => api.get<ApiResponse<LoginAttemptStats>>('/settings/login-attempts/stats'),
   unlockAccount: (identifier: string) =>
     api.post<ApiResponse<null>>('/settings/login-attempts/unlock', { identifier }),
+  // 工作流出站白名单（设计 §5.5.1）：此前只有后端接口，前端没有任何入口
+  getWorkflowHttpAllowlist: () => api.get<ApiResponse<{ allowlist: string[] }>>('/settings/workflow-http-allowlist'),
+  updateWorkflowHttpAllowlist: (allowlist: string[]) =>
+    api.put<ApiResponse<{ allowlist: string[] }>>('/settings/workflow-http-allowlist', { allowlist }),
   getNotificationChannels: () => api.get<ApiResponse<any[]>>('/settings/notifications'),
   updateNotificationChannels: (channels: any[]) => api.put<ApiResponse<any>>('/settings/notifications', { channels }),
   getAuditRules: () => api.get<ApiResponse<any>>('/settings/audit-rules'),

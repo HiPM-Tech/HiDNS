@@ -592,7 +592,8 @@
                 "security": "Sicherheit",
                 "notifications": "Benachrichtigungen",
                 "access": "Zugriff",
-                "network": "Netzwerk"
+                "network": "Netzwerk",
+                "workflow": "Workflow"
             },
             "notifications": {
                 "title": "Benachrichtigungskanäle",
@@ -748,7 +749,15 @@
             "securityPolicy": "Sicherheitsrichtlinie",
             "securityPolicyDesc": "Systemweite Sicherheitsrichtlinieneinstellungen konfigurieren",
             "twoFADisabledStatus": "Deaktiviert",
-            "twoFAEnabledStatus": "Aktiviert"
+            "twoFAEnabledStatus": "Aktiviert",
+            "workflow": {
+                "allowlistTitle": "Ausgehende Allowlist für Workflows",
+                "allowlistHint": "Hostnamen, die Workflows erreichen dürfen. Exakte Übereinstimmung oder *. als Präfix. Nur reine Hostnamen, ohne Schema, Port oder Pfad.",
+                "allowlistPlaceholder": "z. B. api.ipify.org oder *.cloudflare.com",
+                "allowlistFailClosed": "Eine leere Liste blockiert alle ausgehenden Anfragen (fail-closed). Private Adressen werden immer abgelehnt und können hier nicht freigegeben werden.",
+                "saved": "Allowlist gespeichert",
+                "saveFailed": "Speichern fehlgeschlagen"
+            }
         },
         "domains": {
             "title": "Domains",

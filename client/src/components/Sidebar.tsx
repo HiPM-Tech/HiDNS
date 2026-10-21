@@ -65,6 +65,7 @@ const systemItems: NavItem[] = [
   { to: '/dash/system/access', icon: <KeyIcon />, key: 'system.tabs.access' },
   { to: '/dash/system/network', icon: <InternetIcon />, key: 'system.tabs.network' },
   { to: '/dash/system/notifications', icon: <NotificationIcon />, key: 'system.tabs.notifications' },
+  { to: '/dash/system/workflow', icon: <LinkIcon />, key: 'system.tabs.workflow' },
 ];
 
 const accountItems: NavItem[] = [

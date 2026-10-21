@@ -592,7 +592,8 @@
                 "security": "Безопасность",
                 "notifications": "Уведомления",
                 "access": "Доступ",
-                "network": "Сеть"
+                "network": "Сеть",
+                "workflow": "Рабочий процесс"
             },
             "notifications": {
                 "title": "Каналы уведомлений",
@@ -748,7 +749,15 @@
             "securityPolicy": "Политика безопасности",
             "securityPolicyDesc": "Настроить параметры политики безопасности на уровне системы",
             "twoFADisabledStatus": "Отключено",
-            "twoFAEnabledStatus": "Включено"
+            "twoFAEnabledStatus": "Включено",
+            "workflow": {
+                "allowlistTitle": "Белый список исходящих запросов рабочих процессов",
+                "allowlistHint": "Хосты, доступные рабочим процессам. Точное совпадение или шаблон *. в начале. Только имена хостов, без схемы, порта и пути.",
+                "allowlistPlaceholder": "например api.ipify.org или *.cloudflare.com",
+                "allowlistFailClosed": "Пустой список блокирует все исходящие запросы (fail-closed). Частные адреса всегда отклоняются и не могут быть разрешены здесь.",
+                "saved": "Список сохранён",
+                "saveFailed": "Не удалось сохранить"
+            }
         },
         "domains": {
             "title": "Домены",

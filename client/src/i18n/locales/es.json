@@ -566,7 +566,8 @@
                 "access": "Acceso",
                 "network": "Red",
                 "overview": "Información general",
-                "security": "Seguridad"
+                "security": "Seguridad",
+                "workflow": "Flujo de trabajo"
             },
             "threshold": "Umbral",
             "title": "Gestión del sistema",
@@ -584,7 +585,15 @@
             "securityPolicyDesc": "Configurar los ajustes de política de seguridad a nivel del sistema",
             "require2FASystemDisabled": "Deshabilitado por el sistema",
             "twoFADisabledStatus": "Desactivado",
-            "twoFAEnabledStatus": "Activado"
+            "twoFAEnabledStatus": "Activado",
+            "workflow": {
+                "allowlistTitle": "Lista de permitidos de salida de workflows",
+                "allowlistHint": "Hosts a los que los workflows pueden acceder. Coincidencia exacta o comodín *. como prefijo. Solo nombres de host, sin esquema, puerto ni ruta.",
+                "allowlistPlaceholder": "p. ej. api.ipify.org o *.cloudflare.com",
+                "allowlistFailClosed": "Una lista vacía bloquea todas las solicitudes salientes (fail-closed). Las direcciones privadas siempre se rechazan y no pueden permitirse aquí.",
+                "saved": "Lista guardada",
+                "saveFailed": "Error al guardar"
+            }
         },
         "nav": {
             "settings": "Configuración"

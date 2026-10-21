@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button, Dialog, Form, Input, Select, Switch, Space, Checkbox, Tag } from 'tdesign-react';
+import { Button, Dialog, Form, Input, InputNumber, Select, Switch, Space, Checkbox, Tag } from 'tdesign-react';
 import { workflowsApi } from '../api';
 import type { WorkflowRecord, WorkflowActionMeta, WorkflowRunRecord } from '../api';
 import { Table } from '../components/Table';
@@ -418,6 +418,8 @@ export function Workflows() {
                         );
                         const setArg = (value: unknown) =>
                           patch({ ...row, args: { ...row.args, [param.key]: String(value) } });
+                        // 控件要按参数类型给：布尔给开关、数字给数字框，
+                        // 否则用户得在文本框里手打 "true" / "1"，既不好读也容易写错。
                         const control = param.source ? (
                           <CascadingSelect
                             param={param}
@@ -425,6 +427,18 @@ export function Workflows() {
                             args={row.args}
                             value={row.args[param.key] ?? ''}
                             onChange={setArg}
+                          />
+                        ) : param.type === 'boolean' ? (
+                          <Switch
+                            value={row.args[param.key] === 'true'}
+                            onChange={(value: any) => setArg(Boolean(value))}
+                          />
+                        ) : param.type === 'number' ? (
+                          <InputNumber
+                            placeholder={label}
+                            value={row.args[param.key] === undefined || row.args[param.key] === '' ? undefined : Number(row.args[param.key])}
+                            onChange={setArg}
+                            style={{ width: '100%' }}
                           />
                         ) : param.type === 'select' && param.options?.length ? (
                           <Select
