@@ -342,3 +342,12 @@ export function actionNameOf(node: WorkflowDslNode): string {
   }
   return String(node.action ?? '');
 }
+
+/**
+ * 记录类型必须至少选一个。
+ * 服务端把 `recordTypes: []` 原样存下，而引擎的 `includes` 判定恒为 false——
+ * 工作流能保存成功却永远不触发，界面上完全看不出异常。
+ */
+export function needsRecordTypes(triggerType: string, recordTypes: string[]): boolean {
+  return triggerType === 'record.changed' && recordTypes.length === 0;
+}

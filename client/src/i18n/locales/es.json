@@ -98,7 +98,8 @@
             "stepsCorrupted": "Step records are corrupted and cannot be parsed",
             "colSteps": "Steps",
             "viewSteps": "View steps",
-            "runStepsTitle": "Steps of this run"
+            "runStepsTitle": "Steps of this run",
+            "recordTypesRequired": "Select at least one record type, otherwise this workflow will never trigger."
         },
         "about": {
             "community": "Comunidad",

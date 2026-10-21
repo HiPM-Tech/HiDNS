@@ -24,6 +24,7 @@ import {
   formatServerTime,
   actionNameOf,
   findInvalidVarName,
+  needsRecordTypes,
   findMissingRequiredArg,
   fromDslNodes,
   summarizeTriggerEvent,
@@ -232,6 +233,12 @@ export function Workflows() {
    */
   const validateRows = (): string | null => {
     // 不强制「至少一个动作」：既有用例与产品行为允许先存空壳再补动作，这里只管住必填项被静默丢弃
+    // 记录类型一个都不选时，服务端存的是 recordTypes: []，引擎的 includes 恒为 false——
+    // 工作流能保存成功但永远不触发，界面上看不出任何异常。这里直接拦住。
+    if (needsRecordTypes(form.triggerType, form.recordTypes)) {
+      return t('workflows.recordTypesRequired');
+    }
+
     const invalidVar = findInvalidVarName(form.rows);
     if (invalidVar) return t('workflows.invalidVarName', { name: invalidVar });
 

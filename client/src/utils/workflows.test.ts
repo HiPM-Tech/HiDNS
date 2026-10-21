@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findInvalidVarName, findMissingRequiredArg, formatDuration, fromConditionNode, fromDslNodes, parseServerTime, summarizeTriggerEvent, toConditionNode, toDslNodes } from './workflows';
+import { findInvalidVarName, needsRecordTypes, findMissingRequiredArg, formatDuration, fromConditionNode, fromDslNodes, parseServerTime, summarizeTriggerEvent, toConditionNode, toDslNodes } from './workflows';
 
 describe('parseServerTime', () => {
   it('把无时区后缀的服务端时间按 UTC 解析', () => {
@@ -285,5 +285,20 @@ describe('findInvalidVarName', () => {
 
   it('原型链关键字被拒', () => {
     expect(findInvalidVarName([{ action: 'a', args: {}, saveAs: '__proto__' }])).toBe('__proto__');
+  });
+});
+
+describe('needsRecordTypes', () => {
+  it('记录变更触发器下没选类型时需要拦截', () => {
+    // 空数组会让引擎的 includes 恒为 false，工作流永远不触发
+    expect(needsRecordTypes('record.changed', [])).toBe(true);
+  });
+
+  it('选了类型就不拦', () => {
+    expect(needsRecordTypes('record.changed', ['A'])).toBe(false);
+  });
+
+  it('其它触发器不受此限制', () => {
+    expect(needsRecordTypes('domain.changed', [])).toBe(false);
   });
 });
