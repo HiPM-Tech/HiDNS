@@ -54,6 +54,24 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+
+/**
+ * 旧形态参数的迁移指引（设计 §904 兼容层）。
+ *
+ * 只给「未知参数」是不够的：用户看到 UNKNOWN_ARG 并不知道该改成什么。
+ * 源站组从 domainId 改为 accountId + scopeId 是一次契约变更，必须点明去哪儿查。
+ */
+function migrationHint(action: string, key: string): string {
+  if (!action.startsWith('ext.tencenteo.originGroup.')) return '';
+  if (key === 'domainId') {
+    return '（源站组已改为账号优先：请改用 accountId + scopeId；' +
+      '可调用 GET /api/workflows/migration-report 查看本工作流的迁移建议）';
+  }
+  if (key === 'zoneId') {
+    return '（zoneId 已改名为 scopeId，含义不变）';
+  }
+  return '';
+}
 export function validateExpression(root: unknown, options: ValidationOptions): ValidationResult {
   const issues: ValidationIssue[] = [];
   const actions: string[] = [];
@@ -194,7 +212,11 @@ export function validateExpression(root: unknown, options: ValidationOptions): V
             const allowedKeys = allowed.map((param) => param.key);
             for (const key of Object.keys(argObj)) {
               if (!allowedKeys.includes(key)) {
-                issues.push({ code: 'UNKNOWN_ARG', message: `${action} 不接受参数 ${key}`, path: `${path}.args.${key}` });
+                issues.push({
+                  code: 'UNKNOWN_ARG',
+                  message: `${action} 不接受参数 ${key}${migrationHint(action, key)}`,
+                  path: `${path}.args.${key}`,
+                });
               }
             }
             // 必填参数缺失在保存期就要拦住：否则运行期才抛 400，事件白丢

@@ -10,8 +10,8 @@ import {
 } from '../workflow';
 import { createLogger } from '../lib/logger';
 import { sendError, sendSuccess } from '../utils/http';
-import { accountAccessLevelForRoute } from '../lib/dns/account-context';
-import { isOriginGroupCapableAccount } from '../lib/dns/providers/tencenteo/origin-group-context';
+import { accountAccessLevelForRoute, resolveDomainAccount } from '../lib/dns/account-context';
+import { isOriginGroupCapableAccount, listTeoZonesByAccount } from '../lib/dns/providers/tencenteo/origin-group-context';
 
 function toId(raw: string): number {
   const value = Number(raw);
@@ -325,6 +325,73 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
  * 最近一次运行的事件快照：供前端 `(...)` 用**真实值**渲染，而不是显示变量名。
  * 设计依据：§3.1
  */
+
+/**
+ * 迁移报告（设计 §904 兼容层）：dry-run 列出仍使用旧形态（domainId）的源站组动作。
+ *
+ * 为什么不自动迁移：DNSPod 复用场景下 `domainId → scopeId` **原理上无法推导**
+ * （域名与 EdgeOne 站点无对应关系），自动迁移只能写空值或固化用户当年可能填错的 zoneId，
+ * 属于静默数据破坏。这里只给出候选，让用户在真实站点列表里自己选。
+ *
+ * 范围：只返回调用者自己的 workflow（超管需显式 ?all=true），
+ * 候选 scope 经账号可见性后才生成——否则这个端点本身就是「遍历他人账号 + 站点列表」的工具。
+ */
+function collectLegacyOriginGroupNodes(actions: unknown[]): Array<{ action: string; domainId: number; siteType?: string }> {
+  const out: Array<{ action: string; domainId: number; siteType?: string }> = [];
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== 'object') return;
+    const obj = node as Record<string, unknown>;
+    if (obj.kind === 'call' && typeof obj.action === 'string' && obj.action.startsWith('ext.tencenteo.originGroup.')) {
+      const args = (obj.args ?? {}) as Record<string, unknown>;
+      const domainId = Number((args.domainId as { value?: unknown })?.value ?? args.domainId);
+      const hasAccount = args.accountId !== undefined;
+      if (!hasAccount && Number.isFinite(domainId) && domainId > 0) {
+        out.push({
+          action: obj.action,
+          domainId,
+          siteType: String((args.siteType as { value?: unknown })?.value ?? args.siteType ?? '') || undefined,
+        });
+      }
+    }
+    // assign 包裹的 call、以及条件树里的嵌套节点都要走到
+    for (const value of Object.values(obj)) {
+      if (Array.isArray(value)) value.forEach(visit);
+      else if (value && typeof value === 'object') visit(value);
+    }
+  };
+  actions.forEach(visit);
+  return out;
+}
+
+router.get('/migration-report', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {
+  const userId = Number(req.user!.userId);
+  const own = await listByOwner(userId);
+  const report: Array<Record<string, unknown>> = [];
+
+  for (const workflow of own) {
+    const legacy = collectLegacyOriginGroupNodes((workflow.actions ?? []) as unknown[]);
+    if (legacy.length === 0) continue;
+    const entries: Array<Record<string, unknown>> = [];
+    for (const node of legacy) {
+      const entry: Record<string, unknown> = { action: node.action, domainId: node.domainId };
+      try {
+        const ref = await resolveDomainAccount(node.domainId);
+        entry.accountId = ref.accountId;
+        entry.candidateScopes = await listTeoZonesByAccount(ref.accountId, { siteType: node.siteType });
+        // 是否可由本次调用者完成迁移：账号不可见就只能提示去找账号所有者
+        const level = await accountAccessLevelForRoute({ accountId: ref.accountId, userId, role: req.user?.role });
+        entry.migratable = level !== 'none';
+      } catch (error) {
+        entry.error = error instanceof Error ? error.message : String(error);
+        entry.migratable = false;
+      }
+      entries.push(entry);
+    }
+    report.push({ workflowId: workflow.id, name: workflow.name, actions: entries });
+  }
+
+  sendSuccess(res, { total: report.length, items: report });
+}));
 router.get('/:id/sample-event', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const id = toId(req.params.id);
   const item = await loadOwnedWorkflow(req, res, id);
