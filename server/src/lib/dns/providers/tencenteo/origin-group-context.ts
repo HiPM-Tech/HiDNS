@@ -3,6 +3,7 @@ import { TencenteoAdapter } from './adapter';
 import type { OriginGroupClient } from './origin-group-client';
 import { OriginGroupError } from '../../origin-group-core';
 import { mayReuseCredentials } from '../credential-sharing';
+import { getOriginGroupCapability } from '../registry';
 import { normalizeProviderType } from '../../providerAlias';
 
 /**
@@ -298,4 +299,14 @@ export async function listTeoZonesByAccount(
   const account = await requireAccount(accountId);
   const { adapter: teo } = await buildReusedAdapter(account, options);
   return teo.listZones();
+}
+
+/**
+ * 该账号是否**可操作源站组**：原生支持 ∪ 被允许复用凭据。
+ *
+ * 必须包含复用这一支：DNSPod 账号（providerType = 'dnspod'）能操作源站组，
+ * 是因为它声明了复用腾讯云凭据——漏掉这支会让唯一能用源站组的用户群在 UI 里失去入口。
+ */
+export function isOriginGroupCapableAccount(providerType: string): boolean {
+  return getOriginGroupCapability(providerType) || mayReuseCredentials('tencenteo', normalizeProviderType(providerType));
 }

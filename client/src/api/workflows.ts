@@ -19,6 +19,8 @@ export interface WorkflowActionParam {
   sourceParams?: string[];
   /** 传了才带上、缺了也不禁用下拉的可选实参 */
   sourceOptionalParams?: string[];
+  /** 静态查询参数：随候选请求一起发送（如 accounts?originGroup=true） */
+  sourceQuery?: Record<string, string>;
 }
 
 export interface WorkflowActionMeta {

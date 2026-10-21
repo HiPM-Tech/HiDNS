@@ -416,3 +416,15 @@ export function getProviderDefinitions(): ProviderDefinition[] {
 export function getProviderInfoList(): ProviderInfo[] {
   return providerDefinitions.map(({ adapterFactory, ...providerInfo }) => providerInfo);
 }
+
+/**
+ * 该提供商的账号是否**原生**支持源站组（按 `extraCapabilities` 派生，不新增 `DnsCapabilities` 字段）。
+ *
+ * 派生而非写死字段的理由：给 `DnsCapabilities` 加必填项要改 25 处字面量 + 客户端手抄结构，
+ * 且客户端漏改不报错；而 `extraCapabilities` 已经在 `/api/accounts/providers` 整个下发。
+ */
+export function getOriginGroupCapability(providerType: string): boolean {
+  return (providerDefinitionMap.get(providerType)?.extraCapabilities ?? []).some((capability) =>
+    capability.name.endsWith('.originGroup'),
+  );
+}

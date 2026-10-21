@@ -29,6 +29,8 @@ export interface ProviderActionParam {
    * 用于"只有部分账号类型才需要"的前置条件，例如腾讯云源站组的站点类型。
    */
   sourceOptionalParams?: string[];
+  /** 静态查询参数：随候选请求一起发送（如 accounts?originGroup=true） */
+  sourceQuery?: Record<string, string>;
 }
 
 export interface ProviderExtraAction {

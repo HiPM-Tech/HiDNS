@@ -26,6 +26,8 @@ export interface ActionParam {
    * 声明后前端渲染为下拉，并通过 `sourceParams` 传参拉取候选。
    */
   source?: string;
+  /** 静态查询参数：随候选请求一起发送（如 accounts?originGroup=true） */
+  sourceQuery?: Record<string, string>;
   /**
    * 联想来源（设计 §3.1 的 `[...]` 形态）：可自由输入，同时给出候选建议。
    * 与 `source` 的区别是 `source` 只能从候选里选，这里允许填候选之外的值。

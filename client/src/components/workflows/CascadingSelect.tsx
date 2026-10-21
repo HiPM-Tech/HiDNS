@@ -29,7 +29,14 @@ interface MetaCandidate {
 }
 
 interface CascadingSelectProps {
-  param: { key: string; source?: string; sourceParams?: string[]; sourceOptionalParams?: string[] };
+  param: {
+    key: string;
+    source?: string;
+    sourceParams?: string[];
+    sourceOptionalParams?: string[];
+    /** 静态查询参数（如 accounts?originGroup=true），随候选请求一起发送 */
+    sourceQuery?: Record<string, string>;
+  };
   /** 参数键 → 已翻译的可读名称；缺失时回落到原始键 */
   labels?: Record<string, string>;
   /** 参数值可能是字面量也可能是事件引用，这里只关心最终要传给候选源的那个字符串 */
@@ -55,8 +62,11 @@ export function CascadingSelect({ param, labels, args, value, onChange }: Cascad
       const raw = args[key]?.value;
       if (raw) out[key] = raw;
     }
+    // 静态过滤：例如源站组的账号下拉只列「确实能操作源站组」的账号，
+    // 从候选层面就避免「选中后运行期才报不支持」。
+    Object.assign(out, param.sourceQuery ?? {});
     return out;
-  }, [args, param.sourceParams, param.sourceOptionalParams]);
+  }, [args, param.sourceParams, param.sourceOptionalParams, param.sourceQuery]);
 
   const ready = (param.sourceParams ?? []).every((key) => Boolean(args[key]?.value));
   const query = useQuery({

@@ -11,6 +11,7 @@ import {
 import { createLogger } from '../lib/logger';
 import { sendError, sendSuccess } from '../utils/http';
 import { accountAccessLevelForRoute } from '../lib/dns/account-context';
+import { isOriginGroupCapableAccount } from '../lib/dns/providers/tencenteo/origin-group-context';
 
 function toId(raw: string): number {
   const value = Number(raw);
@@ -118,11 +119,21 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
           const teams = (await TeamOperations.getByUserId(userId)) as unknown as Array<{ id: number }>;
           return DnsAccountOperations.getAccessibleByUserId(userId, teams.map((row) => row.id));
         })();
-    const rows = raw as unknown as Array<{ id: number; name: string; enabled?: number | boolean }>;
+    const rows = raw as unknown as Array<{ id: number; name: string; type?: string; enabled?: number | boolean }>;
+    // ?originGroup=true：只列出**确实能操作源站组**的账号。
+    // 设计 §904 要求「不支持时不要显示后报错」，而在动作先选、账号后选的编辑器顺序下，
+    // 能做的是让候选本身就不含不可用账号，而不是等运行期抛 PROVIDER_MISMATCH。
+    const onlyOriginGroup = String(req.query.originGroup ?? '') === 'true';
     sendSuccess(res, {
       items: rows
         .filter((row) => row.enabled === undefined || Boolean(row.enabled))
-        .map((row) => ({ value: String(row.id), label: String(row.name) })),
+        .filter((row) => !onlyOriginGroup || isOriginGroupCapableAccount(String(row.type ?? '')))
+        .map((row) => ({
+          value: String(row.id),
+          label: String(row.name),
+          // 透出提供商类型：编辑器据此在账号选定后即时提示，不必等运行期
+          providerType: row.type ? String(row.type) : undefined,
+        })),
     });
     return;
   }
