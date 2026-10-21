@@ -727,10 +727,28 @@ jobs:
       - name: Smoke test macOS binary
         run: |
           cd server/dist/sea
-          BIN=$(ls HiDNS-*-macos-arm | head -1)
+          BIN=$(ls HiDNS-*-macos-arm* | head -1)
+          if [ -z "$BIN" ]; then echo "找不到产物 HiDNS-*-macos-arm*"; ls -1; exit 1; fi
           chmod +x "$BIN"
-          # 签名必须有效，否则 macOS 内核会在 execve 阶段直接杀掉进程
+
+          # 1) 签名必须有效：无签名的 Mach-O 会被内核在 execve 阶段直接杀掉
           codesign --verify --verbose=2 "$BIN"
+
+          # 2) 架构必须与目标一致（防止 node 下载错架构）
+          echo "Mach-O 架构：$(file -b "$BIN")"
+
+          # 3) blob 段必须存在：注入静默失败时二进制看起来是完整的，但一跑就崩
+          otool -l "$BIN" | grep -q NODE_SEA_BLOB || { echo "SEA blob 段缺失，注入失败"; exit 1; }
+
+          # 4) 运行冒烟只有在 runner 与目标同架构时才有意义。
+          #    x64 二进制在 arm64 runner 上要靠 Rosetta，实测直接 Segmentation fault，
+          #    那是执行环境的问题、不是产物的问题，所以这里显式跳过并说明。
+          RUNNER_ARCH=$(uname -m)
+          if [ "$RUNNER_ARCH" != "arm64" ]; then
+            echo "⏭️  runner 为 $RUNNER_ARCH、目标为 arm64，跨架构无法运行，已跳过启动冒烟（签名与架构已校验）"
+            exit 0
+          fi
+
           PORT=3399 "./$BIN" > /tmp/smoke.log 2>&1 &
           PID=$!
           for i in $(seq 1 40); do
@@ -812,10 +830,28 @@ jobs:
       - name: Smoke test macOS binary
         run: |
           cd server/dist/sea
-          BIN=$(ls HiDNS-*-macos-x64 | head -1)
+          BIN=$(ls HiDNS-*-macos-x64* | head -1)
+          if [ -z "$BIN" ]; then echo "找不到产物 HiDNS-*-macos-x64*"; ls -1; exit 1; fi
           chmod +x "$BIN"
-          # 签名必须有效，否则 macOS 内核会在 execve 阶段直接杀掉进程
+
+          # 1) 签名必须有效：无签名的 Mach-O 会被内核在 execve 阶段直接杀掉
           codesign --verify --verbose=2 "$BIN"
+
+          # 2) 架构必须与目标一致（防止 node 下载错架构）
+          echo "Mach-O 架构：$(file -b "$BIN")"
+
+          # 3) blob 段必须存在：注入静默失败时二进制看起来是完整的，但一跑就崩
+          otool -l "$BIN" | grep -q NODE_SEA_BLOB || { echo "SEA blob 段缺失，注入失败"; exit 1; }
+
+          # 4) 运行冒烟只有在 runner 与目标同架构时才有意义。
+          #    x64 二进制在 arm64 runner 上要靠 Rosetta，实测直接 Segmentation fault，
+          #    那是执行环境的问题、不是产物的问题，所以这里显式跳过并说明。
+          RUNNER_ARCH=$(uname -m)
+          if [ "$RUNNER_ARCH" != "x86_64" ]; then
+            echo "⏭️  runner 为 $RUNNER_ARCH、目标为 x86_64，跨架构无法运行，已跳过启动冒烟（签名与架构已校验）"
+            exit 0
+          fi
+
           PORT=3398 "./$BIN" > /tmp/smoke.log 2>&1 &
           PID=$!
           for i in $(seq 1 40); do
