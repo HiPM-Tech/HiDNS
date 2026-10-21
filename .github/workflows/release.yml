@@ -1194,6 +1194,13 @@ jobs:
             SECTIONS="详见 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)"
           fi
 
+          # macOS 首次运行提示：从浏览器下载的文件带 quarantine 标记，
+          # 未做公证的二进制会被 Gatekeeper 拦成「无法验证开发者」。
+          # 这里把处置办法写进 Release 正文，避免用户以为包是坏的。
+          if ls ./artifacts/HiDNS-*-macos-* > /dev/null 2>&1; then
+            SECTIONS="${SECTIONS}"$'\n### 🍎 macOS 首次运行\n\nmacOS 会对下载的文件加隔离标记。若提示「无法打开，因为无法验证开发者」，在解压目录执行一次：\n\n```bash\nxattr -dr com.apple.quarantine ./HiDNS-*-macos-*\n```\n\n启动包（`*-Package.tar.gz`）解压后执行 `./Start-HiDNS.sh` 即可（脚本会自动切到包目录）。\n'
+          fi
+
           echo "content<<EOF" >> $GITHUB_OUTPUT
           echo "$SECTIONS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
