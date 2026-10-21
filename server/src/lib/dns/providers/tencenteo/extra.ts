@@ -5,6 +5,7 @@ import {
   hasIrrecoverableData,
   planCollapse,
   OriginGroupError,
+  type CollapseLocation,
   type CollapseTarget,
   type OriginGroup,
 } from './origin-group';
@@ -34,6 +35,14 @@ function teoOptions(args: Record<string, unknown>): { siteType?: string; zoneId?
   return { siteType: readSiteType(args), zoneId: readZoneId(args) };
 }
 
+/**
+ * 把已解析的凭据上下文收敛成摘要用的位置。
+ * 位置必须进摘要，否则同账号下不同站点的同名同内容组会让 plan/replace 的摘要撞车。
+ */
+function locationOf(ctx: TeoOps): CollapseLocation {
+  return { accountId: ctx.accountId, scopeId: ctx.zoneId, siteType: ctx.siteType };
+}
+
 async function loadGroup(args: Record<string, unknown>): Promise<TeoOps & { group: OriginGroup }> {
   const ctx = await teoOpsForDomain(Number(args.domainId), teoOptions(args));
   const group = await ctx.ops.get(String(args.groupId ?? ''));
@@ -50,12 +59,13 @@ const handlers: Record<string, ProviderActionHandler> = {
   'ext.tencenteo.originGroup.get': async (args) => (await loadGroup(args)).group,
 
   'ext.tencenteo.originGroup.plan': async (args) => {
-    const { group, credentialSource, zoneId, siteType } = await loadGroup(args);
+    const ctx = await loadGroup(args);
+    const { group, credentialSource, zoneId, siteType } = ctx;
     const target: CollapseTarget = {
       record: String(args.target ?? ''),
       type: 'IP_DOMAIN',
     };
-    const plan = planCollapse(group, target);
+    const plan = planCollapse(group, target, locationOf(ctx));
     return {
       ...plan,
       irrecoverable: hasIrrecoverableData(plan.removed),
@@ -72,12 +82,13 @@ const handlers: Record<string, ProviderActionHandler> = {
     if (args.collapse !== true) {
       throw new OriginGroupError('COLLAPSE_NOT_ACKNOWLEDGED', '必须显式声明 collapse: true');
     }
-    const { group, ops, credentialSource, zoneId, siteType } = await loadGroup(args);
+    const ctx = await loadGroup(args);
+    const { group, ops, credentialSource, zoneId, siteType } = ctx;
     const target: CollapseTarget = {
       record: String(args.target ?? ''),
       type: 'IP_DOMAIN',
     };
-    const plan = planCollapse(group, target);
+    const plan = planCollapse(group, target, locationOf(ctx));
 
     if (plan.noop) return { skipped: true, reason: 'already-collapsed', plan, credentialSource, zoneId, siteType };
 

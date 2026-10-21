@@ -92,6 +92,9 @@ const RAW_GROUP = {
   References: [RAW_REFERENCE],
 };
 
+
+/** 摘要必须绑位置：这组用例统一用一个固定位置，跨站点的差异由单独用例覆盖 */
+const LOC = { accountId: 1, scopeId: 'zone-a', siteType: 'mainland' };
 describe('源站组收敛计划', () => {
   it('N→1：逐条列出被移除记录', () => {
     const plan = planCollapse(
@@ -100,6 +103,7 @@ describe('源站组收敛计划', () => {
         { record: '203.0.113.2', type: 'IP_DOMAIN', weight: 70 },
       ]),
       { record: '198.51.100.9', type: 'IP_DOMAIN' },
+      LOC,
     );
     expect(plan.collapsedFrom).toBe(2);
     expect(plan.removed).toHaveLength(2);
@@ -110,7 +114,7 @@ describe('源站组收敛计划', () => {
     const plan = planCollapse(group([{ record: '198.51.100.9', type: 'IP_DOMAIN' }]), {
       record: '198.51.100.9',
       type: 'IP_DOMAIN',
-    });
+    }, LOC);
     expect(plan.noop).toBe(true);
     expect(plan.removed).toEqual([]);
   });
@@ -131,25 +135,25 @@ describe('源站组收敛计划', () => {
       'fd12:3456::1',
       'localhost',
     ]) {
-      expect(() => planCollapse(group([]), { record: target, type: 'IP_DOMAIN' })).toThrow(OriginGroupError);
+      expect(() => planCollapse(group([]), { record: target, type: 'IP_DOMAIN' }, LOC)).toThrow(OriginGroupError);
     }
   });
 
   it('公网地址与正常域名不被误判为内网', () => {
     for (const target of ['203.0.113.10', '8.8.8.8', '172.15.0.1', '172.32.0.1', 'fd.example.com', 'fc.example.com']) {
-      expect(() => planCollapse(group([]), { record: target, type: 'IP_DOMAIN' })).not.toThrow();
+      expect(() => planCollapse(group([]), { record: target, type: 'IP_DOMAIN' }, LOC)).not.toThrow();
     }
   });
 
   it('对象存储源站不得作为收敛目标', () => {
-    expect(() => planCollapse(group([]), { record: 'bucket.example.com', type: 'AWS_S3' })).toThrow(/对象存储/);
+    expect(() => planCollapse(group([]), { record: 'bucket.example.com', type: 'AWS_S3' }, LOC)).toThrow(/对象存储/);
   });
 
   it('digest 对同一输入稳定，目标不同则变化', () => {
     const g = group([{ record: '203.0.113.1', type: 'IP_DOMAIN' }]);
-    const a = planCollapse(g, { record: '198.51.100.9', type: 'IP_DOMAIN' });
-    const b = planCollapse(g, { record: '198.51.100.9', type: 'IP_DOMAIN' });
-    const c = planCollapse(g, { record: '198.51.100.10', type: 'IP_DOMAIN' });
+    const a = planCollapse(g, { record: '198.51.100.9', type: 'IP_DOMAIN' }, LOC);
+    const b = planCollapse(g, { record: '198.51.100.9', type: 'IP_DOMAIN' }, LOC);
+    const c = planCollapse(g, { record: '198.51.100.10', type: 'IP_DOMAIN' }, LOC);
     expect(a.digest).toBe(b.digest);
     expect(a.digest).not.toBe(c.digest);
   });
@@ -158,7 +162,7 @@ describe('源站组收敛计划', () => {
     const plan = planCollapse(group([{ record: 'b.example.com', type: 'AWS_S3', private: true }]), {
       record: '198.51.100.9',
       type: 'IP_DOMAIN',
-    });
+    }, LOC);
     expect(hasIrrecoverableData(plan.removed)).toBe(true);
     expect(hasIrrecoverableData([])).toBe(false);
   });
@@ -183,6 +187,7 @@ describe('源站组收敛计划', () => {
         { type: 'acceleration-domain', id: 'edge-1', name: 'www.example.com' },
       ]),
       { record: '198.51.100.9', type: 'IP_DOMAIN' },
+      LOC,
     );
     expect(plan.preservedReferences).toHaveLength(1);
     expect(describeReferences(plan.preservedReferences)).toEqual(['www.example.com[acceleration-domain]']);
@@ -455,5 +460,41 @@ describe('扩展能力已进入注册表', () => {
     const byName = new Map(ALL_ACTIONS.map((a) => [a.name, a]));
     expect(byName.get('ext.tencenteo.originGroup.replace')?.actionClass).toBe('ext.write');
     expect(byName.get('ext.tencenteo.originGroup.list')?.actionClass).toBe('ext.read');
+  });
+});
+
+describe('摘要必须绑位置（防跨站点误写）', () => {
+  const clone = () =>
+    group([
+      { record: '203.0.113.1', type: 'IP_DOMAIN', weight: 100 },
+      { record: '203.0.113.2', type: 'IP_DOMAIN', weight: 200 },
+    ]);
+  const target = { record: '198.51.100.9', type: 'IP_DOMAIN' as const };
+  const siteA = { accountId: 1, scopeId: 'zone-a', siteType: 'mainland' };
+  const siteB = { accountId: 1, scopeId: 'zone-b', siteType: 'mainland' };
+
+  it('同一个组、同样的内容，站点不同 → 摘要不同', () => {
+    // 克隆站点的常见形态：两个站点有相同 groupId 且记录内容完全一致。
+    // 摘要不含位置时，在 A 站点预览得到的 digest 会与 B 站点重算的完全相同，
+    // replace 的 diffDigest 校验就此失效——整组覆盖一个从未预览过的站点。
+    const a = planCollapse(clone(), target, siteA);
+    const b = planCollapse(clone(), target, siteB);
+    expect(a.digest).not.toBe(b.digest);
+  });
+
+  it('账号不同同样要区分', () => {
+    const a = planCollapse(clone(), target, siteA);
+    const c = planCollapse(clone(), target, { ...siteA, accountId: 2 });
+    expect(a.digest).not.toBe(c.digest);
+  });
+
+  it('siteType 不同（端点不同）也要区分', () => {
+    const a = planCollapse(clone(), target, siteA);
+    const intl = planCollapse(clone(), target, { ...siteA, siteType: 'intl' });
+    expect(a.digest).not.toBe(intl.digest);
+  });
+
+  it('位置相同则摘要稳定（可重复校验）', () => {
+    expect(planCollapse(clone(), target, siteA).digest).toBe(planCollapse(clone(), target, siteA).digest);
   });
 });

@@ -52,8 +52,23 @@ export interface CollapsePlan {
   noop: boolean;
 }
 
+/**
+ * 这次操作打的是哪个账号下的哪个站点。
+ *
+ * **必须进摘要**：源站组是「账号 → 站点 → 组」三层资源，同一账号下不同站点可以有相同 groupId
+ * 且内容完全相同的组（克隆站点）。摘要不含位置时，`plan` 预览 A 站点、`replace` 打到 B 站点，
+ * 重算的摘要会**完全一致**，于是整组覆盖了一个操作者从未预览过的站点。
+ * 改造前位置由 `domainId → third_id` 单值锚定，这条风险被结构性挡住；改为账号优先后必须由摘要承担。
+ */
+export interface CollapseLocation {
+  accountId: number;
+  scopeId: string;
+  siteType: string;
+}
+
 /** 差异摘要：提交时重算，与预览不一致即拒绝（§3.7.9.2） */
 export function computePlanDigest(parts: {
+  location: CollapseLocation;
   groupId: string;
   target: CollapseTarget;
   removed: OriginRecord[];
@@ -62,7 +77,15 @@ export function computePlanDigest(parts: {
     .map((r) => [r.recordId ?? '', r.record, r.type, String(r.weight ?? '')].join('|'))
     .sort()
     .join(';');
-  return stableStringify({ g: parts.groupId, t: parts.target, r: removedKey });
+  return stableStringify({
+    // 位置在前：它决定了这次操作作用于哪个物理站点
+    a: parts.location.accountId,
+    s: parts.location.scopeId,
+    y: parts.location.siteType,
+    g: parts.groupId,
+    t: parts.target,
+    r: removedKey,
+  });
 }
 
 /**
@@ -71,7 +94,7 @@ export function computePlanDigest(parts: {
  * - 仅一条且与目标一致 → noop（F7）
  * - 目标预检（F5）
  */
-export function planCollapse(group: OriginGroup, target: CollapseTarget): CollapsePlan {
+export function planCollapse(group: OriginGroup, target: CollapseTarget, location: CollapseLocation): CollapsePlan {
   assertPublicTarget(target);
 
   const noop =
@@ -80,7 +103,7 @@ export function planCollapse(group: OriginGroup, target: CollapseTarget): Collap
     group.records[0].type === target.type;
 
   const removed = noop ? [] : [...group.records];
-  const digest = computePlanDigest({ groupId: group.groupId, target, removed });
+  const digest = computePlanDigest({ location, groupId: group.groupId, target, removed });
 
   return {
     groupId: group.groupId,
