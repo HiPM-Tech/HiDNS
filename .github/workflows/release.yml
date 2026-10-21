@@ -8,11 +8,17 @@ on:
         required: true
         default: ''
         type: string
-      prerelease:
-        description: 'Is this a pre-release?'
+      # GitHub 的 workflow_dispatch 最多 10 个 input。此前是 11 个（prerelease 与 draft 各占一个），
+      # 超出的那个会被丢弃。这里把两者合并成一个选择项，保持 10 个以内。
+      release_type:
+        description: 'Release type (release = 正式, prerelease = 预发布, draft = 草稿)'
         required: false
-        default: false
-        type: boolean
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - prerelease
+          - draft
       build_exe:
         description: 'Build Windows package?'
         required: false
@@ -52,11 +58,6 @@ on:
         description: 'Build SEA binaries (self-contained executables)?'
         required: false
         default: true
-        type: boolean
-      draft:
-        description: 'Create as draft release?'
-        required: false
-        default: false
         type: boolean
 
 env:
@@ -116,7 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.get_version.outputs.version }}
-      is_prerelease: ${{ inputs.prerelease }}
+      is_prerelease: ${{ inputs.release_type == 'prerelease' }}
       build_exe: ${{ inputs.build_exe }}
       build_linux_x64: ${{ inputs.build_linux_x64 }}
       build_linux_arm64: ${{ inputs.build_linux_arm64 }}
@@ -1227,13 +1228,13 @@ jobs:
           echo "✅ 请求的产物均已产出"
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.prepare.outputs.version }}
           name: HiDNS v${{ needs.prepare.outputs.version }}
           body_path: /tmp/release_body.md
-          draft: ${{ inputs.draft }}
-          prerelease: ${{ inputs.prerelease }}
+          draft: ${{ inputs.release_type == 'draft' }}
+          prerelease: ${{ inputs.release_type == 'prerelease' }}
           files: |
             ./artifacts/*.zip
             ./artifacts/*.tar.gz
@@ -1287,4 +1288,4 @@ jobs:
             [GitHub Release 页面](https://github.com/${{ github.repository }}/releases/tag/v${{ needs.prepare.outputs.version }})
             
             *📅 发布时间：*
-            ${{ github.event.workflow_run.created_at || github.event.inputs._workflow_run_time || 'N/A' }}
+            ${{ github.event.workflow_run.created_at || 'N/A' }}

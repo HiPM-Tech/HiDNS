@@ -27,12 +27,28 @@ jobs:
     steps:
       - name: Get PR Info
         id: pr-info
+        # 不能把 PR 标题/正文直接插进 shell：标题是攻击者可控内容，
+        # 用 ${{ }} 内联会被当作命令执行（脚本注入）。改为经环境变量传递。
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_BRANCH: ${{ github.head_ref }}
+          PR_IS_DRAFT: ${{ github.event.pull_request.draft }}
         run: |
-          echo "title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
-          echo "body=${{ github.event.pull_request.body }}" >> $GITHUB_OUTPUT
-          echo "author=${{ github.event.pull_request.user.login }}" >> $GITHUB_OUTPUT
-          echo "branch=${{ github.head_ref }}" >> $GITHUB_OUTPUT
-          echo "is_draft=${{ github.event.pull_request.draft }}" >> $GITHUB_OUTPUT
+          {
+            echo "title<<PR_EOF"
+            printf '%s\n' "$PR_TITLE"
+            echo "PR_EOF"
+          } >> $GITHUB_OUTPUT
+          {
+            echo "body<<PR_EOF"
+            printf '%s\n' "$PR_BODY"
+            echo "PR_EOF"
+          } >> $GITHUB_OUTPUT
+          echo "author=$PR_AUTHOR" >> $GITHUB_OUTPUT
+          echo "branch=$PR_BRANCH" >> $GITHUB_OUTPUT
+          echo "is_draft=$PR_IS_DRAFT" >> $GITHUB_OUTPUT
 
   pr-validation:
     name: PR Validation

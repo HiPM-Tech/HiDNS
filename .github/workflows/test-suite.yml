@@ -335,7 +335,7 @@ jobs:
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [unit-test-server, unit-test-client, test-sqlite, test-postgresql, test-mysql, e2e-test]
+    needs: [lint-and-build, unit-test-server, unit-test-client, test-sqlite, test-postgresql, test-mysql, e2e-test]
     if: always()
     steps:
       - name: Generate test report

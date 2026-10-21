@@ -8,7 +8,8 @@ on:
         type: string
         description: 'Database type (sqlite, postgresql, mysql)'
       test_type:
-        required: true
+        # required 与 default 同时存在时 default 永远生效，required 是无效声明
+        required: false
         type: string
         default: 'all'
         description: 'Test type (unit, integration, e2e, all)'
