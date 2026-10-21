@@ -4,6 +4,26 @@
 
 DNSMgr 是一个现代化的 DNS 聚合管理平台，采用前后端分离架构，支持管理多个 DNS 服务商的域名解析记录。
 
+## CI 监听
+
+GitHub Actions 的运行状态可以用 `scripts/ci-watch.mjs` 持续盯，不必反复手工 `gh run view`。
+
+```bash
+pnpm ci:watch                          # 看一次当前状态
+pnpm ci:watch --logs 12                # 失败时附带失败步骤的最后 12 行日志
+pnpm ci:watch --workflow release       # 只盯名称含 release 的工作流
+pnpm ci:watch:loop                     # 轮询直到全部收敛
+node scripts/ci-watch.mjs --fail-on-failure   # 有失败则 exit 1，可作为门禁
+```
+
+几处口径：
+
+- **结论只看每个工作流最新的一次运行**。历史红（例如修复前的失败）不会继续污染当前状态；需要连历史一起看时加 `--all`。
+- 见过的 run id 记在 `.cache/ci-watch-state.json`（已被 gitignore），新出现的运行会标 🆕 并报「本次新增 N 条」。
+- 失败时会列出失败的作业与失败步骤，`--logs N` 再补上日志尾部。
+
+依赖 `gh` CLI 并已登录。
+
 ## 技术栈声明
 
 ### 后端技术栈

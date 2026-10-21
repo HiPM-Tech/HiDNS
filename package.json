@@ -10,7 +10,9 @@
     "scripts": {
         "dev": "concurrently \"pnpm --filter dnsmgr-server dev\" \"pnpm --filter dnsmgr-client dev\"",
         "build": "pnpm --filter dnsmgr-server build && pnpm --filter dnsmgr-client build",
-        "start": "pnpm --filter dnsmgr-server start"
+        "start": "pnpm --filter dnsmgr-server start",
+        "ci:watch": "node scripts/ci-watch.mjs",
+        "ci:watch:loop": "node scripts/ci-watch.mjs --watch --logs 12"
     },
     "devDependencies": {
         "concurrently": "^9.1.2"
