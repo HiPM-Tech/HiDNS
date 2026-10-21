@@ -26,6 +26,8 @@ import { fileURLToPath } from 'url';
 import { rcedit } from 'rcedit';
 import https from 'https';
 
+import { resolveSeaConfig } from './lib/sea-config.mjs';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf-8'));
@@ -199,13 +201,12 @@ async function buildForPlatform(targetName) {
   // Step 4: 生成 SEA blob
   // 跨架构构建时显式关掉 useCodeCache —— 这类缓存只在同架构上可复用。
   const baseSeaConfig = JSON.parse(fs.readFileSync(path.join(root, 'sea-config.json'), 'utf-8'));
-  const seaConfig = { ...baseSeaConfig };
+  const resolved = resolveSeaConfig(baseSeaConfig, { isCrossArch });
   let seaConfigPath = path.join(root, 'sea-config.json');
-  if (isCrossArch && seaConfig.useCodeCache) {
-    seaConfig.useCodeCache = false;
+  if (resolved.modified) {
     seaConfigPath = path.join(root, 'dist', 'sea-config.cross.json');
-    fs.writeFileSync(seaConfigPath, JSON.stringify(seaConfig, null, 2));
-    console.log('   ⚠️  Cross-arch build: useCodeCache disabled (code cache is arch-specific)');
+    fs.writeFileSync(seaConfigPath, JSON.stringify(resolved.config, null, 2));
+    console.log(`   ⚠️  ${resolved.reason}`);
   }
   run(`node --experimental-sea-config "${seaConfigPath}"`, 'Generating SEA blob');
 

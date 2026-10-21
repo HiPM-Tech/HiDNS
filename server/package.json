@@ -35,7 +35,7 @@
     "sea:macos": "node scripts/build-sea.mjs macos",
     "sea:macos-x64": "node scripts/build-sea.mjs macos-x64",
     "sea:all": "node scripts/build-sea.mjs all",
-    "test:node": "tsx --test \"src/**/*.test.node.ts\"",
+    "test:node": "tsx --test \"src/**/*.test.node.ts\" \"scripts/**/*.test.node.ts\"",
     "lint": "eslint . --max-warnings=0"
   },
   "dependencies": {
