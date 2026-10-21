@@ -1262,7 +1262,7 @@
             "noDomainPermissions": "暂无域名权限",
             "noEmail": "无邮箱",
             "noMembers": "暂无成员",
-            "noTeams": "",
+            "noTeams": "还没有团队",
             "noUsersAvailable": "暂无可添加用户",
             "permissionRead": "只读",
             "permissionRemoveFailed": "移除权限失败",
