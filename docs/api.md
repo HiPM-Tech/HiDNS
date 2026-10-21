@@ -910,10 +910,10 @@ WebSocket 事件：`resource:snapshot`，每 10 秒推送一次当前资源快�
 | GET | `/api/workflows/:id` | JWT + admin | 详情；非本人且非超管 → 403 |
 | PUT | `/api/workflows/:id` | JWT + admin + noToken | 更新（部分字段可省略，省略即保留旧值） |
 | DELETE | `/api/workflows/:id` | JWT + admin + noToken | 删除（同事务清理运行记录） |
-| GET | `/api/workflows/:id/runs` | JWT + admin | 运行记录，支持 `?limit`（默认 50，上限 200） |
+| GET | `/api/workflows/:id/runs` | JWT + admin | 运行记录，支持 `?limit`（默认 50，上限 200）；每条含 `steps`（逐步执行记录的 JSON，字段见下） |
 | GET | `/api/workflows/:id/sample-event` | JWT + admin | 最近一次运行的事件快照，供 `(...)` 预览；无记录返回 `null` |
 | POST | `/api/workflows/:id/run` | JWT + admin + noToken | 手动运行（限流 10 次/分钟） |
-| POST | `/api/workflows/:id/test` | JWT + admin + noToken | 保存期校验（不执行） |
+| POST | `/api/workflows/:id/test` | JWT + admin + noToken | 保存期校验（不执行，限流 30 次/分钟） |
 | GET | `/api/workflows/meta/:source` | JWT + admin | 候选值 |
 
 ### 24a. 候选值 `meta/:source`
@@ -925,9 +925,32 @@ WebSocket 事件：`resource:snapshot`，每 10 秒推送一次当前资源快�
 | `recordTypes` | 仅 `A` / `AAAA`（§4.0.5） |
 | `domainFields` | `remark` / `is_hidden` / `enabled` |
 | `nsStatuses` | `ok` / `mismatch` / `missing` / `poisoned` |
-| `domains` | 当前用户可访问域名 |
+| `domains` | 当前用户可访问域名（`value` 为域名 ID，带 `id` / `group`（账号名）字段） |
+| `domainNames` | 同上但 `value` 为**域名名称**——`dns.record.*` 的 `domain` 参数接受名称而非 ID |
+| `accounts` | 当前用户可见且启用的 DNS 账号（超管看全部，其他人按自己创建 + 所属团队） |
+| `records` | 需 `?domain=`（域名名称）；返回该域名下的解析记录，标签为「主机名 类型 → 值」；域名不属于调用方 → 404，上游失败 → 502 并带原因 |
 | `originGroups` | 需 `?domainId=`；由域名反查账号与站点，返回源站组及其记录数/引用数；域名不属于调用方 → 404 |
+| `edgeoneZones` | 需 `?domainId=`；EdgeOne 站点候选（DNSPod 凭据复用时用于显式指定站点） |
 | `outboundAllowlist` | 当前**生效**的出站白名单（读自内存策略，与执行一致） |
+
+`records` 的返回项形如 `{ value: '<记录ID>', label: 'www A → 1.2.3.4' }`——只给 ID 无法判断选的是哪一条。
+
+### 24a-1. 运行记录里的 `steps`
+
+`GET /api/workflows/:id/runs` 的每条记录带 `steps`（JSON 字符串，可能为 `null`）：
+
+```json
+[{ "action": "dns.domain.list", "status": "success", "durationMs": 6, "input": {}, "inputDigest": "a1b2c3d4e5f60718" }]
+```
+
+| 字段 | 说明 |
+|------|------|
+| `action` | 动作全名 |
+| `status` | `success` / `failed` |
+| `durationMs` | 该步耗时 |
+| `input` | **脱敏后**的实参（凭据类键名遮成 `***`，超长值截断，对象折叠） |
+| `inputDigest` | 原始实参的 sha256 前 16 位，用于在不存明文的前提下比对参数是否相同 |
+| `error` | 失败原因（仅失败步骤） |
 
 ### 24b. 错误码
 
