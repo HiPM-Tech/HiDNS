@@ -99,7 +99,8 @@
             "colSteps": "Steps",
             "viewSteps": "View steps",
             "runStepsTitle": "Steps of this run",
-            "recordTypesRequired": "Select at least one record type, otherwise this workflow will never trigger."
+            "recordTypesRequired": "Select at least one record type, otherwise this workflow will never trigger.",
+            "refHint": "Showing the actual value from the most recent run event"
         },
         "about": {
             "community": "Comunidad",

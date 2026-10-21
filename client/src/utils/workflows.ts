@@ -351,3 +351,39 @@ export function actionNameOf(node: WorkflowDslNode): string {
 export function needsRecordTypes(triggerType: string, recordTypes: string[]): boolean {
   return triggerType === 'record.changed' && recordTypes.length === 0;
 }
+
+/**
+ * 从样例事件里解析 `(...)` 引用的真实值（设计 §10：预览必须渲染真实值，而不是显示变量名）。
+ *
+ * 只处理 `event.*`：`vars.*` 是运行期变量，编辑期没有真实值。
+ * 解析不到时返回 undefined，由界面回落到显示字段名。
+ */
+export function resolveEventRef(event: Record<string, unknown> | null | undefined, path: string): unknown {
+  if (!event || !path.startsWith('event.')) return undefined;
+  let current: unknown = event;
+  for (const segment of path.slice('event.'.length).split('.')) {
+    if (!current || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+/** 条件字段路径 → i18n key（编辑器与引用标签共用一份，避免两处口径漂移） */
+export const CONDITION_FIELD_LABEL_KEYS: Record<string, string> = {
+  'event.record.value': 'workflows.fieldRecordValue',
+  'event.record.oldValue': 'workflows.fieldOldValue',
+  'event.record.name': 'workflows.fieldRecordName',
+  'event.record.type': 'workflows.fieldRecordType',
+  'event.domain.name': 'workflows.fieldDomainName',
+  'event.status': 'workflows.fieldStatus',
+  'event.daysLeft': 'workflows.fieldDaysLeft',
+};
+
+/** 引用路径的可读名：`vars.x` 走变量文案，其余走条件字段文案 */
+export function formatRefLabel(
+  path: string,
+  t: (key: string, options?: Record<string, string | number>) => string,
+): string {
+  if (path.startsWith('vars.')) return t('workflows.varRefLabel', { name: path.slice('vars.'.length) });
+  return t(CONDITION_FIELD_LABEL_KEYS[path] ?? path);
+}

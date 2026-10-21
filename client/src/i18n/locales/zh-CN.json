@@ -99,7 +99,8 @@
             "colSteps": "步骤",
             "viewSteps": "查看步骤",
             "runStepsTitle": "这次运行的每一步",
-            "recordTypesRequired": "请至少选择一个记录类型，否则这个工作流永远不会被触发。"
+            "recordTypesRequired": "请至少选择一个记录类型，否则这个工作流永远不会被触发。",
+            "refHint": "显示的是最近一次运行事件里的真实值"
         },
         "about": {
             "community": "社区",

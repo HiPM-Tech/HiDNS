@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findInvalidVarName, needsRecordTypes, findMissingRequiredArg, formatDuration, fromConditionNode, fromDslNodes, parseServerTime, summarizeTriggerEvent, toConditionNode, toDslNodes } from './workflows';
+import { findInvalidVarName, needsRecordTypes, resolveEventRef, findMissingRequiredArg, formatDuration, fromConditionNode, fromDslNodes, parseServerTime, summarizeTriggerEvent, toConditionNode, toDslNodes } from './workflows';
 
 describe('parseServerTime', () => {
   it('把无时区后缀的服务端时间按 UTC 解析', () => {
@@ -300,5 +300,25 @@ describe('needsRecordTypes', () => {
 
   it('其它触发器不受此限制', () => {
     expect(needsRecordTypes('domain.changed', [])).toBe(false);
+  });
+});
+describe('resolveEventRef', () => {
+  const event = { type: 'record.changed', domain: { name: 'example.com' }, record: { name: 'www', type: 'A', value: '1.2.3.4' } };
+
+  it('解析 event.* 路径', () => {
+    expect(resolveEventRef(event, 'event.record.value')).toBe('1.2.3.4');
+    expect(resolveEventRef(event, 'event.domain.name')).toBe('example.com');
+  });
+
+  it('路径不存在时返回 undefined', () => {
+    expect(resolveEventRef(event, 'event.record.missing')).toBeUndefined();
+  });
+
+  it('vars.* 在编辑期没有真实值', () => {
+    expect(resolveEventRef(event, 'vars.plan')).toBeUndefined();
+  });
+
+  it('没有样例事件时返回 undefined', () => {
+    expect(resolveEventRef(null, 'event.record.value')).toBeUndefined();
   });
 });

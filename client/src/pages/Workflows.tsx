@@ -13,6 +13,7 @@ import { useI18n } from '../contexts/I18nContext';
 import { useFormSync } from '../hooks/useFormSync';
 import { useToast } from '../hooks/useToast';
 import {
+  CONDITION_FIELD_LABEL_KEYS,
   CONDITION_FIELDS,
   CONDITION_OPS,
   EMPTY_CONDITION,
@@ -24,7 +25,9 @@ import {
   formatServerTime,
   actionNameOf,
   findInvalidVarName,
+  formatRefLabel,
   needsRecordTypes,
+  resolveEventRef,
   findMissingRequiredArg,
   fromDslNodes,
   summarizeTriggerEvent,
@@ -35,27 +38,10 @@ import {
 } from '../utils/workflows';
 import './Workflows.css';
 
-/** 条件字段路径 → i18n key。界面上直接铺 event.record.value 对人不友好 */
 /** 参数可以引用的上下文路径（与条件字段同一套，避免两处口径漂移） */
-const EVENT_REF_PATHS = [
-  'event.record.value',
-  'event.record.oldValue',
-  'event.record.name',
-  'event.record.type',
-  'event.domain.name',
-  'event.status',
-  'event.daysLeft',
-];
+const EVENT_REF_PATHS = Object.keys(CONDITION_FIELD_LABEL_KEYS);
 
-const CONDITION_FIELD_LABEL_KEYS: Record<string, string> = {
-  'event.record.value': 'workflows.fieldRecordValue',
-  'event.record.oldValue': 'workflows.fieldOldValue',
-  'event.record.name': 'workflows.fieldRecordName',
-  'event.record.type': 'workflows.fieldRecordType',
-  'event.domain.name': 'workflows.fieldDomainName',
-  'event.status': 'workflows.fieldStatus',
-  'event.daysLeft': 'workflows.fieldDaysLeft',
-};
+
 
 /** 运行状态 → TDesign Tag 主题 */
 function runStatusTheme(status?: string): 'success' | 'danger' | 'default' | 'primary' {
@@ -191,6 +177,15 @@ export function Workflows() {
     queryFn: () => workflowsApi.sampleEvent(previewFor!.id),
     enabled: Boolean(previewFor),
   });
+
+  // 编辑已有工作流时取最近一次真实事件，用来把 `(...)` 引用渲染成真实值（设计 §10）
+  const editingSampleQuery = useQuery({
+    queryKey: ['workflow-sample', editing?.id],
+    queryFn: () => workflowsApi.sampleEvent(editing!.id),
+    enabled: Boolean(dialogOpen && editing),
+  });
+  const editingEvent =
+    (editingSampleQuery.data?.data?.data as { event?: Record<string, unknown> | null } | undefined)?.event ?? null;
 
   const items = (listQuery.data?.data?.data as { items?: WorkflowRecord[] } | undefined)?.items ?? [];
   const actions = (actionsQuery.data?.data?.data as { items?: WorkflowActionMeta[] } | undefined)?.items ?? [];
@@ -663,10 +658,16 @@ export function Workflows() {
                         ) : arg?.kind === 'ref' ? (
                           // 引用事件字段：值要到运行时才有，界面上只展示引用了什么
                           <Space size="small">
-                            <Tag theme="primary" variant="light">
-                              {argValue.startsWith('vars.')
-                                ? t('workflows.varRefLabel', { name: argValue.slice('vars.'.length) })
-                                : t(CONDITION_FIELD_LABEL_KEYS[argValue] ?? argValue)}
+                            <Tag theme="primary" variant="light" title={t('workflows.refHint')}>
+                              {formatRefLabel(argValue, t)}
+                              {/* 设计 §10：预览要渲染真实值而不是只给字段名；
+                                  编辑已有工作流时用最近一次事件里的值（vars.* 编辑期无值）。 */}
+                              {(() => {
+                                const sample = resolveEventRef(editingEvent, argValue);
+                                return sample === undefined || sample === null || sample === ''
+                                  ? null
+                                  : ` · ${String(sample)}`;
+                              })()}
                             </Tag>
                             <Button size="small" variant="text" onClick={() => setArg('')}>
                               {t('workflows.clearRef')}
