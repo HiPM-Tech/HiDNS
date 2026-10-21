@@ -63,4 +63,13 @@ describe('源站组候选的条数与引用数（设计 §1106）', () => {
     await waitFor(() => expect(metaMock).toHaveBeenCalled());
     expect(screen.queryByText(/收敛为 1 条/)).toBeNull();
   });
+
+  it('候选拉取失败时显示服务端给的原因，而不是空下拉', async () => {
+    // 例如账号类型不支持源站组：服务端会返回可读的 502，界面必须转述出来
+    metaMock.mockRejectedValue({
+      response: { data: { msg: '不允许复用「aliyun」提供商的凭据调用 EdgeOne' } },
+    });
+    renderSelect([], '');
+    expect(await screen.findByText(/不允许复用/)).toBeTruthy();
+  });
 });

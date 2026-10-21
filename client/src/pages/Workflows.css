@@ -104,6 +104,12 @@
   width: 100%;
 }
 
+.workflow-cascading__error {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--td-error-color, #d54941);
+}
+
 .workflow-collapse-warning {
   font-size: 12px;
   line-height: 1.5;

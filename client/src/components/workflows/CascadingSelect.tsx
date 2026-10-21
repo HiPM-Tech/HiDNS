@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Select } from 'tdesign-react';
 import { workflowsApi } from '../../api';
+import { describeError } from '../../utils/workflows';
 import { useI18n } from '../../contexts/I18nContext';
 
 /**
@@ -102,6 +103,11 @@ export function CascadingSelect({ param, labels, args, value, onChange }: Cascad
         options={options as any}
         onChange={(next) => onChange(String(next))}
       />
+      {/* 候选拉取失败时必须说明原因：此前只有 loading 态，失败时下拉空着，
+          用户既不知道是没权限、账号类型不支持，还是服务不可达。 */}
+      {query.isError ? (
+        <div className="workflow-cascading__error">{describeError(query.error)}</div>
+      ) : null}
       {collapseCount > 0 ? (
         <div className="workflow-collapse-warning">
           {t('workflows.originGroupCollapseWarning', { count: collapseCount })}
