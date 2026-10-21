@@ -1,5 +1,5 @@
 import { VirtualAdapter } from './adapter';
-import { registerProviderMetaSource } from '../meta-sources';
+import { registerProviderMetaSource, requireDomainId } from '../meta-sources';
 import type { ProviderMetaContext, ProviderMetaItem } from '../meta-sources';
 import { isVirtualProviderEnabled } from '../availability';
 
@@ -20,7 +20,7 @@ if (isVirtualProviderEnabled()) {
       if (!(ctx.adapter instanceof VirtualAdapter)) {
         throw new Error('该域名的提供商不是虚拟提供商');
       }
-      ctx.adapter.setZoneInfo(ctx.zoneId, ctx.domainName);
+      ctx.adapter.setZoneInfo(ctx.zoneId ?? '', ctx.domainName ?? '');
       const groups = await ctx.adapter.originGroups().list({ limit: 1000 });
       return groups.map((group) => ({
         value: group.groupId,

@@ -151,3 +151,36 @@ export async function accountAccessLevel(params: {
   if (account.team_id && (await TeamOperations.isMember(Number(account.team_id), userId))) return 'read';
   return 'none';
 }
+
+/** 工作流角色词表——与 `accountAccessLevel` 的入参一致 */
+export type WorkflowRole = 'user' | 'admin' | 'super_admin';
+
+/**
+ * 把数值角色（路由层 `req.user.role`：1/2/3）桥接成工作流词表。
+ *
+ * 存在的理由：`accountAccessLevel` 内部按 `role === 'super_admin'` 判定，
+ * 直接喂数值 `3` 会**恒为 false**，超管会被判成 `none` —— 在候选源下拉里看不到任何账号。
+ */
+export function toWorkflowRole(role: number | string | undefined): WorkflowRole {
+  const value = typeof role === 'number' ? role : Number(role);
+  if (Number.isFinite(value) && value >= 3) return 'super_admin';
+  if (Number.isFinite(value) && value >= 2) return 'admin';
+  return 'user';
+}
+
+/**
+ * 路由层用的账号可见性判定：先把数值角色桥接成词表，再复用执行路径的同一份实现。
+ *
+ * 候选源与动作**必须同源**——否则候选源会宽于动作，用户在下拉里看得到、选中后运行期才 404。
+ */
+export async function accountAccessLevelForRoute(params: {
+  accountId: number;
+  userId: number;
+  role: number | string | undefined;
+}): Promise<AccessLevel> {
+  return accountAccessLevel({
+    accountId: params.accountId,
+    userId: params.userId,
+    role: toWorkflowRole(params.role),
+  });
+}

@@ -1,4 +1,4 @@
-import { registerProviderMetaSource } from '../meta-sources';
+import { registerProviderMetaSource, requireDomainId } from '../meta-sources';
 import type { ProviderMetaContext, ProviderMetaItem } from '../meta-sources';
 import { listTeoZones, teoOpsForDomain } from './origin-group-context';
 
@@ -12,7 +12,7 @@ registerProviderMetaSource({
   source: 'edgeoneZones',
   providerType: 'tencenteo',
   async resolve(ctx: ProviderMetaContext): Promise<ProviderMetaItem[]> {
-    const zones = await listTeoZones(ctx.domainId, { siteType: ctx.params?.siteType });
+    const zones = await listTeoZones(requireDomainId(ctx), { siteType: ctx.params?.siteType });
     return zones.map((zone) => ({ value: zone.zoneId, label: zone.zoneName || zone.zoneId }));
   },
 });
@@ -28,7 +28,7 @@ registerProviderMetaSource({
   source: 'originGroups',
   providerType: 'tencenteo',
   async resolve(ctx: ProviderMetaContext): Promise<ProviderMetaItem[]> {
-    const { ops } = await teoOpsForDomain(ctx.domainId, {
+    const { ops } = await teoOpsForDomain(requireDomainId(ctx), {
       siteType: ctx.params?.siteType,
       zoneId: ctx.params?.zoneId,
     });

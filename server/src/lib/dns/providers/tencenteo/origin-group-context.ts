@@ -230,3 +230,72 @@ export async function listTeoZones(
   const { adapter: teo } = await buildReusedAdapter(account, options);
   return teo.listZones();
 }
+
+/**
+ * 账号优先的解析入口（设计 §3.7.8）。
+ *
+ * 与 `teoOpsForDomain` 共用 `buildReusedAdapter` / `requireSiteType`，差异只在**作用域从哪来**：
+ * 域名入口由 `domains.third_id` 单值锚定；账号入口由调用方显式给出 `scopeId`。
+ *
+ * 两条凭据路径都做**作用域归属校验**（`scopeId ∈ listZones(account)`）：
+ * 改造前 tencenteo 账号不需要校验，只因为 zone 由域名锚定、用户无从指定；
+ * 账号优先后 scopeId 是用户入参，这条早退必须删掉，否则等于「未校验的资源标识直接打上游」。
+ */
+export async function teoOpsForAccount(accountId: number, options: TeoOpsOptions = {}): Promise<TeoOps> {
+  if (!Number.isFinite(accountId) || accountId <= 0) {
+    throw new OriginGroupError('INVALID_ARGS', '缺少 accountId');
+  }
+  const scopeId = String(options.zoneId ?? '').trim();
+  if (!scopeId) {
+    throw new OriginGroupError('SCOPE_ID_REQUIRED', '账号优先需要显式给出作用域（scopeId）');
+  }
+
+  const adapter = await resolveAdapter(accountId);
+
+  if (adapter instanceof TencenteoAdapter) {
+    const zones = await adapter.listZones();
+    const hit = zones.find((zone) => zone.zoneId === scopeId);
+    if (!hit) {
+      // 不回显他人站点标识：错误串会落进 workflow_runs.error 并返回给 owner
+      throw new OriginGroupError('NOT_FOUND', '作用域不属于该账号');
+    }
+    adapter.setZoneInfo(scopeId, hit.zoneName || scopeId);
+    return {
+      ops: adapter.originGroups(),
+      credentialSource: 'tencenteo',
+      accountId,
+      zoneId: scopeId,
+      domainName: hit.zoneName || scopeId,
+      siteType: adapter.getSiteType(),
+    };
+  }
+
+  const account = await requireAccount(accountId);
+  const { adapter: teo, siteType } = await buildReusedAdapter(account, options);
+  const zones = await teo.listZones();
+  const hit = zones.find((zone) => zone.zoneId === scopeId);
+  if (!hit) {
+    throw new OriginGroupError('NOT_FOUND', '作用域不属于该账号');
+  }
+  teo.setZoneInfo(scopeId, hit.zoneName || scopeId);
+  return {
+    ops: teo.originGroups(),
+    credentialSource: 'dnspod',
+    accountId,
+    zoneId: scopeId,
+    domainName: hit.zoneName || scopeId,
+    siteType,
+  };
+}
+
+/** 按**账号**列出凭据可见的 EdgeOne 站点（候选源用；与 teoOpsForAccount 共用同一份可见性口径） */
+export async function listTeoZonesByAccount(
+  accountId: number,
+  options: TeoOpsOptions = {},
+): Promise<Array<{ zoneId: string; zoneName: string }>> {
+  const adapter = await resolveAdapter(accountId);
+  if (adapter instanceof TencenteoAdapter) return adapter.listZones();
+  const account = await requireAccount(accountId);
+  const { adapter: teo } = await buildReusedAdapter(account, options);
+  return teo.listZones();
+}

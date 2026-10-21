@@ -10,6 +10,7 @@ import {
 } from '../workflow';
 import { createLogger } from '../lib/logger';
 import { sendError, sendSuccess } from '../utils/http';
+import { accountAccessLevelForRoute } from '../lib/dns/account-context';
 
 function toId(raw: string): number {
   const value = Number(raw);
@@ -209,6 +210,37 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
   // 提供商侧候选源：核心只按 source 名转发，不 import 具体提供商
   const providerMeta = getProviderMetaSource(source);
   if (providerMeta) {
+    // 按源的定位维度分流：域名源的入参是 domainId，账号源的入参是 accountId。
+    // 两者绝不能混用——域名 id 与账号 id 都是小整数，混用会互相冒充。
+    if (providerMeta.scope === 'account') {
+      const accountId = toId(String(req.query.accountId ?? ''));
+      if (!accountId) {
+        sendError(res, '请先选择账号', 422);
+        return;
+      }
+      // 先鉴权、再解析：getAdapterByAccount 会构造带凭据的适配器，
+      // 若放在鉴权之前，未授权者能靠错误串差异把 accountId 变成枚举器。
+      const level = await accountAccessLevelForRoute({ accountId, userId, role: req.user?.role });
+      if (level === 'none') {
+        sendError(res, '账号不存在', 404);
+        return;
+      }
+      try {
+        const adapter = await DnsProviderService.getAdapterByAccount(accountId);
+        const extraParams: Record<string, string> = {};
+        for (const [key, value] of Object.entries(req.query)) {
+          if (key === 'accountId' || typeof value !== 'string') continue;
+          extraParams[key] = value;
+        }
+        const scopeId = String(req.query.scopeId ?? '').trim() || undefined;
+        const items = await providerMeta.resolve({ accountId, scopeId, adapter, params: extraParams });
+        sendSuccess(res, { items });
+      } catch (error) {
+        sendError(res, error instanceof Error ? error.message : String(error), 502);
+      }
+      return;
+    }
+
     const domainId = toId(String(req.query.domainId ?? ''));
     if (!domainId) {
       sendError(res, '缺少 domainId', 422);
