@@ -232,6 +232,7 @@ export function startWorkflowModule(): void {
         finishedAt: run.finishedAt,
         triggerEvent: toStoredTriggerEvent(run),
         depth: run.depth,
+        steps: run.steps,
       });
     },
   });

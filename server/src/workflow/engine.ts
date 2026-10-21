@@ -7,6 +7,7 @@ import { evaluate, createEvalState } from './expression/evaluator';
 import { LIMITS } from './expression/nodes';
 import type { Dispatcher } from './dispatch';
 import type { Principal } from './auth';
+import { redactArgs, type WorkflowRunStep } from './run-steps';
 
 const log = createLogger('Workflow').sub('Engine');
 
@@ -69,6 +70,8 @@ export interface RunRecord {
   readonly event?: AnyDomainEvent;
   /** 本次运行的深度（此前 engine 持有但从未落库） */
   readonly depth?: number;
+  /** 逐步执行记录（设计 §3.6）：动作、状态、耗时、脱敏后的实参、错误 */
+  readonly steps?: WorkflowRunStep[];
 }
 
 export interface EngineDeps {
@@ -228,21 +231,40 @@ export class WorkflowEngine {
     const traceId = event.traceId;
     const startedAt = new Date(now()).toISOString();
     const vars: Record<string, unknown> = {};
+    // 逐步记录声明在 try 外：失败分支也要带上已完成的那几步
+    const steps: WorkflowRunStep[] = [];
 
     try {
       const principal = cachedPrincipal ?? (await this.deps.resolvePrincipal(workflow, event));
       // 防循环第二层：动作产生的写入事件深度 +1，并由总线按 maxDepth 丢弃
       const eventDepth = event.type === 'record.changed' ? event.depth : 0;
-      const call = (action: string, args: Record<string, unknown>) =>
-        this.deps.dispatch(action, principal, args, {
+      // 逐步记录（设计 §3.6）：记录的是求值后的实参，且经过脱敏
+      const call = async (action: string, args: Record<string, unknown>) => {
+        const stepStarted = now();
+        const input = redactArgs(args);
+        try {
+          const result = await this.deps.dispatch(action, principal, args, {
           trigger,
           triggerType: trigger === 'manual' ? 'manual' : event.type,
           vars,
           traceId: event.traceId,
           depth: eventDepth + 1,
-          signal,
-          resource: { domainId: event.domain.id, domainName: event.domain.name },
-        });
+            signal,
+            resource: { domainId: event.domain.id, domainName: event.domain.name },
+          });
+          steps.push({ action, status: 'success', durationMs: now() - stepStarted, input });
+          return result;
+        } catch (error) {
+          steps.push({
+            action,
+            status: 'failed',
+            durationMs: now() - stepStarted,
+            input,
+            error: (error as Error).message,
+          });
+          throw error;
+        }
+      };
 
       // 限额必须是**运行级**：condition 与全部 action 共享同一份 calls/deadline，
       // 否则每个根节点各拿一份预算，单次运行上限被放大为「根数 × 50」。
@@ -267,6 +289,7 @@ export class WorkflowEngine {
             startedAt,
             finishedAt: new Date(now()).toISOString(),
             event,
+            steps,
           };
         }
       }
@@ -283,6 +306,7 @@ export class WorkflowEngine {
         startedAt,
         finishedAt: new Date(now()).toISOString(),
         event,
+        steps,
       };
     } catch (error) {
       const message = (error as Error).message;
@@ -295,6 +319,7 @@ export class WorkflowEngine {
         finishedAt: new Date(now()).toISOString(),
         error: message,
         event,
+        steps,
       };
     }
   }

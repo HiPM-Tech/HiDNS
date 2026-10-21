@@ -7,6 +7,7 @@ const log = createLogger('Workflow').sub('Store');
 import { runPruneScheduler } from './retention';
 import type { WorkflowDefinition, WorkflowTrigger } from './engine';
 import type { ExpressionNode } from './expression/nodes';
+import { serializeSteps, type WorkflowRunStep } from './run-steps';
 
 /**
  * 工作流持久化（经 BAL，禁止直连驱动）。
@@ -281,6 +282,8 @@ export async function recordRun(record: {
   /** 触发事件快照，供 `(...)` 预览与追溯 */
   triggerEvent?: unknown;
   depth?: number;
+  /** 逐步执行记录（设计 §3.6） */
+  steps?: WorkflowRunStep[];
 }): Promise<void> {
   let triggerEvent: string | null = null;
   if (record.triggerEvent !== undefined) {
@@ -297,6 +300,7 @@ export async function recordRun(record: {
     error: record.error ?? null,
     trigger_event: triggerEvent,
     depth: record.depth ?? 0,
+    steps: serializeSteps(record.steps),
     started_at: toSqlDateTime(record.startedAt),
     finished_at: toSqlDateTime(record.finishedAt),
   });

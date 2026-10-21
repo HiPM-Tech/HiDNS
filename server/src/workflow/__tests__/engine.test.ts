@@ -456,6 +456,40 @@ describe('执行引擎', () => {
     expect(runDispatch).toHaveBeenCalled();
   });
 
+  it('逐步记录：成功的动作留下动作名、耗时与脱敏后的实参', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const runs = await engine([wf()], dispatch).handleEvent(event('A'));
+    const steps = runs[0].steps ?? [];
+    expect(steps).toHaveLength(1);
+    expect(steps[0].action).toBe('dns.record.update');
+    expect(steps[0].status).toBe('success');
+    expect(steps[0].durationMs).toBeGreaterThanOrEqual(0);
+    // 实参是求值后的值，不是 DSL 表达式
+    expect(steps[0].input).toMatchObject({ value: '1.2.3.4' });
+  });
+
+  it('逐步记录：失败的动作标记 failed 并带上错误', async () => {
+    const dispatch = vi.fn(async () => {
+      throw new Error('上游拒绝');
+    });
+    const runs = await engine([wf()], dispatch).handleEvent(event('A'));
+    expect(runs[0].status).toBe('failed');
+    const steps = runs[0].steps ?? [];
+    expect(steps[0].status).toBe('failed');
+    expect(steps[0].error).toContain('上游拒绝');
+  });
+
+  it('逐步记录：敏感参数在记录里被遮掉', async () => {
+    const dispatch = vi.fn(async () => 'ok');
+    const action = {
+      kind: 'call',
+      action: 'dns.record.update',
+      args: { value: { kind: 'literal', value: 'x' }, token: { kind: 'literal', value: 'super-secret' } },
+    };
+    const runs = await engine([wf({ actions: [action] } as never)], dispatch).handleEvent(event('A'));
+    expect(runs[0].steps?.[0].input.token).toBe('***');
+  });
+
   it('ref 参数按事件值解析后传给动作', async () => {
     const dispatch = vi.fn(async () => 'ok');
     const runs = await engine([wf()], dispatch).handleEvent(event('A'));

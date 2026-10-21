@@ -5457,11 +5457,13 @@ export const WorkflowOperations = {
     trigger_event?: string | null;
     error?: string | null;
     depth?: number;
+    /** 逐步执行记录（JSON 字符串），设计 §3.6 */
+    steps?: string | null;
     started_at?: string;
     finished_at?: string | null;
   }): Promise<void> {
     await executeInternal(
-      'INSERT INTO workflow_runs (workflow_id, trace_id, status, trigger_event, error, depth, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO workflow_runs (workflow_id, trace_id, status, trigger_event, error, depth, steps, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         data.workflow_id,
         data.trace_id,
@@ -5469,6 +5471,7 @@ export const WorkflowOperations = {
         data.trigger_event ?? null,
         data.error ?? null,
         data.depth ?? 0,
+        data.steps ?? null,
         data.started_at ?? new Date().toISOString(),
         data.finished_at ?? null,
       ],

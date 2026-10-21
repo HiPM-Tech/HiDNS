@@ -909,6 +909,8 @@ export const COMPLETE_SCHEMA: DatabaseSchema = {
         { name: 'trigger_event', type: 'text', nullable: true },
         { name: 'error', type: 'text', nullable: true },
         { name: 'depth', type: 'integer', defaultValue: 0 },
+        // 逐步执行记录（JSON），设计 §3.6：动作、状态、耗时、脱敏输入、错误
+        { name: 'steps', type: 'text', nullable: true },
         { name: 'started_at', type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' },
         { name: 'finished_at', type: 'datetime', nullable: true },
       ],
