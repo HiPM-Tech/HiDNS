@@ -12,6 +12,7 @@ import { createLogger } from '../lib/logger';
 import { sendError, sendSuccess } from '../utils/http';
 import { accountAccessLevelForRoute, resolveDomainAccount } from '../lib/dns/account-context';
 import { isOriginGroupCapableAccount, listTeoZonesByAccount } from '../lib/dns/providers/tencenteo/origin-group-context';
+import { buildMigrationReport } from '../workflow/migration-report';
 
 function toId(raw: string): number {
   const value = Number(raw);
@@ -336,60 +337,15 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
  * 范围：只返回调用者自己的 workflow（超管需显式 ?all=true），
  * 候选 scope 经账号可见性后才生成——否则这个端点本身就是「遍历他人账号 + 站点列表」的工具。
  */
-function collectLegacyOriginGroupNodes(actions: unknown[]): Array<{ action: string; domainId: number; siteType?: string }> {
-  const out: Array<{ action: string; domainId: number; siteType?: string }> = [];
-  const visit = (node: unknown): void => {
-    if (!node || typeof node !== 'object') return;
-    const obj = node as Record<string, unknown>;
-    if (obj.kind === 'call' && typeof obj.action === 'string' && obj.action.startsWith('ext.tencenteo.originGroup.')) {
-      const args = (obj.args ?? {}) as Record<string, unknown>;
-      const domainId = Number((args.domainId as { value?: unknown })?.value ?? args.domainId);
-      const hasAccount = args.accountId !== undefined;
-      if (!hasAccount && Number.isFinite(domainId) && domainId > 0) {
-        out.push({
-          action: obj.action,
-          domainId,
-          siteType: String((args.siteType as { value?: unknown })?.value ?? args.siteType ?? '') || undefined,
-        });
-      }
-    }
-    // assign 包裹的 call、以及条件树里的嵌套节点都要走到
-    for (const value of Object.values(obj)) {
-      if (Array.isArray(value)) value.forEach(visit);
-      else if (value && typeof value === 'object') visit(value);
-    }
-  };
-  actions.forEach(visit);
-  return out;
-}
-
 router.get('/migration-report', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const userId = Number(req.user!.userId);
   const own = await listByOwner(userId);
-  const report: Array<Record<string, unknown>> = [];
-
-  for (const workflow of own) {
-    const legacy = collectLegacyOriginGroupNodes((workflow.actions ?? []) as unknown[]);
-    if (legacy.length === 0) continue;
-    const entries: Array<Record<string, unknown>> = [];
-    for (const node of legacy) {
-      const entry: Record<string, unknown> = { action: node.action, domainId: node.domainId };
-      try {
-        const ref = await resolveDomainAccount(node.domainId);
-        entry.accountId = ref.accountId;
-        entry.candidateScopes = await listTeoZonesByAccount(ref.accountId, { siteType: node.siteType });
-        // 是否可由本次调用者完成迁移：账号不可见就只能提示去找账号所有者
-        const level = await accountAccessLevelForRoute({ accountId: ref.accountId, userId, role: req.user?.role });
-        entry.migratable = level !== 'none';
-      } catch (error) {
-        entry.error = error instanceof Error ? error.message : String(error);
-        entry.migratable = false;
-      }
-      entries.push(entry);
-    }
-    report.push({ workflowId: workflow.id, name: workflow.name, actions: entries });
-  }
-
+  const report = await buildMigrationReport(own as unknown as Array<{ id: number; name: string; actions?: unknown[] }>, {
+    resolveDomainAccount,
+    // 角色词表桥接：accountAccessLevel 内部按 'super_admin' 判定，喂数值 3 会把超管判成 none
+    accountLevel: (accountId) => accountAccessLevelForRoute({ accountId, userId, role: req.user?.role }),
+    listZones: (accountId, options) => listTeoZonesByAccount(accountId, options),
+  });
   sendSuccess(res, { total: report.length, items: report });
 }));
 router.get('/:id/sample-event', authMiddleware, adminOnly, asyncHandler(async (req: Request, res: Response) => {

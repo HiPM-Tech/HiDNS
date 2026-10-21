@@ -4,6 +4,7 @@ import type { OriginGroupClient } from './origin-group-client';
 import { OriginGroupError } from '../../origin-group-core';
 import { mayReuseCredentials } from '../credential-sharing';
 import { getOriginGroupCapability } from '../registry';
+import { isZoneVisibleCached } from './zone-visibility-cache';
 import { normalizeProviderType } from '../../providerAlias';
 
 /**
@@ -51,7 +52,8 @@ export interface TeoOps {
   /** 提供凭据的 DNS 账号；站点级授权据此判断用户是否有权使用该账号 */
   accountId: number;
   zoneId: string;
-  domainName: string;
+  /** 作用域名（仅用于日志与结果回显；账号优先下没有域名，存站点名） */
+  scopeName: string;
   /** 实际使用的调用站点类型，写操作据此可追溯调的是哪个端点 */
   siteType: SiteType;
 }
@@ -182,7 +184,7 @@ export async function teoOpsForDomain(domainId: number, options: TeoOpsOptions =
       credentialSource: 'tencenteo',
       accountId: domain.accountId,
       zoneId: domain.thirdId,
-      domainName: domain.domainName,
+      scopeName: domain.domainName,
       siteType: adapter.getSiteType(),
     };
   }
@@ -207,7 +209,7 @@ export async function teoOpsForDomain(domainId: number, options: TeoOpsOptions =
     credentialSource: 'dnspod',
     accountId: domain.accountId,
     zoneId,
-    domainName: domain.domainName,
+    scopeName: domain.domainName,
     siteType,
   };
 }
@@ -254,37 +256,43 @@ export async function teoOpsForAccount(accountId: number, options: TeoOpsOptions
   const adapter = await resolveAdapter(accountId);
 
   if (adapter instanceof TencenteoAdapter) {
-    const zones = await adapter.listZones();
-    const hit = zones.find((zone) => zone.zoneId === scopeId);
-    if (!hit) {
+    const siteType = adapter.getSiteType();
+    // 走 60s 缓存：否则每次动作都要 DescribeZones（100 条/页），事件触发时极易撞上游限流
+    const { visible, zoneName } = await isZoneVisibleCached(
+      { accountId, siteType, zoneId: scopeId },
+      () => adapter.listZones(),
+    );
+    if (!visible) {
       // 不回显他人站点标识：错误串会落进 workflow_runs.error 并返回给 owner
       throw new OriginGroupError('NOT_FOUND', '作用域不属于该账号');
     }
-    adapter.setZoneInfo(scopeId, hit.zoneName || scopeId);
+    adapter.setZoneInfo(scopeId, zoneName || scopeId);
     return {
       ops: adapter.originGroups(),
       credentialSource: 'tencenteo',
       accountId,
       zoneId: scopeId,
-      domainName: hit.zoneName || scopeId,
+      scopeName: zoneName || scopeId,
       siteType: adapter.getSiteType(),
     };
   }
 
   const account = await requireAccount(accountId);
   const { adapter: teo, siteType } = await buildReusedAdapter(account, options);
-  const zones = await teo.listZones();
-  const hit = zones.find((zone) => zone.zoneId === scopeId);
-  if (!hit) {
+  const { visible, zoneName } = await isZoneVisibleCached(
+    { accountId, siteType, zoneId: scopeId },
+    () => teo.listZones(),
+  );
+  if (!visible) {
     throw new OriginGroupError('NOT_FOUND', '作用域不属于该账号');
   }
-  teo.setZoneInfo(scopeId, hit.zoneName || scopeId);
+  teo.setZoneInfo(scopeId, zoneName || scopeId);
   return {
     ops: teo.originGroups(),
     credentialSource: 'dnspod',
     accountId,
     zoneId: scopeId,
-    domainName: hit.zoneName || scopeId,
+    scopeName: zoneName || scopeId,
     siteType,
   };
 }
