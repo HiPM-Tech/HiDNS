@@ -53,7 +53,9 @@ export function WorkflowTab() {
   const handleChange = (value: any) => {
     const next = Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
     setDraft(next);
-    setDirty(true);
+    // 不能一收到 onChange 就置 dirty：TagInput 在挂载/受控值变化时也会触发，
+    // 结果是用户什么都没做，「保存」按钮就已经是可点的。按内容比较才准确。
+    setDirty(JSON.stringify(next) !== JSON.stringify(remote));
   };
 
   return (
