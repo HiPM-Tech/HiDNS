@@ -96,6 +96,20 @@
   width: 100%;
 }
 
+/* 源站组收敛提示：条数 > 1 时提示会被合并成 1 条 */
+.workflow-cascading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.workflow-collapse-warning {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--td-warning-color, #e37318);
+}
+
 /* 触发器与动作冲突提示：说明为什么选不了，而不是只把选项灰掉 */
 .workflow-conflict {
   margin-top: 6px;
