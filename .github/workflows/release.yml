@@ -356,7 +356,9 @@ jobs:
           cd ../..
 
           # Create start script
-          printf '#!/bin/bash\necho "Starting HiDNS Server..."\nexport NODE_PATH=$(dirname "$0")/server/node_modules\nexport PATH=$(dirname "$0")/nodejs/bin:$PATH\n$(dirname "$0")/nodejs/bin/node $(dirname "$0")/server/dist/app.js\n' > release-dist/Start-HiDNS.sh
+          # 必须先 cd 到包所在目录：服务端用 process.cwd() 作为 APP_ROOT 去找 client/dist，
+          # 从别处运行（尤其 Finder 双击时 cwd 是 /）会拿不到前端，页面 404。
+          printf '#!/bin/bash\ncd "$(dirname "$0")" || exit 1\necho "Starting HiDNS Server..."\nexport NODE_PATH="$(pwd)/server/node_modules"\nexport PATH="$(pwd)/nodejs/bin:$PATH"\n"$(pwd)/nodejs/bin/node" "$(pwd)/server/dist/app.js"\n' > release-dist/Start-HiDNS.sh
           chmod +x release-dist/Start-HiDNS.sh
 
           # Create tar.gz package
@@ -426,7 +428,9 @@ jobs:
           cd ../..
 
           # Create start script
-          printf '#!/bin/bash\necho "Starting HiDNS Server..."\nexport NODE_PATH=$(dirname "$0")/server/node_modules\nexport PATH=$(dirname "$0")/nodejs/bin:$PATH\n$(dirname "$0")/nodejs/bin/node $(dirname "$0")/server/dist/app.js\n' > release-dist/Start-HiDNS.sh
+          # 必须先 cd 到包所在目录：服务端用 process.cwd() 作为 APP_ROOT 去找 client/dist，
+          # 从别处运行（尤其 Finder 双击时 cwd 是 /）会拿不到前端，页面 404。
+          printf '#!/bin/bash\ncd "$(dirname "$0")" || exit 1\necho "Starting HiDNS Server..."\nexport NODE_PATH="$(pwd)/server/node_modules"\nexport PATH="$(pwd)/nodejs/bin:$PATH"\n"$(pwd)/nodejs/bin/node" "$(pwd)/server/dist/app.js"\n' > release-dist/Start-HiDNS.sh
           chmod +x release-dist/Start-HiDNS.sh
 
           # Create tar.gz package
@@ -497,7 +501,9 @@ jobs:
           cd ../..
 
           # Create start script
-          printf '#!/bin/bash\necho "Starting HiDNS Server..."\nexport NODE_PATH=$(dirname "$0")/server/node_modules\nexport PATH=$(dirname "$0")/nodejs/bin:$PATH\n$(dirname "$0")/nodejs/bin/node $(dirname "$0")/server/dist/app.js\n' > release-dist/Start-HiDNS.sh
+          # 必须先 cd 到包所在目录：服务端用 process.cwd() 作为 APP_ROOT 去找 client/dist，
+          # 从别处运行（尤其 Finder 双击时 cwd 是 /）会拿不到前端，页面 404。
+          printf '#!/bin/bash\ncd "$(dirname "$0")" || exit 1\necho "Starting HiDNS Server..."\nexport NODE_PATH="$(pwd)/server/node_modules"\nexport PATH="$(pwd)/nodejs/bin:$PATH"\n"$(pwd)/nodejs/bin/node" "$(pwd)/server/dist/app.js"\n' > release-dist/Start-HiDNS.sh
           chmod +x release-dist/Start-HiDNS.sh
 
           # Create tar.gz package
@@ -568,7 +574,9 @@ jobs:
           cd ../..
 
           # Create start script
-          printf '#!/bin/bash\necho "Starting HiDNS Server..."\nexport NODE_PATH=$(dirname "$0")/server/node_modules\nexport PATH=$(dirname "$0")/nodejs/bin:$PATH\n$(dirname "$0")/nodejs/bin/node $(dirname "$0")/server/dist/app.js\n' > release-dist/Start-HiDNS.sh
+          # 必须先 cd 到包所在目录：服务端用 process.cwd() 作为 APP_ROOT 去找 client/dist，
+          # 从别处运行（尤其 Finder 双击时 cwd 是 /）会拿不到前端，页面 404。
+          printf '#!/bin/bash\ncd "$(dirname "$0")" || exit 1\necho "Starting HiDNS Server..."\nexport NODE_PATH="$(pwd)/server/node_modules"\nexport PATH="$(pwd)/nodejs/bin:$PATH"\n"$(pwd)/nodejs/bin/node" "$(pwd)/server/dist/app.js"\n' > release-dist/Start-HiDNS.sh
           chmod +x release-dist/Start-HiDNS.sh
 
           # Create tar.gz package
