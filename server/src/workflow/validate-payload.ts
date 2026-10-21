@@ -72,6 +72,11 @@ export function validatePayload(payload: WorkflowPayload): string[] {
   if (recordTypes !== undefined) {
     if (!Array.isArray(recordTypes)) {
       problems.push('triggerConfig.recordTypes 必须是数组');
+    } else if (recordTypes.length === 0) {
+      // 设计 §4.0.5：recordTypes 只能取 ['A'] / ['AAAA'] / ['A','AAAA']。
+      // 空数组会被引擎判成「永不匹配」——工作流能存下但永远不触发，属于静默失效。
+      // 注意与 fields / statuses 不同：那两个空数组表示「任意」，这里表示「一个都不匹配」。
+      problems.push('triggerConfig.recordTypes 不能为空：至少选择 A 或 AAAA，否则工作流永远不会触发');
     } else if (recordTypes.some((t) => t !== 'A' && t !== 'AAAA')) {
       problems.push('triggerConfig.recordTypes 仅允许 A / AAAA');
     }
