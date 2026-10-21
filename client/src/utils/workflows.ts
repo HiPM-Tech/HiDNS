@@ -329,3 +329,16 @@ export function findInvalidVarName(rows: ActionRow[]): string | null {
   }
   return null;
 }
+
+/**
+ * 取节点的动作名。
+ * assign(call) 要取内层 call 的名字——否则列表里会显示成 `?`，
+ * 因为变量赋值节点本身没有 action 字段。
+ */
+export function actionNameOf(node: WorkflowDslNode): string {
+  if (node.kind === 'assign') {
+    const inner = (node as unknown as { value?: WorkflowDslNode }).value;
+    if (inner && inner.kind === 'call') return String(inner.action ?? '');
+  }
+  return String(node.action ?? '');
+}

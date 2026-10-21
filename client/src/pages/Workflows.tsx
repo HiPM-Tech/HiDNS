@@ -20,6 +20,7 @@ import {
   fromConditionNode,
   formatDuration,
   formatServerTime,
+  actionNameOf,
   findInvalidVarName,
   findMissingRequiredArg,
   fromDslNodes,
@@ -339,11 +340,12 @@ export function Workflows() {
       width: 260,
       // 只给个数字看不出这条工作流到底干什么，这里直接列出动作链路（机器名回落到原始值，不隐藏异常）
       render: (row: WorkflowRecord) => {
-        const list = (row.actions ?? []) as Array<{ action?: string }>;
+        const list = (row.actions ?? []) as Array<{ kind?: string }>;
         if (list.length === 0) return '-';
         return list
           .map((node) => {
-            const name = String(node.action ?? '');
+            // 用 actionNameOf：assign(call) 要取内层动作名，否则显示成 ?
+            const name = actionNameOf(node as never);
             const item = actionMap.get(name);
             return item ? t(item.label) : name || '?';
           })
