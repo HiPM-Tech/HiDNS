@@ -15,6 +15,11 @@ export interface ActionParam {
   required: boolean;
   /** i18n key：参数的补充说明（渲染在控件下方），用于解释「这个值从哪来」 */
   hint?: string;
+  /**
+   * 声明式前端校验（设计 §788：服务端拒绝的内网源站，前端应提前提示）。
+   * `public-origin` = 该值不能是内网/回环/本地主机。服务端仍是权威判定。
+   */
+  validation?: 'public-origin';
   options?: string[];
   /**
    * 候选来源（`/api/workflows/meta/:source`）。

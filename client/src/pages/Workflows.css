@@ -118,6 +118,14 @@
   color: var(--td-warning-color, #e37318);
 }
 
+/* 参数校验提示：这个值会被服务端拒绝 */
+.workflow-param__invalid {
+  flex-basis: 100%;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--td-error-color, #d54941);
+}
+
 /* 参数说明：控件下方的一行小字，解释这个值从哪来 */
 .workflow-param__hint {
   flex-basis: 100%;

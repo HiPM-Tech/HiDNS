@@ -6,6 +6,7 @@ import type { WorkflowRecord, WorkflowActionMeta, WorkflowRunRecord } from '../a
 import { Table } from '../components/Table';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { CascadingSelect } from '../components/workflows/CascadingSelect';
+import { looksPrivateOrigin } from '../utils/origin';
 import { SuggestInput } from '../components/workflows/SuggestInput';
 import { useI18n } from '../contexts/I18nContext';
 import { useFormSync } from '../hooks/useFormSync';
@@ -693,6 +694,10 @@ export function Workflows() {
                             {/* 说明放在控件下方：像 diffDigest 这种「值不由你决定、由上一步产出」的参数，
                                 只给四个字的名字，用户不可能知道该怎么填 */}
                             {param.hint ? <span className="workflow-param__hint">{t(param.hint)}</span> : null}
+                            {/* 设计 §788：服务端会拒绝内网源站，这里提前提示，避免配完运行才发现 */}
+                            {param.validation === 'public-origin' && looksPrivateOrigin(argValue) ? (
+                              <span className="workflow-param__invalid">{t('workflows.privateOriginWarning')}</span>
+                            ) : null}
                           </label>
                         );
                       })}

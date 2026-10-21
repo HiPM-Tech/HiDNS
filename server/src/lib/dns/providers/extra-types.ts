@@ -17,6 +17,8 @@ export interface ProviderActionParam {
   required: boolean;
   /** i18n key：参数的补充说明（渲染在控件下方） */
   hint?: string;
+  /** 声明式前端校验：public-origin = 不能是内网/回环/本地主机 */
+  validation?: 'public-origin';
   options?: string[];
   /** 候选来源（`/api/workflows/meta/:source`）；声明后前端渲染为下拉 */
   source?: string;
