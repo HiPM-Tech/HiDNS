@@ -53,7 +53,19 @@
             "runStatus_success": "Success",
             "runStatus_failed": "Failed",
             "runStatus_skipped": "Skipped",
-            "runStatus_running": "Running"
+            "runStatus_running": "Running",
+            "fieldRecordValue": "Record value",
+            "fieldOldValue": "Previous value",
+            "fieldRecordName": "Record host",
+            "fieldRecordType": "Record type",
+            "fieldDomainName": "Domain",
+            "fieldStatus": "NS status",
+            "fieldDaysLeft": "Days left",
+            "previewType": "Event type",
+            "previewDomain": "Domain",
+            "previewRecord": "Record",
+            "previewValue": "New value",
+            "previewOldValue": "Old value"
         },
         "about": {
             "community": "コミュニティ",

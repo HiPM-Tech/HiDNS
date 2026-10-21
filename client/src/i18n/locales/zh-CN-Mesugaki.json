@@ -53,7 +53,19 @@
             "runStatus_success": "成功",
             "runStatus_failed": "失败",
             "runStatus_skipped": "已跳过",
-            "runStatus_running": "运行中"
+            "runStatus_running": "运行中",
+            "fieldRecordValue": "记录值",
+            "fieldOldValue": "变更前的值",
+            "fieldRecordName": "记录主机名",
+            "fieldRecordType": "记录类型",
+            "fieldDomainName": "域名",
+            "fieldStatus": "NS 状态",
+            "fieldDaysLeft": "剩余天数",
+            "previewType": "事件类型",
+            "previewDomain": "域名",
+            "previewRecord": "记录",
+            "previewValue": "新值",
+            "previewOldValue": "原值"
         },
         "about": {
             "community": "社区喵~",

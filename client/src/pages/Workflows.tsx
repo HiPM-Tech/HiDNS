@@ -27,6 +27,17 @@ import {
 } from '../utils/workflows';
 import './Workflows.css';
 
+/** 条件字段路径 → i18n key。界面上直接铺 event.record.value 对人不友好 */
+const CONDITION_FIELD_LABEL_KEYS: Record<string, string> = {
+  'event.record.value': 'workflows.fieldRecordValue',
+  'event.record.oldValue': 'workflows.fieldOldValue',
+  'event.record.name': 'workflows.fieldRecordName',
+  'event.record.type': 'workflows.fieldRecordType',
+  'event.domain.name': 'workflows.fieldDomainName',
+  'event.status': 'workflows.fieldStatus',
+  'event.daysLeft': 'workflows.fieldDaysLeft',
+};
+
 /** 运行状态 → TDesign Tag 主题 */
 function runStatusTheme(status?: string): 'success' | 'danger' | 'default' | 'primary' {
   switch (status) {
@@ -421,7 +432,7 @@ export function Workflows() {
                 <div className="workflow-condition-row">
                   <Select
                     value={form.condition.field}
-                    options={CONDITION_FIELDS.map((field) => ({ label: field.path, value: field.path }))}
+                    options={CONDITION_FIELDS.map((field) => ({ label: t(CONDITION_FIELD_LABEL_KEYS[field.path] ?? field.path), value: field.path }))}
                     onChange={(value) => updateField('condition', { ...form.condition, field: String(value) })}
                   />
                   <Select
@@ -603,11 +614,12 @@ export function Workflows() {
           const record = (event.record ?? {}) as { name?: string; type?: string; value?: string; oldValue?: string };
           return (
             <div className="workflow-preview">
-              <div><strong>type</strong>: {String(event.type ?? '')}</div>
-              <div><strong>domain</strong>: {domain.name ?? '-'}</div>
-              <div><strong>record</strong>: {record.name ?? '-'} {record.type ?? ''}</div>
-              <div><strong>value</strong>: {record.value ?? '-'}</div>
-              <div><strong>oldValue</strong>: {record.oldValue ?? '-'}</div>
+              {/* 这里原来写死英文键名（type / oldValue），和其它页面的本地化不一致 */}
+              <div><strong>{t('workflows.previewType')}</strong>: {t(triggerLabels.get(String(event.type ?? '')) ?? String(event.type ?? ''))}</div>
+              <div><strong>{t('workflows.previewDomain')}</strong>: {domain.name ?? '-'}</div>
+              <div><strong>{t('workflows.previewRecord')}</strong>: {record.name ?? '-'} {record.type ?? ''}</div>
+              <div><strong>{t('workflows.previewValue')}</strong>: {record.value ?? '-'}</div>
+              <div><strong>{t('workflows.previewOldValue')}</strong>: {record.oldValue ?? '-'}</div>
             </div>
           );
         })()}
