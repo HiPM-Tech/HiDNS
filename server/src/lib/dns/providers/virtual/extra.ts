@@ -148,7 +148,7 @@ export const virtualOriginGroupCapability: ProviderExtraCapability = {
       risk: 'low',
       service: 'records.read',
       dslVisible: true,
-      params: [{ key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true }],
+      params: [{ key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true, source: 'domains' }],
     },
     {
       name: 'ext.virtual.originGroup.get',
@@ -158,7 +158,7 @@ export const virtualOriginGroupCapability: ProviderExtraCapability = {
       service: 'records.read',
       dslVisible: true,
       params: [
-        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
+        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true, source: 'domains' },
         { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'virtualOriginGroups', sourceParams: ['domainId'] },
       ],
     },
@@ -170,7 +170,7 @@ export const virtualOriginGroupCapability: ProviderExtraCapability = {
       service: 'records.read',
       dslVisible: true,
       params: [
-        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
+        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true, source: 'domains' },
         { key: 'domainName', label: 'workflow.param.domain_name', type: 'text', required: false },
         { key: 'groupIds', label: 'workflow.param.group_ids', type: 'text', required: false },
         { key: 'v4', label: 'workflow.param.ipv4', type: 'text', required: false },
@@ -190,7 +190,7 @@ export const virtualOriginGroupCapability: ProviderExtraCapability = {
       service: 'records.write',
       dslVisible: true,
       params: [
-        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
+        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true, source: 'domains' },
         { key: 'domainName', label: 'workflow.param.domain_name', type: 'text', required: false },
         { key: 'groupIds', label: 'workflow.param.group_ids', type: 'text', required: false },
         { key: 'v4', label: 'workflow.param.ipv4', type: 'text', required: false },

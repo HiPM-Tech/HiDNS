@@ -106,6 +106,23 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
   const source = String(req.params.source);
   const userId = Number(req.user!.userId);
 
+  // 域名候选源：源站组等动作需要按域名定位，不能只给一个「手填域名 ID」的输入框。
+  // 口径与 HTTP 读权限一致（创建者 / 直接授权行），避免下拉里出现用户读不到的域名。
+  if (source === 'domains') {
+    const rows = (await DomainOperations.getUserAccessibleDomains(userId)) as unknown as Array<{
+      id: number;
+      name: string;
+      account_name?: string;
+    }>;
+    sendSuccess(res, {
+      items: rows.map((row) => ({
+        value: String(row.id),
+        label: row.account_name ? `${row.name} (${row.account_name})` : String(row.name),
+      })),
+    });
+    return;
+  }
+
   // 无 DB 依赖的候选源由纯函数提供，便于单测
   if (isStaticMetaSource(source)) {
     sendSuccess(res, { items: buildStaticMeta(source) });

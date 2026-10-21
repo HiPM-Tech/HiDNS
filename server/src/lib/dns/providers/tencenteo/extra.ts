@@ -140,7 +140,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       service: 'records.read',
       dslVisible: true,
       params: [
-        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
+        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true, source: 'domains' },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
         { key: 'zoneId', label: 'workflow.param.zone_id', type: 'text', required: false, source: 'edgeoneZones', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
       ],
@@ -153,7 +153,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       service: 'records.read',
       dslVisible: true,
       params: [
-        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
+        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true, source: 'domains' },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
         { key: 'zoneId', label: 'workflow.param.zone_id', type: 'text', required: false, source: 'edgeoneZones', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
         { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'], sourceOptionalParams: ['siteType', 'zoneId'] },
@@ -167,7 +167,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       service: 'records.read',
       dslVisible: true,
       params: [
-        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
+        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true, source: 'domains' },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
         { key: 'zoneId', label: 'workflow.param.zone_id', type: 'text', required: false, source: 'edgeoneZones', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
         { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'], sourceOptionalParams: ['siteType', 'zoneId'] },
@@ -182,7 +182,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       service: 'records.write',
       dslVisible: true,
       params: [
-        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true },
+        { key: 'domainId', label: 'workflow.param.domain_id', type: 'number', required: true, source: 'domains' },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
         { key: 'zoneId', label: 'workflow.param.zone_id', type: 'text', required: false, source: 'edgeoneZones', sourceParams: ['domainId'], sourceOptionalParams: ['siteType'] },
         { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['domainId'], sourceOptionalParams: ['siteType', 'zoneId'] },
