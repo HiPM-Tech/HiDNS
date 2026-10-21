@@ -426,7 +426,10 @@ export function getProviderInfoList(): ProviderInfo[] {
  * 且客户端漏改不报错；而 `extraCapabilities` 已经在 `/api/accounts/providers` 整个下发。
  */
 export function getOriginGroupCapability(providerType: string): boolean {
-  return (providerDefinitionMap.get(providerType)?.extraCapabilities ?? []).some((capability) =>
+  // 历史账号行可能存的是别名（如 'edgeone'），不归一会把这类账号判成「不支持」
+  // 而从 `accounts?originGroup=true` 里消失
+  const normalized = normalizeProviderType(providerType);
+  return (providerDefinitionMap.get(normalized)?.extraCapabilities ?? []).some((capability) =>
     capability.name.endsWith('.originGroup'),
   );
 }

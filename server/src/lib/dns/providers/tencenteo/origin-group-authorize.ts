@@ -2,6 +2,7 @@ import { AccountContextError, accountAccessLevel, resolveDomainAccount } from '.
 import type { ExtraAuthorizePrincipal } from '../extra-types';
 import { OriginGroupError } from '../../origin-group-core';
 import { listTeoZonesByAccount, teoOpsForAccount, teoOpsForDomain } from './origin-group-context';
+import { isZoneVisibleCached, resetZoneVisibilityCache } from './zone-visibility-cache';
 
 /**
  * EdgeOne 源站组的站点级授权（实现在提供商目录内，符合 root.ai.md §310）。
@@ -20,12 +21,10 @@ import { listTeoZonesByAccount, teoOpsForAccount, teoOpsForDomain } from './orig
  * 否则被拉进团队的人可以整组覆盖该账号密钥可见的全部站点。
  */
 
-const ZONE_CACHE_TTL_MS = 60_000;
-const zoneVisibility = new Map<string, number>();
 
 /** 仅供测试清理 */
 export function resetZoneAuthorizationCache(): void {
-  zoneVisibility.clear();
+  resetZoneVisibilityCache();
 }
 
 async function zoneVisibleUnderCredentials(params: {
@@ -36,14 +35,12 @@ async function zoneVisibleUnderCredentials(params: {
   // 两条凭据路径都要校验。改造前 EdgeOne 账号可以直接 `return true`，
   // 只因为 zoneId 由 domains.third_id 锚定、用户无从指定；账号优先后 scopeId 是用户入参，
   // 那条早退会让「未校验的资源标识直接打上游」，必须删掉。
-  const key = `${params.accountId}:${params.siteType}:${params.zoneId}`;
-  const hit = zoneVisibility.get(key);
-  if (hit !== undefined && Date.now() - hit < ZONE_CACHE_TTL_MS) return true;
-
-  const zones = await listTeoZonesByAccount(params.accountId, { siteType: params.siteType });
-  if (!zones.some((zone) => zone.zoneId === params.zoneId)) return false;
-  zoneVisibility.set(key, Date.now());
-  return true;
+  //
+  // 缓存与账号路径共用同一份实现（zone-visibility-cache），不再各留一个 Map。
+  const { visible } = await isZoneVisibleCached(params, () =>
+    listTeoZonesByAccount(params.accountId, { siteType: params.siteType }),
+  );
+  return visible;
 }
 
 export async function authorizeTencenteoOriginGroup(

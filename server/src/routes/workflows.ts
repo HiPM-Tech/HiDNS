@@ -347,10 +347,11 @@ async function listZonesViaSource(
 ): Promise<Array<{ zoneId: string; zoneName: string }>> {
   const source = getProviderMetaSource('edgeoneZones');
   if (!source) return [];
-  const adapter = await DnsProviderService.getAdapterByAccount(accountId);
+  // 不在这里另造适配器：resolver 内部会按 accountId 自行解析。
+  // 之前传了一个只为填字段的 adapter，等于每条目多一次 getById + createAdapter。
   const items = await source.resolve({
     accountId,
-    adapter,
+    adapter: undefined as never,
     params: options.siteType ? { siteType: options.siteType } : {},
   });
   return items.map((item) => ({ zoneId: item.value, zoneName: String(item.label) }));

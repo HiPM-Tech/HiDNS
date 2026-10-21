@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getOriginGroupCapability } from '../registry';
-import { isOriginGroupCapableAccount } from '../tencenteo/origin-group-context';
+import { isOriginGroupCapableAccount } from '../registry';
 
 describe('源站组能力位（设计 §2.2）', () => {
   it('由 extraCapabilities 派生：tencenteo 与 virtual 原生支持', () => {

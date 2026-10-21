@@ -309,5 +309,4 @@ export async function listTeoZonesByAccount(
   return teo.listZones();
 }
 
-export { isOriginGroupCapableAccount } from '../registry';
 
