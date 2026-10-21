@@ -11,6 +11,7 @@ export const notifyChannelActions: ActionDeclaration[] = [
   {
     name: 'notify.channel.send',
     label: 'workflow.action.notify_channel_send',
+    description: 'workflow.actionDesc.notify_channel_send',
     actionClass: 'notify',
     risk: 'low',
     service: 'notify.send',

@@ -457,6 +457,10 @@ export function Workflows() {
                           </label>
                         );
                       })}
+                      {meta?.description ? (
+                        // 光有动作名不够：用户需要知道这一步到底会做什么，尤其是 plan/replace 这种成对的
+                        <p className="workflow-action-desc">{t(meta.description)}</p>
+                      ) : null}
                     </div>
                     <Button size="small" variant="text" theme="danger" onClick={() => updateField('rows', form.rows.filter((_, i) => i !== index))}>
                       {t('common.delete')}

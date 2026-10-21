@@ -18,6 +18,8 @@ export interface WorkflowActionParam {
 export interface WorkflowActionMeta {
   value: string;
   label: string;
+  /** i18n key：一句话说明这个动作做什么 */
+  description?: string;
   actionClass: string;
   risk: 'low' | 'medium' | 'high';
   dslVisible: boolean;

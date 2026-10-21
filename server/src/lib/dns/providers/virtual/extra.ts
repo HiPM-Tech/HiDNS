@@ -144,6 +144,7 @@ export const virtualOriginGroupCapability: ProviderExtraCapability = {
     {
       name: 'ext.virtual.originGroup.list',
       label: 'provider.virtual_origin_group_list',
+      description: 'workflow.actionDesc.virtual_origin_group_list',
       actionClass: 'ext.read',
       risk: 'low',
       service: 'records.read',
@@ -153,6 +154,7 @@ export const virtualOriginGroupCapability: ProviderExtraCapability = {
     {
       name: 'ext.virtual.originGroup.get',
       label: 'provider.virtual_origin_group_get',
+      description: 'workflow.actionDesc.virtual_origin_group_get',
       actionClass: 'ext.read',
       risk: 'low',
       service: 'records.read',
@@ -165,6 +167,7 @@ export const virtualOriginGroupCapability: ProviderExtraCapability = {
     {
       name: 'ext.virtual.originGroup.planSync',
       label: 'provider.virtual_origin_group_plan_sync',
+      description: 'workflow.actionDesc.virtual_origin_group_plan_sync',
       actionClass: 'ext.read',
       risk: 'low',
       service: 'records.read',
@@ -185,6 +188,7 @@ export const virtualOriginGroupCapability: ProviderExtraCapability = {
     {
       name: 'ext.virtual.originGroup.sync',
       label: 'provider.virtual_origin_group_sync',
+      description: 'workflow.actionDesc.virtual_origin_group_sync',
       actionClass: 'ext.write',
       risk: 'high',
       service: 'records.write',

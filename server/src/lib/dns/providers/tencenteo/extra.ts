@@ -135,6 +135,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
     {
       name: 'ext.tencenteo.originGroup.list',
       label: 'provider.tencenteo_origin_group_list',
+      description: 'workflow.actionDesc.tencenteo_origin_group_list',
       actionClass: 'ext.read',
       risk: 'low',
       service: 'records.read',
@@ -148,6 +149,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
     {
       name: 'ext.tencenteo.originGroup.get',
       label: 'provider.tencenteo_origin_group_get',
+      description: 'workflow.actionDesc.tencenteo_origin_group_get',
       actionClass: 'ext.read',
       risk: 'low',
       service: 'records.read',
@@ -162,6 +164,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
     {
       name: 'ext.tencenteo.originGroup.plan',
       label: 'provider.tencenteo_origin_group_plan',
+      description: 'workflow.actionDesc.tencenteo_origin_group_plan',
       actionClass: 'ext.read',
       risk: 'low',
       service: 'records.read',
@@ -177,6 +180,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
     {
       name: 'ext.tencenteo.originGroup.replace',
       label: 'provider.tencenteo_origin_group_replace',
+      description: 'workflow.actionDesc.tencenteo_origin_group_replace',
       actionClass: 'ext.write',
       risk: 'high',
       service: 'records.write',

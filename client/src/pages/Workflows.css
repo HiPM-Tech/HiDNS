@@ -62,6 +62,15 @@
   align-items: flex-start;
 }
 
+/* 动作说明：整行占满，弱化颜色，避免和参数控件抢注意力 */
+.workflow-action-desc {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--td-text-color-secondary, #666);
+}
+
 .workflow-param {
   display: flex;
   flex-direction: column;

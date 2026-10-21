@@ -26,6 +26,7 @@ export function buildStaticMeta(source: StaticMetaSource): MetaItem[] {
       return ALL_ACTIONS.map((action) => ({
         value: action.name,
         label: action.label,
+        description: action.description,
         name: action.name,
         actionClass: action.actionClass,
         risk: action.risk,

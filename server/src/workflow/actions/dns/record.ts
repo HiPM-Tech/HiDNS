@@ -13,36 +13,36 @@ import {
 
 /** 解析记录动作。设计依据：§5.3 动作到服务权限映射 */
 export const dnsRecordActions: ActionDeclaration[] = [
-  { name: 'dns.record.list', label: 'workflow.action.dns_record_list', actionClass: 'dns.record.read', risk: 'low', service: 'records.read', dslVisible: true, params: [
+  { name: 'dns.record.list', label: 'workflow.action.dns_record_list', description: 'workflow.actionDesc.dns_record_list', actionClass: 'dns.record.read', risk: 'low', service: 'records.read', dslVisible: true, params: [
     { key: 'domain', label: 'workflow.param.domain', type: 'text', required: true },
     { key: 'type', label: 'workflow.param.type', type: 'select', required: false, options: ['A', 'AAAA', 'CNAME', 'TXT', 'MX', 'NS'] },
   ] },
-  { name: 'dns.record.get', label: 'workflow.action.dns_record_get', actionClass: 'dns.record.read', risk: 'low', service: 'records.read', dslVisible: true, params: [
+  { name: 'dns.record.get', label: 'workflow.action.dns_record_get', description: 'workflow.actionDesc.dns_record_get', actionClass: 'dns.record.read', risk: 'low', service: 'records.read', dslVisible: true, params: [
     { key: 'domain', label: 'workflow.param.domain', type: 'text', required: true },
     { key: 'recordId', label: 'workflow.param.record_id', type: 'text', required: true },
   ] },
-  { name: 'dns.record.create', label: 'workflow.action.dns_record_create', actionClass: 'dns.record.write', risk: 'medium', service: 'records.write', dslVisible: true, params: [
+  { name: 'dns.record.create', label: 'workflow.action.dns_record_create', description: 'workflow.actionDesc.dns_record_create', actionClass: 'dns.record.write', risk: 'medium', service: 'records.write', dslVisible: true, params: [
     { key: 'domain', label: 'workflow.param.domain', type: 'text', required: true },
     { key: 'name', label: 'workflow.param.name', type: 'text', required: true },
     { key: 'type', label: 'workflow.param.type', type: 'text', required: true },
     { key: 'value', label: 'workflow.param.value', type: 'text', required: true },
     { key: 'ttl', label: 'workflow.param.ttl', type: 'number', required: false },
   ] },
-  { name: 'dns.record.update', label: 'workflow.action.dns_record_update', actionClass: 'dns.record.write', risk: 'medium', service: 'records.write', dslVisible: true, params: [
+  { name: 'dns.record.update', label: 'workflow.action.dns_record_update', description: 'workflow.actionDesc.dns_record_update', actionClass: 'dns.record.write', risk: 'medium', service: 'records.write', dslVisible: true, params: [
     { key: 'domain', label: 'workflow.param.domain', type: 'text', required: true },
     { key: 'recordId', label: 'workflow.param.record_id', type: 'text', required: true },
     { key: 'value', label: 'workflow.param.value', type: 'text', required: true },
   ] },
-  { name: 'dns.record.delete', label: 'workflow.action.dns_record_delete', actionClass: 'dns.record.write', risk: 'high', service: 'records.write', dslVisible: false, params: [
+  { name: 'dns.record.delete', label: 'workflow.action.dns_record_delete', description: 'workflow.actionDesc.dns_record_delete', actionClass: 'dns.record.write', risk: 'high', service: 'records.write', dslVisible: false, params: [
     { key: 'domain', label: 'workflow.param.domain', type: 'text', required: true },
     { key: 'recordId', label: 'workflow.param.record_id', type: 'text', required: true },
   ] },
-  { name: 'dns.record.setStatus', label: 'workflow.action.dns_record_set_status', actionClass: 'dns.record.write', risk: 'medium', service: 'records.write', dslVisible: true, params: [
+  { name: 'dns.record.setStatus', label: 'workflow.action.dns_record_set_status', description: 'workflow.actionDesc.dns_record_set_status', actionClass: 'dns.record.write', risk: 'medium', service: 'records.write', dslVisible: true, params: [
     { key: 'domain', label: 'workflow.param.domain', type: 'text', required: true },
     { key: 'recordId', label: 'workflow.param.record_id', type: 'text', required: true },
     { key: 'status', label: 'workflow.param.status', type: 'number', required: true },
   ] },
-  { name: 'dns.record.batch', label: 'workflow.action.dns_record_batch', actionClass: 'dns.record.write', risk: 'high', service: 'records.write', dslVisible: false, params: [
+  { name: 'dns.record.batch', label: 'workflow.action.dns_record_batch', description: 'workflow.actionDesc.dns_record_batch', actionClass: 'dns.record.write', risk: 'high', service: 'records.write', dslVisible: false, params: [
     { key: 'domain', label: 'workflow.param.domain', type: 'text', required: true },
     { key: 'records', label: 'workflow.param.records', type: 'text', required: true },
   ] },

@@ -28,6 +28,8 @@ export interface ActionDeclaration {
   name: string;
   /** i18n key */
   label: string;
+  /** i18n key：一句话说明这个动作到底做什么（编辑器直接展示，避免用户靠猜） */
+  description?: string;
   actionClass: ActionClass;
   risk: 'low' | 'medium' | 'high';
   service: AvailableService;

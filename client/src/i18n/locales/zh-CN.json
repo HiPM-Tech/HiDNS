@@ -1805,6 +1805,27 @@
                 "message": "消息内容",
                 "key": "变量名",
                 "target": "目标源站"
+            },
+            "actionDesc": {
+                "dns_record_list": "列出指定域名下的解析记录",
+                "dns_record_get": "按记录 ID 读取单条解析记录",
+                "dns_record_create": "新建一条解析记录",
+                "dns_record_update": "修改一条解析记录的值",
+                "dns_record_delete": "删除一条解析记录（不可撤销）",
+                "dns_record_set_status": "启用或暂停一条解析记录",
+                "dns_record_batch": "批量写入多条解析记录（不可撤销）",
+                "dns_domain_list": "列出当前账号可见的域名",
+                "tencenteo_origin_group_list": "列出 EdgeOne 站点下的源站组",
+                "tencenteo_origin_group_get": "读取单个源站组的详情",
+                "tencenteo_origin_group_plan": "只计算差异，不写入上游（预演）",
+                "tencenteo_origin_group_replace": "把源站组收敛到目标状态（会写上游）",
+                "virtual_origin_group_list": "列出虚拟源站组",
+                "virtual_origin_group_get": "读取单个虚拟源站组",
+                "virtual_origin_group_plan_sync": "计算源站地址同步差异（预演）",
+                "virtual_origin_group_sync": "把源站地址同步到虚拟源站组（会写上游）",
+                "http_outbound_fetch": "发起一次受白名单约束的 HTTPS 请求",
+                "notify_channel_send": "通过已配置的通知渠道发送消息",
+                "var_workflow_get": "读取工作流变量"
             }
         }
     }

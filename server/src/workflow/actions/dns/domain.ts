@@ -8,6 +8,7 @@ export const dnsDomainActions: ActionDeclaration[] = [
   {
     name: 'dns.domain.list',
     label: 'workflow.action.dns_domain_list',
+    description: 'workflow.actionDesc.dns_domain_list',
     actionClass: 'dns.record.read',
     risk: 'low',
     service: 'domains.read',

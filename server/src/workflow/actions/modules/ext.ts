@@ -21,6 +21,7 @@ export const declarations: ActionDeclaration[] = providerDefinitions.flatMap((de
     capability.actions.map((action) => ({
       name: action.name,
       label: action.label,
+      description: action.description,
       actionClass: action.actionClass,
       risk: action.risk,
       service: action.service,

@@ -37,6 +37,8 @@ export interface ProviderExtraAction {
   service: AvailableService;
   /** i18n key */
   label: string;
+  /** i18n key：一句话说明这个动作做什么 */
+  description?: string;
   /** 是否对声明式 DSL 可见；false = 仅内部/API 可达 */
   dslVisible: boolean;
   params: ProviderActionParam[];

@@ -1805,6 +1805,27 @@
                 "message": "Message",
                 "key": "Variable name",
                 "target": "Target origin"
+            },
+            "actionDesc": {
+                "dns_record_list": "List DNS records of a domain",
+                "dns_record_get": "Read one DNS record by its ID",
+                "dns_record_create": "Create a DNS record",
+                "dns_record_update": "Update the value of a DNS record",
+                "dns_record_delete": "Delete a DNS record (irreversible)",
+                "dns_record_set_status": "Enable or pause a DNS record",
+                "dns_record_batch": "Write multiple DNS records in one call (irreversible)",
+                "dns_domain_list": "List domains visible in the current scope",
+                "tencenteo_origin_group_list": "List origin groups of an EdgeOne site",
+                "tencenteo_origin_group_get": "Read one origin group",
+                "tencenteo_origin_group_plan": "Compute the diff without writing upstream (dry run)",
+                "tencenteo_origin_group_replace": "Converge the origin group to the target state (writes upstream)",
+                "virtual_origin_group_list": "List virtual origin groups",
+                "virtual_origin_group_get": "Read one virtual origin group",
+                "virtual_origin_group_plan_sync": "Compute the address sync diff (dry run)",
+                "virtual_origin_group_sync": "Sync addresses into the virtual origin group (writes upstream)",
+                "http_outbound_fetch": "Perform one outbound HTTPS request subject to the allowlist",
+                "notify_channel_send": "Send a message through configured channels",
+                "var_workflow_get": "Read a workflow variable"
             }
         }
     }

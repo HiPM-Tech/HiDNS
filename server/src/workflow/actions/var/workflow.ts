@@ -9,6 +9,7 @@ export const varWorkflowActions: ActionDeclaration[] = [
   {
     name: 'var.workflow.get',
     label: 'workflow.action.var_workflow_get',
+    description: 'workflow.actionDesc.var_workflow_get',
     // 注意：ACTION_CLASSES 是封闭的六值枚举（D23 待负责人复核），其中没有「内存读取」一类；
     // 该动作不发起任何网络请求，归入 http 仅为占位，实际用途已由 DSL 的 vars.x 引用覆盖。
     actionClass: 'http',

@@ -10,6 +10,7 @@ export const httpOutboundActions: ActionDeclaration[] = [
   {
     name: 'http.outbound.fetch',
     label: 'workflow.action.http_outbound_fetch',
+    description: 'workflow.actionDesc.http_outbound_fetch',
     actionClass: 'http',
     risk: 'medium',
     service: 'network.fetch',
