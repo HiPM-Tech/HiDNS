@@ -211,3 +211,27 @@ export function summarizeTriggerEvent(
     return '-';
   }
 }
+
+/**
+ * 找出第一个「必填但没填」的动作参数。
+ * 留空的必填项会被 toDslNodes 静默丢弃，工作流照样保存成功、直到运行时才报参数缺失，
+ * 所以保存前必须先在本地拦下。
+ */
+export function findMissingRequiredArg(
+  rows: ActionRow[],
+  lookup: (action: string) => { params?: Array<{ key: string; required?: boolean }> } | undefined,
+): { action: string; param: string } | null {
+  for (const row of rows) {
+    if (!row.action) continue;
+    const meta = lookup(row.action);
+    if (!meta) continue;
+    for (const param of meta.params ?? []) {
+      if (!param.required) continue;
+      const value = row.args[param.key];
+      if (value === undefined || String(value).trim() === '') {
+        return { action: row.action, param: param.key };
+      }
+    }
+  }
+  return null;
+}

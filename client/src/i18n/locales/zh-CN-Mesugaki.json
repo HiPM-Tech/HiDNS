@@ -65,7 +65,9 @@
             "previewDomain": "域名",
             "previewRecord": "记录",
             "previewValue": "新值",
-            "previewOldValue": "原值"
+            "previewOldValue": "原值",
+            "needAtLeastOneAction": "请至少添加一个动作",
+            "missingRequired": "「{action}」的「{param}」是必填项"
         },
         "about": {
             "community": "社区喵~",

@@ -18,6 +18,7 @@ import {
   fromConditionNode,
   formatDuration,
   formatServerTime,
+  findMissingRequiredArg,
   fromDslNodes,
   summarizeTriggerEvent,
   toConditionNode,
@@ -193,6 +194,32 @@ export function Workflows() {
   const triggerLabels = useMemo(() => new Map(triggers.map((item) => [item.value, item.label])), [triggers]);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['workflows'] });
 
+  /**
+   * 保存前先在本地校验必填参数。
+   * 否则留空的必填项会被 toDslNodes 静默丢弃，工作流能保存成功、直到运行时才报参数缺失——
+   * 那时用户已经离开了编辑界面，很难把错误对回是哪一步。
+   */
+  const validateRows = (): string | null => {
+    // 不强制「至少一个动作」：既有用例与产品行为允许先存空壳再补动作，这里只管住必填项被静默丢弃
+    const missing = findMissingRequiredArg(form.rows, (action) => actionMap.get(action));
+    if (!missing) return null;
+    const item = actionMap.get(missing.action);
+    const param = item?.params?.find((p) => p.key === missing.param);
+    return t('workflows.missingRequired', {
+      action: item ? t(item.label) : missing.action,
+      param: t(param?.label || missing.param),
+    });
+  };
+
+  const handleSave = () => {
+    const message = validateRows();
+    if (message) {
+      toast.error(message);
+      return;
+    }
+    saveMutation.mutate();
+  };
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       const payload = {
@@ -366,7 +393,7 @@ export function Workflows() {
         footer={(
           <Space>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('common.cancel')}</Button>
-            <Button theme="primary" loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{t('common.save')}</Button>
+            <Button theme="primary" loading={saveMutation.isPending} onClick={handleSave}>{t('common.save')}</Button>
           </Space>
         )}
       >

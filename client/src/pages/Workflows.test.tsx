@@ -43,7 +43,8 @@ beforeEach(() => {
     data: {
       data: {
         items: [
-          { id: 1, ownerId: 1, name: 'ok-flow', enabled: true, triggerType: 'record.changed', triggerConfig: { recordTypes: ['A'] }, actions: [{ kind: 'call', action: 'dns.record.list', args: {} }] },
+          // args 要带上必填的 domainId：保存前会做必填校验，空参的动作本来就该被拦
+          { id: 1, ownerId: 1, name: 'ok-flow', enabled: true, triggerType: 'record.changed', triggerConfig: { recordTypes: ['A'] }, actions: [{ kind: 'call', action: 'dns.record.list', args: { domainId: { kind: 'literal', value: '1' } } }] },
           { id: 2, ownerId: 1, name: 'bad-flow', enabled: false, triggerType: 'record.changed', triggerConfig: {}, actions: [], corrupted: true },
         ],
       },

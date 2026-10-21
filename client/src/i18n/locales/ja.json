@@ -65,7 +65,9 @@
             "previewDomain": "Domain",
             "previewRecord": "Record",
             "previewValue": "New value",
-            "previewOldValue": "Old value"
+            "previewOldValue": "Old value",
+            "needAtLeastOneAction": "Add at least one action",
+            "missingRequired": "\"{param}\" is required for \"{action}\""
         },
         "about": {
             "community": "コミュニティ",

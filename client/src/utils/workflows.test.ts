@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDuration, parseServerTime, summarizeTriggerEvent } from './workflows';
+import { findMissingRequiredArg, formatDuration, parseServerTime, summarizeTriggerEvent } from './workflows';
 
 describe('parseServerTime', () => {
   it('把无时区后缀的服务端时间按 UTC 解析', () => {
@@ -48,5 +48,34 @@ describe('summarizeTriggerEvent', () => {
   it('空值与坏 JSON 都返回 -，不抛', () => {
     expect(summarizeTriggerEvent(null, labelOf)).toBe('-');
     expect(summarizeTriggerEvent('{oops', labelOf)).toBe('-');
+  });
+});
+
+describe('findMissingRequiredArg', () => {
+  const lookup = (action: string) =>
+    action === 'dns.record.list'
+      ? { params: [{ key: 'domainId', required: true }, { key: 'type', required: false }] }
+      : undefined;
+
+  it('必填项留空时报出动作与参数', () => {
+    expect(findMissingRequiredArg([{ action: 'dns.record.list', args: {} }], lookup)).toEqual({
+      action: 'dns.record.list',
+      param: 'domainId',
+    });
+  });
+
+  it('纯空白也算没填', () => {
+    expect(findMissingRequiredArg([{ action: 'dns.record.list', args: { domainId: '   ' } }], lookup)).toEqual({
+      action: 'dns.record.list',
+      param: 'domainId',
+    });
+  });
+
+  it('填了就通过', () => {
+    expect(findMissingRequiredArg([{ action: 'dns.record.list', args: { domainId: '1' } }], lookup)).toBeNull();
+  });
+
+  it('空行与未知动作跳过，不误报', () => {
+    expect(findMissingRequiredArg([{ action: '', args: {} }, { action: 'unknown.act', args: {} }], lookup)).toBeNull();
   });
 });
