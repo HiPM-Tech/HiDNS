@@ -755,7 +755,17 @@ jobs:
             curl -sf http://127.0.0.1:3399/api/init/status > /dev/null && break
             sleep 1
           done
-          curl -sf http://127.0.0.1:3399/api/init/status || { echo 'macOS binary failed to start'; cat /tmp/smoke.log; exit 1; }
+          if ! curl -sf http://127.0.0.1:3399/api/init/status; then
+            echo '❌ macOS binary failed to start'
+            echo '--- smoke.log ---'
+            cat /tmp/smoke.log 2>/dev/null || echo '(空)'
+            echo '--- 最近的崩溃报告 ---'
+            CR=$(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1)
+            if [ -n "$CR" ]; then echo "文件: $CR"; head -c 6000 "$CR"; else echo '(没有 .ips，可能是信号直接终止)'; fi
+            echo '--- Mach-O 段布局 ---'
+            otool -l "$BIN" | grep -E 'segname|filesize|fileoff' | head -40
+            exit 1
+          fi
           kill $PID 2>/dev/null || true
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -858,7 +868,17 @@ jobs:
             curl -sf http://127.0.0.1:3398/api/init/status > /dev/null && break
             sleep 1
           done
-          curl -sf http://127.0.0.1:3398/api/init/status || { echo 'macOS binary failed to start'; cat /tmp/smoke.log; exit 1; }
+          if ! curl -sf http://127.0.0.1:3398/api/init/status; then
+            echo '❌ macOS binary failed to start'
+            echo '--- smoke.log ---'
+            cat /tmp/smoke.log 2>/dev/null || echo '(空)'
+            echo '--- 最近的崩溃报告 ---'
+            CR=$(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1)
+            if [ -n "$CR" ]; then echo "文件: $CR"; head -c 6000 "$CR"; else echo '(没有 .ips，可能是信号直接终止)'; fi
+            echo '--- Mach-O 段布局 ---'
+            otool -l "$BIN" | grep -E 'segname|filesize|fileoff' | head -40
+            exit 1
+          fi
           kill $PID 2>/dev/null || true
       - name: Upload artifact
         uses: actions/upload-artifact@v4
