@@ -70,7 +70,9 @@
             "missingRequired": "「{action}」的「{param}」是必填项",
             "dslPreview": "声明式配置（DSL）",
             "dslShow": "查看将要保存的 DSL",
-            "dslHide": "收起 DSL"
+            "dslHide": "收起 DSL",
+            "useEventValue": "使用事件字段",
+            "clearRef": "清除引用"
         },
         "about": {
             "community": "社区",

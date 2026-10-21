@@ -19,9 +19,18 @@ export const CONDITION_FIELDS: ConditionField[] = [
 
 export const CONDITION_OPS = ['==', '!=', '>', '>=', '<', '<=', 'in'];
 
+/**
+ * 参数值：可以是字面量，也可以引用事件/变量（设计 §3.1 的 `(...)` 形态）。
+ * DSL 一直是支持 ref 节点的，此前编辑器只能产出 literal，等于这个能力对用户不可见。
+ */
+export interface ArgValue {
+  kind: 'literal' | 'ref';
+  value: string;
+}
+
 export interface ActionRow {
   action: string;
-  args: Record<string, string>;
+  args: Record<string, ArgValue>;
 }
 
 export const EMPTY_ROW: ActionRow = { action: '', args: {} };
@@ -136,8 +145,10 @@ export function toDslNodes(rows: ActionRow[]): WorkflowDslNode[] {
     .map((row) => {
       const args: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(row.args)) {
-        if (value === '') continue;
-        args[key] = { kind: 'literal', value };
+        if (!value || value.value === '') continue;
+        args[key] = value.kind === 'ref'
+          ? { kind: 'ref', path: value.value }
+          : { kind: 'literal', value: value.value };
       }
       return { kind: 'call', action: row.action, args };
     });
@@ -146,10 +157,12 @@ export function toDslNodes(rows: ActionRow[]): WorkflowDslNode[] {
 export function fromDslNodes(nodes: WorkflowDslNode[] | undefined): ActionRow[] {
   if (!Array.isArray(nodes) || nodes.length === 0) return [{ ...EMPTY_ROW }];
   return nodes.map((node) => {
-    const args: Record<string, string> = {};
-    const rawArgs = (node.args ?? {}) as Record<string, { value?: unknown }>;
+    const args: Record<string, ArgValue> = {};
+    const rawArgs = (node.args ?? {}) as Record<string, { kind?: string; value?: unknown; path?: unknown }>;
     for (const [key, value] of Object.entries(rawArgs)) {
-      args[key] = value && typeof value === 'object' && 'value' in value ? String(value.value ?? '') : '';
+      if (!value || typeof value !== 'object') continue;
+      if (value.kind === 'ref') args[key] = { kind: 'ref', value: String(value.path ?? '') };
+      else args[key] = { kind: 'literal', value: String(value.value ?? '') };
     }
     return { action: String(node.action ?? ''), args };
   });
@@ -228,7 +241,8 @@ export function findMissingRequiredArg(
     for (const param of meta.params ?? []) {
       if (!param.required) continue;
       const value = row.args[param.key];
-      if (value === undefined || String(value).trim() === '') {
+      // 引用事件字段也是「填了」，只是值要到运行时才确定
+      if (!value || String(value.value ?? '').trim() === '') {
         return { action: row.action, param: param.key };
       }
     }

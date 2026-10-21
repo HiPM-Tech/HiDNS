@@ -184,7 +184,7 @@ describe('工作流页面（人类可读性）', () => {
 });
 
 describe('级联下拉的前置参数', () => {
-  function renderCascading(param: Record<string, unknown>, args: Record<string, string>) {
+  function renderCascading(param: Record<string, unknown>, args: Record<string, { kind: 'literal' | 'ref'; value: string }>) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(
       <QueryClientProvider client={client}>
@@ -204,7 +204,7 @@ describe('级联下拉的前置参数', () => {
         sourceParams: ['domainId'],
         sourceOptionalParams: ['siteType'],
       },
-      { domainId: '7' },
+      { domainId: { kind: 'literal', value: '7' } },
     );
 
     await waitFor(() => expect(metaMock).toHaveBeenCalled());
@@ -224,7 +224,7 @@ describe('级联下拉的前置参数', () => {
         sourceParams: ['domainId'],
         sourceOptionalParams: ['siteType'],
       },
-      { domainId: '7', siteType: 'intl' },
+      { domainId: { kind: 'literal', value: '7' }, siteType: { kind: 'literal', value: 'intl' } },
     );
 
     await waitFor(() => expect(metaMock).toHaveBeenCalled());

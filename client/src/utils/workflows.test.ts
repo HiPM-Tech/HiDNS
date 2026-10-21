@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findMissingRequiredArg, formatDuration, parseServerTime, summarizeTriggerEvent } from './workflows';
+import { findMissingRequiredArg, formatDuration, fromDslNodes, parseServerTime, summarizeTriggerEvent, toDslNodes } from './workflows';
 
 describe('parseServerTime', () => {
   it('把无时区后缀的服务端时间按 UTC 解析', () => {
@@ -65,17 +65,53 @@ describe('findMissingRequiredArg', () => {
   });
 
   it('纯空白也算没填', () => {
-    expect(findMissingRequiredArg([{ action: 'dns.record.list', args: { domainId: '   ' } }], lookup)).toEqual({
+    expect(findMissingRequiredArg([{ action: 'dns.record.list', args: { domainId: { kind: 'literal', value: '   ' } } }], lookup)).toEqual({
       action: 'dns.record.list',
       param: 'domainId',
     });
   });
 
   it('填了就通过', () => {
-    expect(findMissingRequiredArg([{ action: 'dns.record.list', args: { domainId: '1' } }], lookup)).toBeNull();
+    expect(findMissingRequiredArg([{ action: 'dns.record.list', args: { domainId: { kind: 'literal', value: '1' } } }], lookup)).toBeNull();
+  });
+
+  it('引用事件字段也算填了', () => {
+    expect(
+      findMissingRequiredArg([{ action: 'dns.record.list', args: { domainId: { kind: 'ref', value: 'event.record.value' } } }], lookup),
+    ).toBeNull();
   });
 
   it('空行与未知动作跳过，不误报', () => {
     expect(findMissingRequiredArg([{ action: '', args: {} }, { action: 'unknown.act', args: {} }], lookup)).toBeNull();
+  });
+});
+
+describe('toDslNodes / fromDslNodes', () => {
+  it('字面量与事件引用分别序列化成 literal / ref', () => {
+    const nodes = toDslNodes([
+      {
+        action: 'dns.record.update',
+        args: {
+          recordId: { kind: 'literal', value: '42' },
+          value: { kind: 'ref', value: 'event.record.value' },
+          empty: { kind: 'literal', value: '' },
+        },
+      },
+    ]);
+    expect(nodes[0]).toEqual({
+      kind: 'call',
+      action: 'dns.record.update',
+      args: {
+        recordId: { kind: 'literal', value: '42' },
+        value: { kind: 'ref', path: 'event.record.value' },
+      },
+    });
+  });
+
+  it('反序列化能把 ref 还原回来', () => {
+    const rows = fromDslNodes([
+      { kind: 'call', action: 'dns.record.update', args: { value: { kind: 'ref', path: 'event.record.value' } } },
+    ]);
+    expect(rows[0].args.value).toEqual({ kind: 'ref', value: 'event.record.value' });
   });
 });

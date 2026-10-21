@@ -29,6 +29,17 @@ import {
 import './Workflows.css';
 
 /** 条件字段路径 → i18n key。界面上直接铺 event.record.value 对人不友好 */
+/** 参数可以引用的上下文路径（与条件字段同一套，避免两处口径漂移） */
+const EVENT_REF_PATHS = [
+  'event.record.value',
+  'event.record.oldValue',
+  'event.record.name',
+  'event.record.type',
+  'event.domain.name',
+  'event.status',
+  'event.daysLeft',
+];
+
 const CONDITION_FIELD_LABEL_KEYS: Record<string, string> = {
   'event.record.value': 'workflows.fieldRecordValue',
   'event.record.oldValue': 'workflows.fieldOldValue',
@@ -510,8 +521,14 @@ export function Workflows() {
                         const paramLabels = Object.fromEntries(
                           (meta?.params ?? []).map((item) => [item.key, t(item.label || item.key)]),
                         );
+                        const arg = row.args[param.key];
+                        const argValue = arg?.value ?? '';
+                        // 分开两个 setter：TDesign 的 onChange 第二参是 context，
+                        // 给 setArg 加「类型」参数会与控件签名冲突（tsc -b 会报 TS2322）。
                         const setArg = (value: unknown) =>
-                          patch({ ...row, args: { ...row.args, [param.key]: String(value) } });
+                          patch({ ...row, args: { ...row.args, [param.key]: { kind: 'literal', value: String(value) } } });
+                        const setArgRef = (path: unknown) =>
+                          patch({ ...row, args: { ...row.args, [param.key]: { kind: 'ref', value: String(path) } } });
                         // 控件要按参数类型给：布尔给开关、数字给数字框，
                         // 否则用户得在文本框里手打 "true" / "1"，既不好读也容易写错。
                         const control = param.source ? (
@@ -519,30 +536,50 @@ export function Workflows() {
                             param={param}
                             labels={paramLabels}
                             args={row.args}
-                            value={row.args[param.key] ?? ''}
+                            value={argValue}
                             onChange={setArg}
                           />
                         ) : param.type === 'boolean' ? (
                           <Switch
-                            value={row.args[param.key] === 'true'}
+                            value={argValue === 'true'}
                             onChange={(value: any) => setArg(Boolean(value))}
                           />
                         ) : param.type === 'number' ? (
                           <InputNumber
                             placeholder={label}
-                            value={row.args[param.key] === undefined || row.args[param.key] === '' ? undefined : Number(row.args[param.key])}
+                            value={argValue === '' ? undefined : Number(argValue)}
                             onChange={setArg}
                             style={{ width: '100%' }}
                           />
                         ) : param.type === 'select' && param.options?.length ? (
                           <Select
                             placeholder={label}
-                            value={row.args[param.key] ?? ''}
+                            value={argValue}
                             options={param.options.map((option) => ({ label: option, value: option }))}
                             onChange={setArg}
                           />
+                        ) : arg?.kind === 'ref' ? (
+                          // 引用事件字段：值要到运行时才有，界面上只展示引用了什么
+                          <Space size="small">
+                            <Tag theme="primary" variant="light">{t(CONDITION_FIELD_LABEL_KEYS[argValue] ?? argValue)}</Tag>
+                            <Button size="small" variant="text" onClick={() => setArg('')}>
+                              {t('workflows.clearRef')}
+                            </Button>
+                          </Space>
                         ) : (
-                          <Input placeholder={label} value={row.args[param.key] ?? ''} onChange={setArg} />
+                          <Space size="small">
+                            <Input placeholder={label} value={argValue} onChange={setArg} />
+                            <Select
+                              size="small"
+                              placeholder={t('workflows.useEventValue')}
+                              options={EVENT_REF_PATHS.map((path) => ({
+                                label: t(CONDITION_FIELD_LABEL_KEYS[path] ?? path),
+                                value: path,
+                              }))}
+                              onChange={(value: any) => setArgRef(value)}
+                              style={{ minWidth: 160 }}
+                            />
+                          </Space>
                         );
                         return (
                           <label className="workflow-param" key={param.key}>

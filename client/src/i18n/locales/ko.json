@@ -70,7 +70,9 @@
             "missingRequired": "\"{param}\" is required for \"{action}\"",
             "dslPreview": "Declarative config (DSL)",
             "dslShow": "Show the DSL that will be saved",
-            "dslHide": "Hide DSL"
+            "dslHide": "Hide DSL",
+            "useEventValue": "Use event value",
+            "clearRef": "Clear reference"
         },
         "common": {
             "operationFailed": "Operation failed",

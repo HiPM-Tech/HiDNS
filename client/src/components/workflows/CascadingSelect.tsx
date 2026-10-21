@@ -8,7 +8,8 @@ interface CascadingSelectProps {
   param: { key: string; source?: string; sourceParams?: string[]; sourceOptionalParams?: string[] };
   /** 参数键 → 已翻译的可读名称；缺失时回落到原始键 */
   labels?: Record<string, string>;
-  args: Record<string, string>;
+  /** 参数值可能是字面量也可能是事件引用，这里只关心最终要传给候选源的那个字符串 */
+  args: Record<string, { value: string } | undefined>;
   value: string;
   onChange: (value: string) => void;
 }
@@ -20,20 +21,20 @@ export function CascadingSelect({ param, labels, args, value, onChange }: Cascad
   const params = useMemo(() => {
     const out: Record<string, string> = {};
     for (const key of param.sourceParams ?? []) {
-      const raw = args[key];
+      const raw = args[key]?.value;
       if (raw) out[key] = raw;
     }
     // 可选项：有值就带上，没值不影响可用性。
     // 例如腾讯云源站组：站点类型只对复用 DNSPod 凭据的域名必需，
     // 放进 sourceParams 会把 EdgeOne 账号的下拉也一并禁用。
     for (const key of param.sourceOptionalParams ?? []) {
-      const raw = args[key];
+      const raw = args[key]?.value;
       if (raw) out[key] = raw;
     }
     return out;
   }, [args, param.sourceParams, param.sourceOptionalParams]);
 
-  const ready = (param.sourceParams ?? []).every((key) => Boolean(args[key]));
+  const ready = (param.sourceParams ?? []).every((key) => Boolean(args[key]?.value));
   const query = useQuery({
     queryKey: ['workflow-meta', param.source, params],
     queryFn: () =>
@@ -61,7 +62,7 @@ export function CascadingSelect({ param, labels, args, value, onChange }: Cascad
     return [...Array.from(groups, ([label, groupOptions]) => ({ label, options: groupOptions })), ...flat];
   }, [items]);
   const nameOf = (key: string) => labels?.[key] ?? key;
-  const missing = (param.sourceParams ?? []).filter((key) => !args[key]).map(nameOf).join(', ');
+  const missing = (param.sourceParams ?? []).filter((key) => !args[key]?.value).map(nameOf).join(', ');
 
   return (
     <Select
