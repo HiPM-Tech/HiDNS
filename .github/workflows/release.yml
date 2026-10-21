@@ -11,7 +11,7 @@ on:
       # GitHub 的 workflow_dispatch 最多 10 个 input。此前是 11 个（prerelease 与 draft 各占一个），
       # 超出的那个会被丢弃。这里把两者合并成一个选择项，保持 10 个以内。
       release_type:
-        description: 'Release type (release = 正式, prerelease = 预发布, draft = 草稿)'
+        description: 'Release type (release=正式, prerelease=预发布, draft=草稿, build-only=只构建不发布)'
         required: false
         default: 'release'
         type: choice
@@ -19,6 +19,7 @@ on:
           - release
           - prerelease
           - draft
+          - build-only
       build_exe:
         description: 'Build Windows package?'
         required: false
@@ -1029,7 +1030,8 @@ jobs:
   create-release:
     name: Create GitHub Release
     needs: [prepare, build-windows, build-windows-arm, build-linux-x64, build-linux-arm64, build-macos-intel, build-macos-arm, build-sea-windows, build-sea-windows-arm, build-sea-linux-x64, build-sea-linux-arm64, build-sea-macos-arm, build-sea-macos-x64, merge-docker]
-    if: always() && (needs.build-windows.result == 'success' || needs.build-windows-arm.result == 'success' || needs.build-linux-x64.result == 'success' || needs.build-linux-arm64.result == 'success' || needs.build-macos-intel.result == 'success' || needs.build-macos-arm.result == 'success' || needs.build-sea-windows.result == 'success' || needs.build-sea-windows-arm.result == 'success' || needs.build-sea-linux-x64.result == 'success' || needs.build-sea-linux-arm64.result == 'success' || needs.build-sea-macos-arm.result == 'success' || needs.build-sea-macos-x64.result == 'success' || needs.merge-docker.result == 'success')
+    # build-only 模式只跑构建与冒烟，不创建任何 Release / Tag
+    if: always() && inputs.release_type != 'build-only' && (needs.build-windows.result == 'success' || needs.build-windows-arm.result == 'success' || needs.build-linux-x64.result == 'success' || needs.build-linux-arm64.result == 'success' || needs.build-macos-intel.result == 'success' || needs.build-macos-arm.result == 'success' || needs.build-sea-windows.result == 'success' || needs.build-sea-windows-arm.result == 'success' || needs.build-sea-linux-x64.result == 'success' || needs.build-sea-linux-arm64.result == 'success' || needs.build-sea-macos-arm.result == 'success' || needs.build-sea-macos-x64.result == 'success' || needs.merge-docker.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -1262,6 +1264,60 @@ jobs:
   # ============================================================================
   # 阶段 6: 发送 Telegram 通知
   # ============================================================================
+  # ============================================================================
+  # build-only 模式的结果汇总
+  # 该模式只跑构建与冒烟，不创建 Release / Tag；这里给出逐目标结论，
+  # 并且只要「被请求的目标」有一个没成功就判失败，避免有人以为构建测试过了。
+  # ============================================================================
+  build-only-summary:
+    name: Build-only Summary
+    needs: [prepare, build-windows, build-windows-arm, build-linux-x64, build-linux-arm64, build-macos-intel, build-macos-arm, build-sea-windows, build-sea-windows-arm, build-sea-linux-x64, build-sea-linux-arm64, build-sea-macos-arm, build-sea-macos-x64, merge-docker]
+    if: always() && inputs.release_type == 'build-only'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report build results
+        run: |
+          {
+            echo "## 🧪 构建测试（不发布）"
+            echo ""
+            echo "本次未创建 Release / Tag，仅验证构建产物。"
+            echo ""
+            echo "| 目标 | 是否请求 | 结果 |"
+            echo "|------|---------|------|"
+          } >> $GITHUB_STEP_SUMMARY
+
+          fail=0
+          row() {
+            echo "| $1 | $2 | $3 |" >> $GITHUB_STEP_SUMMARY
+            if [ "$2" = "是" ] && [ "$3" != "success" ]; then fail=1; fi
+          }
+          flag() { if [ "$1" = "true" ]; then echo "是"; else echo "否（已跳过）"; fi; }
+
+          row "Windows x64 包"     "$(flag '${{ inputs.build_exe }}')"         "${{ needs.build-windows.result }}"
+          row "Windows ARM 包"     "$(flag '${{ inputs.build_windows_arm }}')"  "${{ needs.build-windows-arm.result }}"
+          row "Linux x64 包"       "$(flag '${{ inputs.build_linux_x64 }}')"    "${{ needs.build-linux-x64.result }}"
+          row "Linux ARM64 包"     "$(flag '${{ inputs.build_linux_arm64 }}')"  "${{ needs.build-linux-arm64.result }}"
+          row "macOS Intel 包"     "$(flag '${{ inputs.build_macos_intel }}')"  "${{ needs.build-macos-intel.result }}"
+          row "macOS ARM 包"       "$(flag '${{ inputs.build_macos_arm }}')"    "${{ needs.build-macos-arm.result }}"
+          row "Windows x64 SEA"    "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-windows.result }}"
+          row "Windows ARM64 SEA"  "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-windows-arm.result }}"
+          row "Linux x64 SEA"      "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-linux-x64.result }}"
+          row "Linux ARM64 SEA"    "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-linux-arm64.result }}"
+          row "macOS ARM64 SEA"    "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-macos-arm.result }}"
+          row "macOS x64 SEA"      "$(flag '${{ inputs.build_sea }}')"          "${{ needs.build-sea-macos-x64.result }}"
+          row "Docker 镜像"        "$(flag '${{ inputs.build_docker }}')"       "${{ needs.merge-docker.result }}"
+
+          if [ $fail -ne 0 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**结论：有被请求的目标未成功，构建测试不通过。**" >> $GITHUB_STEP_SUMMARY
+            echo "::error::构建测试不通过（详见上表）"
+            exit 1
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**结论：被请求的目标全部构建成功。**" >> $GITHUB_STEP_SUMMARY
+          echo "✅ 构建测试通过"
+
   notify-telegram:
     name: Send Telegram Notification
     needs: [prepare, create-release]

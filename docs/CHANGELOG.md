@@ -24,6 +24,7 @@
 - **源站组同步按地址族**: `origin-group-sync.ts` 只替换对应地址族的记录，A 与 AAAA 可一次写完，族内多条 v4/v6 按旧值精确匹配
 - **站点可见性核验缓存**: 站点可见性结果缓存 60 秒，避免每个源站组动作都打一次 `DescribeZones`
 - **读与写的准入分开**: 账号权限改为三态（`none` / `read` / `write`），「有读无写」返回可区分的 `WRITE_FORBIDDEN` 而不是笼统的「域名不存在」
+- **发版工作流支持「只构建不发布」**: `release_type` 新增 `build-only` 选项——跑完 `Release Gate`（lint/类型检查/两套单测）、各平台构建与 macOS 冒烟后直接结束，不创建 Release / Tag；`Build-only Summary` 会逐目标列出结果，被请求的目标有一个没成功即判失败
 - **跨架构 SEA 的 V8 code cache**: `sea-config.json` 里 `useCodeCache: true`，而 V8 code cache 与平台+架构绑定。macOS Intel 二进制是在 arm64 runner 上交叉构建的，缓存与目标不匹配会导致启动即崩。现改为跨架构构建时自动关闭 `useCodeCache`（同架构构建保持开启）
 - **macOS 首次运行提示**: Release 正文新增说明——下载的二进制带 quarantine 标记时会提示「无法验证开发者」，给出 `xattr -dr com.apple.quarantine` 的处置命令，避免被误判成包坏了
 - **启动包从其它目录运行会白屏**: 服务端用 `process.cwd()` 作为 APP_ROOT 去找 `client/dist`，而各平台启动脚本没有先切到包目录——从 Finder 双击（cwd 为 `/`）或从别处执行时前端 404，表现为「页面打不开」。四个平台的 `Start-HiDNS.sh` 已统一改为先 `cd "$(dirname "$0")"`
