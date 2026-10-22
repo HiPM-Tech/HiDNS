@@ -1122,10 +1122,15 @@ jobs:
           check "${{ inputs.build_exe }}"         "${{ needs.build-windows.result }}"     "Windows x64 包"
           check "${{ inputs.build_linux_x64 }}"   "${{ needs.build-linux-x64.result }}"   "Linux x64 包"
           check "${{ inputs.build_linux_arm64 }}" "${{ needs.build-linux-arm64.result }}" "Linux ARM64 包"
+          # SEA 只按**真实存在的作业**校验。
+          # 此前这里要求 macOS 的 SEA 二进制，但 macOS SEA 早已移除
+          # （Node SEA 在 macOS 上会段错误，macOS 只出 Package tar.gz）——
+          # 那段检查过期后，只要 build_sea=true 就必然判定产物不完整，发版永远过不去。
           if [ "${{ inputs.build_sea }}" = "true" ]; then
-            for f in HiDNS-*-macos-x64 HiDNS-*-macos-arm64; do
-              ls ./artifacts/$f > /dev/null 2>&1 || { echo "::error::缺少 macOS SEA 二进制: $f"; fail=1; }
-            done
+            check "true" "${{ needs.build-sea-windows.result }}"      "Windows x64 SEA"
+            check "true" "${{ needs.build-sea-windows-arm.result }}"  "Windows ARM64 SEA"
+            check "true" "${{ needs.build-sea-linux-x64.result }}"    "Linux x64 SEA"
+            check "true" "${{ needs.build-sea-linux-arm64.result }}"  "Linux ARM64 SEA"
           fi
           if [ $fail -ne 0 ]; then
             echo "::error::产物不完整，已中止发布（不要发出残缺版本）"
