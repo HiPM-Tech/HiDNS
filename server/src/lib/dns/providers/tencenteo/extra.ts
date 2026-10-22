@@ -160,8 +160,17 @@ const handlers: Record<string, ProviderActionHandler> = {
       );
     }
 
-    if (typeof args.diffDigest !== 'string' || args.diffDigest !== plan.digest) {
-      throw new OriginGroupError('DIGEST_MISMATCH', 'diff 与预览不一致，请重新 plan');
+    // diffDigest 是**可选**的防漂移校验，不是强制两步。
+    // 源站组的写入本来就是「整组覆盖」，不提供精确替换；用户可以直接给 target 覆盖，
+    // 只有那些先做了「预览源站组更新」的人，才需要把预览的摘要带进来防配置漂移。
+    // 提供了就必须一致；留空则跳过——否则单步覆盖永远过不去。
+    const digestArg = typeof args.diffDigest === 'string' ? args.diffDigest.trim() : '';
+    if (digestArg && digestArg !== plan.digest) {
+      throw new OriginGroupError(
+        'DIGEST_MISMATCH',
+        'diffDigest 与本次实际 plan 不一致：它必须来自「预览源站组更新」步骤的结果变量；' +
+          '如果没做预览，请把该参数留空，直接覆盖即可',
+      );
     }
 
     // 复用上面已经解析好的 ops：再调一次 opsFor 会为复用凭据的场景多发一次 DescribeZones
@@ -260,7 +269,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
         { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['accountId', 'scopeId'], sourceOptionalParams: ['siteType'], allowFreeInput: true },
         { key: 'target', label: 'workflow.param.target', type: 'text', required: true, hint: 'workflow.paramHint.target', validation: 'public-origin' },
-        { key: 'diffDigest', label: 'workflow.param.diff_digest', type: 'text', required: true, hint: 'workflow.paramHint.diff_digest' },
+        { key: 'diffDigest', label: 'workflow.param.diff_digest', type: 'text', required: false, hint: 'workflow.paramHint.diff_digest' },
         // 下面三个是写入前的确认闸门，handler 强制要求。
         // 之前没声明 = 界面上根本设不了，于是这个动作**永远**抛 COLLAPSE_NOT_ACKNOWLEDGED。
         { key: 'collapse', label: 'workflow.param.collapse', type: 'boolean', required: true, hint: 'workflow.paramHint.collapse', validation: 'must-be-true' },

@@ -434,7 +434,21 @@ describe('写入闸门（能力层）', () => {
     stubAdapter({ ...RAW_GROUP, References: [] });
     await expect(
       replaceHandler(ctx, { accountId: 3, scopeId: 'zone-1', groupId: 'og-prod', target: '198.51.100.9', collapse: true, diffDigest: 'forged' }),
-    ).rejects.toThrow(/diff 与预览不一致/);
+    ).rejects.toThrow(/diffDigest 与本次实际 plan 不一致/);
+  });
+
+  it('不提供 diffDigest 时直接整组覆盖（点对面覆盖，不要求先 plan）', async () => {
+    // 源站组的写入语义就是「整组覆盖」，不提供精确替换；
+    // 把 diffDigest 设成必填等于强制两步，单步覆盖永远过不去。
+    stubAdapter({ ...RAW_GROUP, References: [] });
+    const result = (await replaceHandler(ctx, {
+      accountId: 3,
+      scopeId: 'zone-1',
+      groupId: 'og-prod',
+      target: '198.51.100.9',
+      collapse: true,
+    })) as { requestId: string | null };
+    expect(result.requestId).toBeTruthy();
   });
 
   it('plan 结果携带引用方清单', async () => {

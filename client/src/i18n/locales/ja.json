@@ -1924,7 +1924,7 @@
                 "var_workflow_get": "Read a workflow variable"
             },
             "paramHint": {
-                "diff_digest": "Produced by the preceding plan step. Set \"Store result in variable\" there, then reference that variable here.",
+                "diff_digest": "Optional. If you ran \"Preview origin group update\", pass its result variable here to prevent drift between preview and execution; leave empty to overwrite the group directly.",
                 "target": "Full declaration of the target origin servers, in the format the origin group expects.",
                 "record_id": "Once a domain is chosen, its DNS records are listed here — just pick one.",
                 "collapse": "Required. Writing an origin group is a whole-group replace: it only shrinks, never grows. The action will not run unless this is checked.",
