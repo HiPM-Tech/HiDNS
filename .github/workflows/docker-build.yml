@@ -1,14 +1,13 @@
-name: Docker Image (CI / Manual)
+name: Docker Image
 
-# 两种入口：
-#   push → main：CI 构建，推 `<短SHA>-ci` 与滚动 `ci` 镜像，并清理超过 14 个的旧构建
-#   workflow_dispatch：手动构建（可指定标签、beta、是否推注册表）
+# 三个入口，共用同一套构建逻辑（此前是 docker-build.yml 与 nightly-build.yml 两份，
+# 80% 重复，且两边都会推 `ci` 滚动标签、互相覆盖）：
 #
-# 为什么加 push 触发：此前 Dockerfile 坏了要等到 nightly（UTC 18:00）或发版才发现。
+#   push → main   CI 构建      <短SHA>-ci   + 滚动 ci
+#   schedule      夜间构建     nightly-<日期> + 滚动 nightly
+#   dispatch      手动构建     用户指定标签（beta 走 beta 标签，否则 latest）
 #
-# 已移除 `workflow_call`：声明了完整的一套可复用接口，但全仓没有任何工作流调用它
-# （release.yml 与 nightly-build.yml 都是各自内联构建镜像）。留着只会让人以为有人在复用；
-# 将来真要复用，按需重新加回即可。
+# 滚动标签按来源分开：CI 与 nightly 抢同一个 `ci` 是合并前就存在的隐患。
 on:
   push:
     branches:
@@ -21,6 +20,11 @@ on:
       - 'package.json'
       - 'pnpm-lock.yaml'
       - '.github/workflows/docker-build.yml'
+
+  # 夜间构建：每天 UTC 18:00（沿用原 nightly-build.yml 的时间）
+  schedule:
+    - cron: '0 18 * * *'
+
   workflow_dispatch:
     inputs:
       tag:
@@ -60,7 +64,8 @@ jobs:
       processed_tag: ${{ steps.version.outputs.processed_tag }}
       is_beta: ${{ steps.version.outputs.is_beta }}
       is_ci: ${{ steps.version.outputs.is_ci }}
-      is_push_build: ${{ steps.version.outputs.is_push_build }}
+      rolling_tag: ${{ steps.version.outputs.rolling_tag }}
+      is_release: ${{ steps.version.outputs.is_release }}
       push_enabled: ${{ steps.version.outputs.push_enabled }}
       # ghcr 的镜像名必须小写：build 阶段用 metadata-action（它会自动转），
       # 但 merge 阶段是裸的 docker buildx imagetools create，拿到 HiPM-Tech/HiDNS 会直接报
@@ -73,54 +78,60 @@ jobs:
       - name: Process version tag
         id: version
         run: |
+          EVENT="${{ github.event_name }}"
           INPUT_TAG="${{ github.event.inputs.tag || inputs.tag }}"
           IS_BETA="${{ github.event.inputs.beta || inputs.beta }}"
           IS_CI="${{ github.event.inputs.ci || inputs.ci }}"
           PUSH_ENABLED="${{ github.event.inputs.push || inputs.push }}"
+          PUSH_ENABLED="${PUSH_ENABLED:-true}"
 
-          # push 事件没有 inputs：标签用 `<短SHA>-ci`，并**推送到注册表**。
-          #
-          # IS_CI 必须一起置为 true：merge 阶段靠它决定「要不要创建 latest/beta」。
-          # 只设 tag 不设 IS_CI 的话，IS_BETA 也是空，会走 elif 分支**创建 latest**——
-          # 那等于每次推 main 都覆盖发版标签，是比缺构建更严重的问题。
-          if [ -z "$INPUT_TAG" ]; then
-            INPUT_TAG="$(echo "$GITHUB_SHA" | cut -c1-7)"
-            IS_CI="true"
-          fi
-          if [ -z "$PUSH_ENABLED" ]; then
-            PUSH_ENABLED="true"
-          fi
+          # 按触发来源决定标签与滚动标签。三个入口共用后面完全相同的构建逻辑。
+          ROLLING_TAG=""
+          case "$EVENT" in
+            push)
+              # CI 构建：<短SHA>-ci，并滚动更新 ci
+              TAG="$(echo "$GITHUB_SHA" | cut -c1-7)-ci"
+              ROLLING_TAG="ci"
+              IS_CI="true"
+              ;;
+            schedule)
+              # 夜间构建：nightly-<日期>，并滚动更新 nightly。
+              # 不叫 ci —— 那样会和 CI 抢同一个滚动标签（合并前两份工作流就这么撞过）。
+              TAG="nightly-$(date -u +%Y%m%d)"
+              ROLLING_TAG="nightly"
+              IS_CI="true"
+              ;;
+            *)
+              # 手动 dispatch：沿用入参语义
+              TAG="${INPUT_TAG#v}"
+              if [ "$IS_CI" = "true" ] && [[ ! "$TAG" =~ -ci$ ]]; then
+                TAG="${TAG}-ci"
+              fi
+              if [ "$IS_BETA" = "true" ] && [[ ! "$TAG" =~ beta ]]; then
+                TAG="${TAG}-beta"
+              fi
+              ;;
+          esac
 
-          # Remove 'v' prefix if present
-          TAG="${INPUT_TAG#v}"
-
-          # If CI build, add '-ci' suffix
-          if [ "$IS_CI" = "true" ] && [[ ! "$TAG" =~ -ci$ ]]; then
-            TAG="${TAG}-ci"
-          fi
-
-          # If beta is checked and tag doesn't contain 'beta', add '-beta' suffix
-          if [ "$IS_BETA" = "true" ] && [[ ! "$TAG" =~ beta ]]; then
-            TAG="${TAG}-beta"
-          fi
-
-          # 只有「推 main 触发的构建」才滚动更新 `ci` 标签；
-          # 手动 dispatch 的 ci 构建可能来自任意分支，不该动这个指针。
-          IS_PUSH_BUILD="false"
-          if [ "${{ github.event_name }}" = "push" ]; then
-            IS_PUSH_BUILD="true"
+          # IS_RELEASE 只排除 CI 构建：push 与 schedule 一律 IS_CI=true，永远不会覆盖 latest/beta。
+          # beta 构建仍是「发版式」的——它要创建 beta 标签，只是不创建 latest。
+          # （把 beta 也算进来会让 beta 构建什么都不建，是本次合并时踩过的回归。）
+          IS_RELEASE="true"
+          if [ "$IS_CI" = "true" ]; then
+            IS_RELEASE="false"
           fi
 
           echo "image_name_lower=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
           echo "processed_tag=$TAG" >> $GITHUB_OUTPUT
-          echo "is_push_build=$IS_PUSH_BUILD" >> $GITHUB_OUTPUT
+          echo "rolling_tag=$ROLLING_TAG" >> $GITHUB_OUTPUT
+          echo "is_release=$IS_RELEASE" >> $GITHUB_OUTPUT
           echo "is_beta=$IS_BETA" >> $GITHUB_OUTPUT
           echo "is_ci=$IS_CI" >> $GITHUB_OUTPUT
           echo "push_enabled=$PUSH_ENABLED" >> $GITHUB_OUTPUT
-          echo "Original tag: $INPUT_TAG"
+          echo "Event: $EVENT"
           echo "Processed tag: $TAG"
-          echo "Is beta: $IS_BETA"
-          echo "Is CI: $IS_CI"
+          echo "Rolling tag: ${ROLLING_TAG:-(none)}"
+          echo "Is release: $IS_RELEASE"
           echo "Push enabled: $PUSH_ENABLED"
 
   # ============================================================================
@@ -168,7 +179,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           # 推 main 的 CI 构建走 gha 缓存：否则每次从零重建，两次构建（amd64 + 原生 arm64）
           # 的成本接近一次发版。手动构建仍 no-cache——发版要的是干净产物。
-          no-cache: ${{ needs.prepare.outputs.is_push_build != 'true' }}
+          no-cache: ${{ needs.prepare.outputs.rolling_tag == '' }}
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,mode=max,scope=amd64
           build-args: |
@@ -224,7 +235,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           # 推 main 的 CI 构建走 gha 缓存：否则每次从零重建，两次构建（amd64 + 原生 arm64）
           # 的成本接近一次发版。手动构建仍 no-cache——发版要的是干净产物。
-          no-cache: ${{ needs.prepare.outputs.is_push_build != 'true' }}
+          no-cache: ${{ needs.prepare.outputs.rolling_tag == '' }}
           cache-from: type=gha,scope=arm64
           cache-to: type=gha,mode=max,scope=arm64
           build-args: |
@@ -273,19 +284,21 @@ jobs:
             "${IMAGE_BASE}:${TAG}-amd64" \
             "${IMAGE_BASE}:${TAG}-arm64"
 
-          # 推 main 触发的构建额外维护一个滚动的 `ci` 标签，指向最新一次 main 构建。
-          # 只对 push 事件生效：手动 dispatch 的 ci 构建可能来自任意分支，不该动这个指针。
-          if [ "${{ needs.prepare.outputs.is_push_build }}" = "true" ]; then
+          # 滚动标签：CI 构建更新 `ci`，夜间构建更新 `nightly`。
+          # 两者分开是本次合并的重点——合并前两份工作流都推 `ci`，会互相覆盖。
+          ROLLING_TAG="${{ needs.prepare.outputs.rolling_tag }}"
+          if [ -n "$ROLLING_TAG" ]; then
             docker buildx imagetools create \
-              --tag "${IMAGE_BASE}:ci" \
+              --tag "${IMAGE_BASE}:${ROLLING_TAG}" \
               "${IMAGE_BASE}:${TAG}-amd64" \
               "${IMAGE_BASE}:${TAG}-arm64"
-            echo "Rolling tag updated: ci -> ${TAG}"
+            echo "Rolling tag updated: ${ROLLING_TAG} -> ${TAG}"
           fi
 
-          # CI 构建：不创建 latest/beta tag
-          if [ "$IS_CI" = "true" ]; then
-            echo "CI build detected, skipping latest/beta tag creation"
+          # 只有发版式手动构建才动 latest/beta；push 与 schedule 一律不动
+          IS_RELEASE="${{ needs.prepare.outputs.is_release }}"
+          if [ "$IS_RELEASE" != "true" ]; then
+            echo "非发版构建，跳过 latest/beta tag 创建"
           elif [ "$IS_BETA" != "true" ]; then
             # 如果不是 beta，创建 latest tag
             docker buildx imagetools create \
@@ -317,7 +330,7 @@ jobs:
     name: Prune Old CI Builds
     runs-on: ubuntu-latest
     needs: [prepare, merge]
-    if: always() && needs.merge.result == 'success' && needs.prepare.outputs.push_enabled == 'true' && needs.prepare.outputs.is_push_build == 'true'
+    if: always() && needs.merge.result == 'success' && needs.prepare.outputs.push_enabled == 'true' && needs.prepare.outputs.rolling_tag != ''
     permissions:
       packages: write
     steps:
@@ -333,3 +346,34 @@ jobs:
           IMAGE_NAME: ${{ needs.prepare.outputs.image_name }}
           KEEP: '14'
         run: bash .github/scripts/prune-ci-images.sh
+
+  # ============================================================================
+  # 阶段 5: 验证镜像（原 nightly-build.yml 独有，合并后所有推送构建都跑）
+  # ============================================================================
+  verify-image:
+    name: Verify Image
+    runs-on: ubuntu-latest
+    needs: [prepare, merge]
+    if: always() && needs.merge.result == 'success' && needs.prepare.outputs.push_enabled == 'true' && needs.prepare.outputs.rolling_tag != ''
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and verify manifest
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_name }}:${{ needs.prepare.outputs.rolling_tag }}"
+          docker pull "$IMAGE"
+          echo 'Verifying Docker image labels:'
+          docker inspect "$IMAGE" --format='{{json .Config.Labels}}'
+          echo ''
+          echo 'Manifest platforms:'
+          docker manifest inspect "$IMAGE" | grep architecture
+          echo ''
+          echo 'Image verification completed successfully!'

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 清理 ghcr 上旧的 CI 构建：只保留最近 KEEP 次 `*-ci` 构建。
+# 清理 ghcr 上旧的构建：只保留最近 KEEP 次（`*-ci` 与 `nightly-*` 各算各的组）。
 #
 # 为什么是独立脚本而不是内联在 workflow 里：内联版本有 60 行、含嵌套引号的
 # curl/jq 组合，既没法本地跑也没法本地校验，改一次就要推一次才知道对不对。
@@ -57,20 +57,28 @@ for f in "${WORK}"/page-*.json; do jq -c '.[]' "$f"; done > "${WORK}/all.jsonl"
 # ── 2. 按「一次构建」聚合，挑出最旧的若干部 ──────────────────────────
 # 一次 CI 构建产出 <sha>-ci、<sha>-ci-amd64、<sha>-ci-arm64 三个版本，
 # 必须整组保留或整组删除，否则会留下悬空的单架构 tag。
-# 只认 <7~40 位十六进制>-ci 形态：滚动 ci、latest、beta、版本号标签都不匹配。
+# 只认两种形态：<7~40 位十六进制>-ci（CI 构建）与 nightly-<8位日期>（夜间构建）。
+# 滚动标签 ci/nightly、latest、beta、版本号标签都不会匹配。
 jq -s -r --argjson keep "${KEEP}" '
   [ .[]
     | { id: .id, created_at: .created_at, tags: (.metadata.container.tags // []) }
     | .build = ([ .tags[]
-                  | (try (capture("^(?<k>[0-9a-f]{7,40})-ci(-amd64|-arm64)?$").k) catch null) ]
+                  | (try (capture("^(?<k>(?:[0-9a-f]{7,40}-ci)|(?:nightly-[0-9]{8}))(-amd64|-arm64)?$").k) catch null) ]
                 | map(select(. != null)) | first)
     | select(.build != null)
   ]
-  | group_by(.build)
-  | map({ build: .[0].build, created: (map(.created_at) | max), ids: map(.id) })
-  | sort_by(.created) | reverse
-  | .[ $keep : ]
-  | .[].ids[]
+  # CI 与 nightly 是两条独立的构建线，各自保留 KEEP 次；
+  # 混在一起算会把其中一类挤没（例如 CI 频繁时 nightly 全被删）。
+  | map(. + { family: (if (.build | startswith("nightly-")) then "nightly" else "ci" end) })
+  | group_by(.family)
+  | map(
+      group_by(.build)
+      | map({ build: .[0].build, created: (map(.created_at) | max), ids: map(.id) })
+      | sort_by(.created) | reverse
+      | .[ $keep : ]
+      | .[].ids[]
+    )
+  | .[]
 ' "${WORK}/all.jsonl" > "${WORK}/prune.txt"
 
 total="$(grep -c . "${WORK}/prune.txt" || true)"
