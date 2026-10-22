@@ -67,13 +67,10 @@ while read -r tag; do
   if ! out="$(docker manifest inspect "${REF}:${tag}" 2>/dev/null)"; then
     echo "::error::无法解析 ${tag} 的 manifest"; fail=$((fail+1)); continue
   fi
-  # index 的 .manifests[].digest 是子 manifest；单架构 manifest 没有 .manifests
+  # index 的 .manifests[].digest 就是子 manifest；单架构 manifest 没有 .manifests。
+  # 不做嵌套展开：index 的子项要么是平台 manifest、要么是 buildx attestation，两者都是叶子，
+  # 再展开一层只会把 registry 往返次数翻倍（实测 146 个标签要多花 6 分钟），拿不到任何新引用。
   echo "$out" | jq -r '.manifests[]?.digest // empty' >> "${WORK}/refs.txt"
-  # 再把子 digest 里可能嵌套的 index 也展开一层
-  echo "$out" | jq -r '.manifests[]?.digest // empty' | while read -r d; do
-    [ -z "$d" ] && continue
-    docker manifest inspect "${REF}@${d}" 2>/dev/null | jq -r '.manifests[]?.digest // empty' >> "${WORK}/refs.txt" || true
-  done
 done < "${WORK}/tags.txt"
 
 if [ "$fail" -ne 0 ]; then
