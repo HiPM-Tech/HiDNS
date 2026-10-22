@@ -289,7 +289,7 @@ export class HuaweiAdapter extends BaseAdapter {
         name: hostName,
         type: this.convertType(type),
         records: records,
-        line: line || 'default_view',
+        line: line && line !== '0' ? line : 'default_view',
         ttl: ttl,
         description: remark,
       };
@@ -389,7 +389,16 @@ export class HuaweiAdapter extends BaseAdapter {
       if (!Array.isArray(res.lines)) {
         throw new Error('Invalid response format for system-lines');
       }
-      return res.lines.map((row) => ({ id: row.id, name: row.name }));
+      const lines = res.lines.map((row) => ({ id: row.id, name: row.name }));
+      // 确保第一条是 default_view
+      if (lines[0]?.id !== 'default_view') {
+        const index = lines.findIndex((item) => item.id === 'default_view');
+        if (index !== -1) {
+          const item = lines.splice(index, 1)[0];
+          lines.unshift(item);
+        }
+      }
+      return lines;
     } catch (e) {
       log.warn('getRecordLines failed', {
         error: e instanceof Error ? e.message : String(e)
@@ -444,7 +453,7 @@ export class HuaweiAdapter extends BaseAdapter {
       Name: name,
       Type: safeString(row.type),
       Value: Array.isArray(row.records) ? row.records.join(',') : safeString(row.records),
-      Line: safeString(row.line) || '0',
+      Line: safeString(row.line) || 'default_view',
       TTL: toNumber(row.ttl, 600),
       MX: row.mx ? toNumber(row.mx, 0) : 0,
       Status: row.status === 'ACTIVE' ? 1 : 0,
