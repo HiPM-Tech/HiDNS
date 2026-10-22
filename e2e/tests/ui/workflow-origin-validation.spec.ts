@@ -17,7 +17,7 @@ test('target 填内网地址时立即提示会被服务端拒绝', async ({ page
   await page.locator('.t-popup').getByText('解析记录变更').last().click();
 
   await page.locator('.workflow-action-row .t-select').first().click();
-  await page.locator('.t-popup').getByText('预览源站组收敛').last().click();
+  await page.locator('.t-popup').getByText('预览源站组更新').last().click();
 
   const targetParam = page.locator('.workflow-param', { hasText: '目标源站' });
   const input = targetParam.locator('input').first();

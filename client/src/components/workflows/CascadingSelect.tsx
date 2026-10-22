@@ -36,6 +36,8 @@ interface CascadingSelectProps {
     sourceOptionalParams?: string[];
     /** 静态查询参数（如 accounts?originGroup=true），随候选请求一起发送 */
     sourceQuery?: Record<string, string>;
+    /** 允许直接填写（候选列不出来时仍可继续），渲染为 AutoComplete */
+    allowFreeInput?: boolean;
   };
   /** 参数键 → 已翻译的可读名称；缺失时回落到原始键 */
   labels?: Record<string, string>;
@@ -105,12 +107,23 @@ export function CascadingSelect({ param, labels, args, value, onChange }: Cascad
 
   return (
     <div className="workflow-cascading">
+      {/*
+        allowFreeInput 的源（目前是源站组的作用域与组 ID）用 Select + creatable：
+        既保留候选下拉，又允许直接输入——TDesign 的 Select 配 creatable 就是「可选可填」，
+        值仍是字符串，onChange 语义与普通 Select 一致（试过 AutoComplete，值留不住）。
+
+        为什么必须留手填：这两项的候选要靠**账号凭据去上游列举**（DNSPod 复用场景尤其如此），
+        凭据缺权限、上游限流或网络不通时列不出来，纯下拉就把用户卡死了——
+        而这两项本身只是标识符，知道值的人应当能直接填。
+      */}
       <Select
         placeholder={ready ? nameOf(param.key) : t('workflows.needParams', { params: missing })}
         disabled={!ready}
         loading={query.isLoading}
         value={value}
         options={options as any}
+        creatable={Boolean(param.allowFreeInput)}
+        filterable={Boolean(param.allowFreeInput)}
         onChange={(next) => onChange(String(next))}
       />
       {/* 候选拉取失败时必须说明原因：此前只有 loading 态，失败时下拉空着，

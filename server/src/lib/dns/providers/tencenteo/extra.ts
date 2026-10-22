@@ -198,7 +198,7 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       params: [
         // 设计 §3.7.8：源站组按「账号 + 作用域」定位，不再经域名中转。
         { key: 'accountId', label: 'workflow.param.account_id', type: 'number', required: true, source: 'accounts', sourceQuery: { originGroup: 'true' } },
-        { key: 'scopeId', label: 'workflow.param.scope_id', type: 'text', required: true, source: 'edgeoneZones', sourceParams: ['accountId'], sourceOptionalParams: ['siteType'] },
+        { key: 'scopeId', label: 'workflow.param.scope_id', type: 'text', required: true, source: 'edgeoneZones', sourceParams: ['accountId'], sourceOptionalParams: ['siteType'], allowFreeInput: true },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
       ],
     },
@@ -213,9 +213,9 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       params: [
         // 设计 §3.7.8：源站组按「账号 + 作用域」定位，不再经域名中转。
         { key: 'accountId', label: 'workflow.param.account_id', type: 'number', required: true, source: 'accounts', sourceQuery: { originGroup: 'true' } },
-        { key: 'scopeId', label: 'workflow.param.scope_id', type: 'text', required: true, source: 'edgeoneZones', sourceParams: ['accountId'], sourceOptionalParams: ['siteType'] },
+        { key: 'scopeId', label: 'workflow.param.scope_id', type: 'text', required: true, source: 'edgeoneZones', sourceParams: ['accountId'], sourceOptionalParams: ['siteType'], allowFreeInput: true },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['accountId', 'scopeId'], sourceOptionalParams: ['siteType'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['accountId', 'scopeId'], sourceOptionalParams: ['siteType'], allowFreeInput: true },
       ],
     },
     {
@@ -229,9 +229,9 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       params: [
         // 设计 §3.7.8：源站组按「账号 + 作用域」定位，不再经域名中转。
         { key: 'accountId', label: 'workflow.param.account_id', type: 'number', required: true, source: 'accounts', sourceQuery: { originGroup: 'true' } },
-        { key: 'scopeId', label: 'workflow.param.scope_id', type: 'text', required: true, source: 'edgeoneZones', sourceParams: ['accountId'], sourceOptionalParams: ['siteType'] },
+        { key: 'scopeId', label: 'workflow.param.scope_id', type: 'text', required: true, source: 'edgeoneZones', sourceParams: ['accountId'], sourceOptionalParams: ['siteType'], allowFreeInput: true },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['accountId', 'scopeId'], sourceOptionalParams: ['siteType'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['accountId', 'scopeId'], sourceOptionalParams: ['siteType'], allowFreeInput: true },
         { key: 'target', label: 'workflow.param.target', type: 'text', required: true, hint: 'workflow.paramHint.target', validation: 'public-origin' },
       ],
     },
@@ -246,9 +246,9 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
       params: [
         // 设计 §3.7.8：源站组按「账号 + 作用域」定位，不再经域名中转。
         { key: 'accountId', label: 'workflow.param.account_id', type: 'number', required: true, source: 'accounts', sourceQuery: { originGroup: 'true' } },
-        { key: 'scopeId', label: 'workflow.param.scope_id', type: 'text', required: true, source: 'edgeoneZones', sourceParams: ['accountId'], sourceOptionalParams: ['siteType'] },
+        { key: 'scopeId', label: 'workflow.param.scope_id', type: 'text', required: true, source: 'edgeoneZones', sourceParams: ['accountId'], sourceOptionalParams: ['siteType'], allowFreeInput: true },
         { key: 'siteType', label: 'workflow.param.site_type', type: 'select', required: false, options: ['mainland', 'intl'] },
-        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['accountId', 'scopeId'], sourceOptionalParams: ['siteType'] },
+        { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['accountId', 'scopeId'], sourceOptionalParams: ['siteType'], allowFreeInput: true },
         { key: 'target', label: 'workflow.param.target', type: 'text', required: true, hint: 'workflow.paramHint.target', validation: 'public-origin' },
         { key: 'diffDigest', label: 'workflow.param.diff_digest', type: 'text', required: true, hint: 'workflow.paramHint.diff_digest' },
       ],

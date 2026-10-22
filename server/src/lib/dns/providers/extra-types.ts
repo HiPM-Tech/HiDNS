@@ -31,6 +31,8 @@ export interface ProviderActionParam {
   sourceOptionalParams?: string[];
   /** 静态查询参数：随候选请求一起发送（如 accounts?originGroup=true） */
   sourceQuery?: Record<string, string>;
+  /** 允许直接填写：候选要靠上游列举才能给出，列不出来时不能让用户卡死 */
+  allowFreeInput?: boolean;
 }
 
 export interface ProviderExtraAction {
