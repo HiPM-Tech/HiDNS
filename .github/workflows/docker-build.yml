@@ -134,9 +134,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -165,8 +162,8 @@ jobs:
           push: ${{ needs.prepare.outputs.push_enabled == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # 推 main 的 CI 构建走 gha 缓存：否则每次从零重建，还要 QEMU 模拟 arm64，
-          # 成本接近一次发版构建。手动构建仍 no-cache——发版要的是干净产物。
+          # 推 main 的 CI 构建走 gha 缓存：否则每次从零重建，两次构建（amd64 + 原生 arm64）
+          # 的成本接近一次发版。手动构建仍 no-cache——发版要的是干净产物。
           no-cache: ${{ needs.prepare.outputs.is_push_build != 'true' }}
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,mode=max,scope=amd64
@@ -181,7 +178,9 @@ jobs:
 
   build-arm64:
     name: Build ARM64
-    runs-on: ubuntu-latest
+    # 原生 arm64 runner：不再用 QEMU 模拟。QEMU 下 arm64 构建要慢一个数量级，
+    # 而 buildx 在原生架构上直接出镜像，platforms 仍显式写成 linux/arm64 以保持标签一致。
+    runs-on: ubuntu-24.04-arm
     needs: prepare
     timeout-minutes: 15
     permissions:
@@ -190,9 +189,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -222,8 +218,8 @@ jobs:
           push: ${{ needs.prepare.outputs.push_enabled == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # 推 main 的 CI 构建走 gha 缓存：否则每次从零重建，还要 QEMU 模拟 arm64，
-          # 成本接近一次发版构建。手动构建仍 no-cache——发版要的是干净产物。
+          # 推 main 的 CI 构建走 gha 缓存：否则每次从零重建，两次构建（amd64 + 原生 arm64）
+          # 的成本接近一次发版。手动构建仍 no-cache——发版要的是干净产物。
           no-cache: ${{ needs.prepare.outputs.is_push_build != 'true' }}
           cache-from: type=gha,scope=arm64
           cache-to: type=gha,mode=max,scope=arm64
