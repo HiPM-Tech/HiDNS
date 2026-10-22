@@ -1,10 +1,14 @@
-name: Build and Push Docker Image
+name: Docker Image (CI / Manual)
 
-# 三种入口：手动、被其他工作流调用、以及**推 main 时的 CI 构建**。
+# 两种入口：
+#   push → main：CI 构建，推 `<短SHA>-ci` 与滚动 `ci` 镜像，并清理超过 14 个的旧构建
+#   workflow_dispatch：手动构建（可指定标签、beta、是否推注册表）
 #
 # 为什么加 push 触发：此前 Dockerfile 坏了要等到 nightly（UTC 18:00）或发版才发现。
-# push 事件会**推 `ci-<短SHA>` 镜像**到 ghcr（沿用旧 nightly 的 `ci-` 前缀），
-# 但不碰 `latest`——那是发版标签，CI 构建绝不能覆盖它。
+#
+# 已移除 `workflow_call`：声明了完整的一套可复用接口，但全仓没有任何工作流调用它
+# （release.yml 与 nightly-build.yml 都是各自内联构建镜像）。留着只会让人以为有人在复用；
+# 将来真要复用，按需重新加回即可。
 on:
   push:
     branches:
@@ -41,28 +45,6 @@ on:
         options:
           - 'true'
           - 'false'
-  workflow_call:
-    inputs:
-      tag:
-        description: 'Docker image tag (e.g., 0.1.0)'
-        required: true
-        type: string
-      beta:
-        description: 'Beta release (auto add -beta suffix if not present, skip latest tag)'
-        required: false
-        default: false
-        type: boolean
-      ci:
-        description: 'CI build (auto add -ci suffix to tag)'
-        required: false
-        default: false
-        type: boolean
-      push:
-        description: 'Push to registry'
-        required: false
-        default: 'true'
-        type: string
-
 env:
   REGISTRY: ghcr.io
   # Dynamically get repository name from GitHub context
@@ -183,7 +165,11 @@ jobs:
           push: ${{ needs.prepare.outputs.push_enabled == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          no-cache: true
+          # 推 main 的 CI 构建走 gha 缓存：否则每次从零重建，还要 QEMU 模拟 arm64，
+          # 成本接近一次发版构建。手动构建仍 no-cache——发版要的是干净产物。
+          no-cache: ${{ needs.prepare.outputs.is_push_build != 'true' }}
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
           build-args: |
             CI_BUILD=${{ needs.prepare.outputs.is_ci }}
 
@@ -236,7 +222,11 @@ jobs:
           push: ${{ needs.prepare.outputs.push_enabled == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          no-cache: true
+          # 推 main 的 CI 构建走 gha 缓存：否则每次从零重建，还要 QEMU 模拟 arm64，
+          # 成本接近一次发版构建。手动构建仍 no-cache——发版要的是干净产物。
+          no-cache: ${{ needs.prepare.outputs.is_push_build != 'true' }}
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
           build-args: |
             CI_BUILD=${{ needs.prepare.outputs.is_ci }}
 
