@@ -104,7 +104,8 @@
             "conditionSample": "Value from the last event: {value}",
             "conditionHostHint": "\"Record host\" is only the host part (e.g. test), without the domain; use the \"Domain\" field to compare full domain names.",
             "mustBeTrueWarning": "Must be checked, otherwise the action will not run",
-            "fieldRecordFqdn": "Record FQDN"
+            "fieldRecordFqdn": "Record FQDN",
+            "dualStackOriginWarning": "Dual-stack DDNS will overwrite each other: this action collapses the group to a single origin, so the A and AAAA updates will keep replacing one another. Trigger on only one record type, or maintain two separate origin groups."
         },
         "common": {
             "operationFailed": "Operation failed",

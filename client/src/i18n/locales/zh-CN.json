@@ -104,7 +104,8 @@
             "conditionSample": "上次事件里的值：{value}",
             "conditionHostHint": "「记录主机名」只是主机部分（如 test），不含域名；要比完整域名请选「域名」字段。",
             "mustBeTrueWarning": "必须勾选，否则动作不会执行",
-            "fieldRecordFqdn": "解析全名"
+            "fieldRecordFqdn": "解析全名",
+            "dualStackOriginWarning": "双栈 DDNS 会互相覆盖：本动作整组覆盖后只保留一条源站，A 与 AAAA 各自触发时会把对方覆盖掉。建议记录类型只选一种，或改为分别维护两个源站组。"
         },
         "about": {
             "community": "社区",

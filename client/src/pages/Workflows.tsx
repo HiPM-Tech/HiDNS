@@ -758,6 +758,21 @@ export function Workflows() {
                               {t(`workflows.risk_${meta.risk}`)}
                             </Tag>
                           </p>
+                          {/*
+                            双栈 DDNS 的语义陷阱：
+                            源站组的写入是「整组覆盖」，最终只保留**一条**源站。
+                            若触发器同时接受 A 与 AAAA，而 target 又引用 event.record.value，
+                            那么 v4 更新会把组覆盖成 v4、v6 更新再把组覆盖成 v6——
+                            两族互相覆盖，最终只剩最后更新的那一个。
+                          */}
+                          {row.action === 'ext.tencenteo.originGroup.replace' &&
+                          row.args?.target?.kind === 'ref' &&
+                          String(row.args.target.value) === 'event.record.value' &&
+                          form.triggerType === 'record.changed' &&
+                          form.recordTypes.includes('A') &&
+                          form.recordTypes.includes('AAAA') ? (
+                            <p className="workflow-param__invalid">{t('workflows.dualStackOriginWarning')}</p>
+                          ) : null}
                         </>
                       ) : null}
                       {/* 把这一步的返回值存进变量：后续步骤才能引用它（如 plan 的 diffDigest 供 replace 使用） */}
