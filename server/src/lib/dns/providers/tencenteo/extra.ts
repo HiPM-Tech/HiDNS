@@ -40,6 +40,16 @@ function teoOptions(args: Record<string, unknown>): { siteType?: string; zoneId?
  * 把已解析的凭据上下文收敛成摘要用的位置。
  * 位置必须进摘要，否则同账号下不同站点的同名同内容组会让 plan/replace 的摘要撞车。
  */
+/**
+ * 确认闸门的取值判定：接受真布尔与字符串两种写法。
+ *
+ * 编辑器内部统一用字符串存参数值，历史数据里 `collapse` 可能是 "true"；
+ * 只判 `=== true` 会让界面已经勾上的工作流在运行期仍被拒。
+ */
+function isTrueFlag(value: unknown): boolean {
+  return value === true || value === 'true';
+}
+
 function locationOf(ctx: TeoOps): CollapseLocation {
   return { accountId: ctx.accountId, scopeId: ctx.zoneId, siteType: ctx.siteType };
 }
@@ -116,7 +126,7 @@ const handlers: Record<string, ProviderActionHandler> = {
   },
 
   'ext.tencenteo.originGroup.replace': async (args) => {
-    if (args.collapse !== true) {
+    if (!isTrueFlag(args.collapse)) {
       throw new OriginGroupError('COLLAPSE_NOT_ACKNOWLEDGED', '必须显式声明 collapse: true');
     }
     const ctx = await loadGroup(args);
@@ -133,7 +143,7 @@ const handlers: Record<string, ProviderActionHandler> = {
 
     // 被引用中的源站组不得整组覆盖：坍缩会立刻改变这些域名的回源行为。
     // 这是"写入前的最后一道闸门"，不依赖调用方自律。
-    if (group.references.length > 0 && args.acknowledgeReferenced !== true) {
+    if (group.references.length > 0 && !isTrueFlag(args.acknowledgeReferenced)) {
       const names = describeReferences(group.references);
       const head = names.slice(0, 5).join('、');
       const tail = names.length > 5 ? ` 等 ${names.length} 项` : '';
@@ -143,7 +153,7 @@ const handlers: Record<string, ProviderActionHandler> = {
       );
     }
 
-    if (hasIrrecoverableData(plan.removed) && args.acknowledgeDataLoss !== true) {
+    if (hasIrrecoverableData(plan.removed) && !isTrueFlag(args.acknowledgeDataLoss)) {
       throw new OriginGroupError(
         'IRRECOVERABLE_DATA_LOSS',
         '被移除记录含对象存储私有参数，需 acknowledgeDataLoss: true',

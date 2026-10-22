@@ -14,6 +14,7 @@ import { useFormSync } from '../hooks/useFormSync';
 import { useToast } from '../hooks/useToast';
 import {
   CONDITION_FIELD_LABEL_KEYS,
+  coerceBooleanArgs,
   CONDITION_FIELDS,
   CONDITION_OPS,
   EMPTY_CONDITION,
@@ -276,7 +277,8 @@ export function Workflows() {
               : {},
     // 关闭条件时发 null：undefined 会被 JSON.stringify 丢弃，服务端会保留旧条件
     condition: toConditionNode(form.condition) ?? null,
-    actions: toDslNodes(form.rows),
+    // 布尔参数在服务端按 === true 严格判定，出边界时把 "true"/"false" 转成真布尔
+    actions: coerceBooleanArgs(toDslNodes(form.rows), actionMap),
   });
 
   const saveMutation = useMutation({
@@ -657,7 +659,7 @@ export function Workflows() {
                           />
                         ) : param.type === 'boolean' ? (
                           <Switch
-                            value={argValue === 'true'}
+                            value={String(argValue) === 'true'}
                             onChange={(value: any) => setArg(Boolean(value))}
                           />
                         ) : param.type === 'number' ? (

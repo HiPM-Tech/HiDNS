@@ -405,3 +405,48 @@ export function formatSampleValue(value: unknown): string | null {
   if (Array.isArray(value)) return `[${value.length} 项]`;
   return '[对象]';
 }
+
+/** 参数类型查询：动作全名 → 参数声明 */
+type ParamLookup = Map<string, { params?: Array<{ key: string; type?: string }> }>;
+
+/**
+ * 把布尔参数的字面量从字符串 "true"/"false" 转成真布尔。
+ *
+ * 编辑器内部统一用字符串存参数值（下拉、输入框都是字符串），
+ * 但布尔参数在服务端是按 `=== true` 严格判定的——不转换的话，
+ * 界面勾上了、DSL 存的是 "true"、动作在运行期仍被拒。
+ *
+ * 转换放在**构建 payload 的边界**，内部模型不动，避免到处做类型分支。
+ */
+export function coerceBooleanArgs<T>(actions: T[], lookup: ParamLookup): T[] {
+  const walk = (node: unknown): unknown => {
+    if (!node || typeof node !== 'object') return node;
+    const obj = node as Record<string, unknown>;
+    if (obj.kind === 'call' && typeof obj.action === 'string') {
+      const declared = lookup.get(obj.action)?.params ?? [];
+      const args = obj.args as Record<string, { kind?: string; value?: unknown }> | undefined;
+      if (args && typeof args === 'object') {
+        const next: Record<string, unknown> = {};
+        for (const [key, arg] of Object.entries(args)) {
+          const isBoolean = declared.some((p) => p.key === key && p.type === 'boolean');
+          if (isBoolean && arg?.kind === 'literal') {
+            const raw = arg.value;
+            if (raw === 'true' || raw === true) next[key] = { ...arg, value: true };
+            else if (raw === 'false' || raw === false) next[key] = { ...arg, value: false };
+            else next[key] = arg;
+            continue;
+          }
+          if (arg && typeof arg === 'object') next[key] = { ...arg, value: walk(arg.value) as never };
+          else next[key] = arg;
+        }
+        return { ...obj, args: next };
+      }
+    }
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      out[key] = Array.isArray(value) ? value.map(walk) : walk(value);
+    }
+    return out;
+  };
+  return actions.map((action) => walk(action) as T);
+}

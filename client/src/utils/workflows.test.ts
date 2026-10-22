@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findInvalidVarName, needsRecordTypes, resolveEventRef, findMissingRequiredArg, formatDuration, fromConditionNode, fromDslNodes, parseServerTime, summarizeTriggerEvent, toConditionNode, toDslNodes } from './workflows';
+import { coerceBooleanArgs, findInvalidVarName, needsRecordTypes, resolveEventRef, findMissingRequiredArg, formatDuration, fromConditionNode, fromDslNodes, parseServerTime, summarizeTriggerEvent, toConditionNode, toDslNodes } from './workflows';
 
 describe('parseServerTime', () => {
   it('把无时区后缀的服务端时间按 UTC 解析', () => {
@@ -320,5 +320,37 @@ describe('resolveEventRef', () => {
 
   it('没有样例事件时返回 undefined', () => {
     expect(resolveEventRef(null, 'event.record.value')).toBeUndefined();
+  });
+});
+
+describe('coerceBooleanArgs', () => {
+  const lookup = new Map([
+    ['ext.demo.replace', { params: [{ key: 'collapse', type: 'boolean' }, { key: 'target', type: 'text' }] }],
+  ]);
+
+  it('布尔参数的字符串 "true"/"false" 转成真布尔', () => {
+    // 编辑器内部统一用字符串存值，但服务端按 === true 严格判定；
+    // 不转换的话界面勾了、DSL 存的是 "true"、动作运行期仍被拒。
+    const out = coerceBooleanArgs(
+      [{ kind: 'call', action: 'ext.demo.replace', args: { collapse: { kind: 'literal', value: 'true' } } }],
+      lookup,
+    ) as Array<{ args: Record<string, { value: unknown }> }>;
+    expect(out[0].args.collapse.value).toBe(true);
+  });
+
+  it('非布尔参数不受影响', () => {
+    const out = coerceBooleanArgs(
+      [{ kind: 'call', action: 'ext.demo.replace', args: { target: { kind: 'literal', value: 'true' } } }],
+      lookup,
+    ) as Array<{ args: Record<string, { value: unknown }> }>;
+    expect(out[0].args.target.value).toBe('true');
+  });
+
+  it('ref 参数原样保留', () => {
+    const out = coerceBooleanArgs(
+      [{ kind: 'call', action: 'ext.demo.replace', args: { collapse: { kind: 'ref', value: 'vars.flag' } } }],
+      lookup,
+    ) as Array<{ args: Record<string, { kind: string; value: unknown }> }>;
+    expect(out[0].args.collapse.kind).toBe('ref');
   });
 });

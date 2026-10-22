@@ -233,8 +233,11 @@ export function validateExpression(root: unknown, options: ValidationOptions): V
             for (const param of allowed) {
               if (param.validation !== 'must-be-true') continue;
               const valueNode = argObj[param.key];
+              // 接受真布尔与字符串两种写法：编辑器历史上把布尔存成了 "true"
               const isTrue =
-                isObject(valueNode) && valueNode.kind === 'literal' && valueNode.value === true;
+                isObject(valueNode) &&
+                valueNode.kind === 'literal' &&
+                (valueNode.value === true || valueNode.value === 'true');
               if (!isTrue) {
                 issues.push({
                   code: 'MUST_BE_TRUE',
