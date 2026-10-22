@@ -270,3 +270,9 @@
     align-items: stretch;
   }
 }
+/* 条件行的字段样例/提示：让「记录主机名」这类字段的取值形态一眼可见 */
+.workflow-condition-sample {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}

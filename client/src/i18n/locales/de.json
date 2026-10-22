@@ -100,7 +100,9 @@
             "viewSteps": "View steps",
             "runStepsTitle": "Steps of this run",
             "recordTypesRequired": "Select at least one record type, otherwise this workflow will never trigger.",
-            "refHint": "Showing the actual value from the most recent run event"
+            "refHint": "Showing the actual value from the most recent run event",
+            "conditionSample": "Value from the last event: {value}",
+            "conditionHostHint": "\"Record host\" is only the host part (e.g. test), without the domain; use the \"Domain\" field to compare full domain names."
         },
         "common": {
             "operationFailed": "Operation failed",

@@ -26,6 +26,7 @@ import {
   actionNameOf,
   findInvalidVarName,
   formatRefLabel,
+  formatSampleValue,
   needsRecordTypes,
   resolveEventRef,
   findMissingRequiredArg,
@@ -537,9 +538,19 @@ export function Workflows() {
                     };
                     return (
                       <div className="workflow-condition-row" key={index}>
+                        {/*
+                          字段下拉带上**上一次事件的真实值**：
+                          这些字段的取值形态很容易想当然——例如「记录主机名」是 `test`（不含域名），
+                          「域名」才是 `ddns.hinswu.top`。有人会拿主机名去比完整域名，条件恒为假、
+                          工作流一直 skipped 且没有任何提示。把真实值摆在眼前是最直接的防呆。
+                        */}
                         <Select
                           value={conditionRow.field}
-                          options={CONDITION_FIELDS.map((field) => ({ label: t(CONDITION_FIELD_LABEL_KEYS[field.path] ?? field.path), value: field.path }))}
+                          options={CONDITION_FIELDS.map((field) => {
+                            const sample = formatSampleValue(resolveEventRef(editingEvent, field.path));
+                            const label = t(CONDITION_FIELD_LABEL_KEYS[field.path] ?? field.path);
+                            return { label: sample ? `${label} · ${sample}` : label, value: field.path };
+                          })}
                           onChange={(value) => patchRow({ field: String(value) })}
                         />
                         <Select
@@ -562,6 +573,20 @@ export function Workflows() {
                             {t('common.delete')}
                           </Button>
                         )}
+                        {/* 提示放在行末：.workflow-condition-row 是三列网格，
+                            插在中间会把操作符与值挤到下一行甚至溢出可视区。 */}
+                        {(() => {
+                          const sample = formatSampleValue(resolveEventRef(editingEvent, conditionRow.field));
+                          // 静态提示优先于样例：新建工作流拿不到样例事件，但这条坑照样要防
+                          if (conditionRow.field === 'event.record.name') {
+                            return <div className="workflow-condition-sample">{t('workflows.conditionHostHint')}</div>;
+                          }
+                          return sample ? (
+                            <div className="workflow-condition-sample">
+                              {t('workflows.conditionSample', { value: sample })}
+                            </div>
+                          ) : null;
+                        })()}
                       </div>
                     );
                   })}

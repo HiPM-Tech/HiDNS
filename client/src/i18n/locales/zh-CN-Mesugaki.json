@@ -100,7 +100,9 @@
             "viewSteps": "查看步骤",
             "runStepsTitle": "这次运行的每一步",
             "recordTypesRequired": "请至少选择一个记录类型，否则这个工作流永远不会被触发。",
-            "refHint": "显示的是最近一次运行事件里的真实值"
+            "refHint": "显示的是最近一次运行事件里的真实值",
+            "conditionSample": "上次事件里的值：{value}",
+            "conditionHostHint": "「记录主机名」只是主机部分（如 test），不含域名；要比完整域名请选「域名」字段。"
         },
         "about": {
             "community": "社区喵~",

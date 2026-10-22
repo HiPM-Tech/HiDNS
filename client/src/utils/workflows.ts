@@ -387,3 +387,18 @@ export function formatRefLabel(
   if (path.startsWith('vars.')) return t('workflows.varRefLabel', { name: path.slice('vars.'.length) });
   return t(CONDITION_FIELD_LABEL_KEYS[path] ?? path);
 }
+
+/**
+ * 条件字段的样例值格式化（设计 §10：把真实值摆在眼前）。
+ *
+ * 这些字段的取值形态很容易想当然——「记录主机名」是 `test`（不含域名），
+ * 「域名」才是 `ddns.hinswu.top`。拿主机名去比完整域名，条件恒为假、
+ * 工作流一直 skipped 且没有任何提示。
+ */
+export function formatSampleValue(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'string') return value.length > 40 ? `${value.slice(0, 40)}…` : value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return `[${value.length} 项]`;
+  return '[对象]';
+}
