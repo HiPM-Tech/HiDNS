@@ -1,0 +1,46 @@
+name: Image Cleanup
+
+# 手工触发的历史镜像清理。
+#
+# 为什么单独一个工作流：本地 gh token 只有 write:packages、没有 delete:packages，
+# 删不了包版本；而 CI 里的 GITHUB_TOKEN 配 packages: write 就可以删本仓库的包版本。
+#
+# 保留规则见 .github/scripts/cleanup-old-images.sh：正式版 / latest / beta / ci / nightly /
+# 无标签版本一律不动，只删「早于指定日期且仅带非正式标签」的。
+on:
+  workflow_dispatch:
+    inputs:
+      before:
+        description: '删除早于此日期的版本（YYYY-MM-DD）'
+        required: true
+        default: '2026-10-01'
+        type: string
+      dry_run:
+        description: '只列出不删除'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  cleanup:
+    name: Cleanup Old Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Delete versions older than ${{ inputs.before }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          BEFORE: ${{ inputs.before }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: bash .github/scripts/cleanup-old-images.sh
