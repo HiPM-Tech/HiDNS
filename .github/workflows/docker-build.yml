@@ -62,7 +62,10 @@ jobs:
       is_ci: ${{ steps.version.outputs.is_ci }}
       is_push_build: ${{ steps.version.outputs.is_push_build }}
       push_enabled: ${{ steps.version.outputs.push_enabled }}
-      image_name: ${{ env.IMAGE_NAME }}
+      # ghcr 的镜像名必须小写：build 阶段用 metadata-action（它会自动转），
+      # 但 merge 阶段是裸的 docker buildx imagetools create，拿到 HiPM-Tech/HiDNS 会直接报
+      # 「repository name must be lowercase」。所以这里统一输出小写名。
+      image_name: ${{ steps.version.outputs.image_name_lower }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -108,6 +111,7 @@ jobs:
             IS_PUSH_BUILD="true"
           fi
 
+          echo "image_name_lower=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
           echo "processed_tag=$TAG" >> $GITHUB_OUTPUT
           echo "is_push_build=$IS_PUSH_BUILD" >> $GITHUB_OUTPUT
           echo "is_beta=$IS_BETA" >> $GITHUB_OUTPUT
@@ -324,7 +328,8 @@ jobs:
           KEEP: '14'
         run: |
           set -euo pipefail
-          OWNER="$(echo "$IMAGE_NAME" | cut -d/ -f1)"
+          # 组织名直接用上下文里的原值，不依赖 API 路径的大小写不敏感；包名必须小写
+          OWNER="${{ github.repository_owner }}"
           PKG="$(echo "$IMAGE_NAME" | cut -d/ -f2 | tr '[:upper:]' '[:lower:]')"
           API="https://api.github.com/orgs/${OWNER}/packages/container/${PKG}/versions"
 
