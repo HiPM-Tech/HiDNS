@@ -20,6 +20,11 @@ on:
         required: false
         default: true
         type: boolean
+      prune_untagged:
+        description: '同时清理无标签的孤儿版本（会先解析引用，确保不碰现存镜像）'
+        required: false
+        default: false
+        type: boolean
 
 env:
   REGISTRY: ghcr.io
@@ -44,3 +49,13 @@ jobs:
           BEFORE: ${{ inputs.before }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: bash .github/scripts/cleanup-old-images.sh
+
+      - name: Delete orphaned untagged versions
+        if: inputs.prune_untagged
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          BEFORE: ${{ inputs.before }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: bash .github/scripts/cleanup-untagged-images.sh
