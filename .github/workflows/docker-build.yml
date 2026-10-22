@@ -321,6 +321,9 @@ jobs:
     permissions:
       packages: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Keep only the newest 14 *-ci builds
         # 逻辑在 .github/scripts/prune-ci-images.sh：内联版本有 60 行、含嵌套引号的
         # curl/jq 组合，既没法本地跑也没法本地校验，改一次就要推一次才知道对不对。
