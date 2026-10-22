@@ -1229,6 +1229,32 @@ jobs:
             echo "type=🎉 正式版本发布" >> $GITHUB_OUTPUT
           fi
       
+      - name: Trim changelog for Telegram
+        id: excerpt
+        env:
+          FULL: ${{ needs.create-release.outputs.changelog_content }}
+        run: |
+          # Telegram 单条消息上限 4096 字符，超出直接返回 400 Bad Request。
+          # 2.2.0 起更新日志变长（含「已知问题与后续方向」），整段嵌进消息必然超限。
+          #
+          # 用 python 按**字符**截断，不用 bash 的 ${VAR:0:N}：
+          # runner 在 C locale 下 ${#VAR} 按字节算，会把中文从中间切开变成乱码。
+          MAX=2600
+          TRUNC="$(FULL="$FULL" MAX="$MAX" python3 -c 'import os;print(os.environ["FULL"][:int(os.environ["MAX"])], end="")')"
+          LEN="$(FULL="$FULL" python3 -c 'import os;print(len(os.environ["FULL"]))')"
+          if [ "$LEN" -gt "$MAX" ]; then
+            SUFFIX=$'\n…（已截断，完整说明见下方链接）'
+          else
+            SUFFIX=''
+          fi
+          {
+            echo 'text<<TGEOF'
+            printf '%s%s' "$TRUNC" "$SUFFIX"
+            echo
+            echo 'TGEOF'
+          } >> "$GITHUB_OUTPUT"
+          echo "更新日志 ${LEN} 字符，发送 ${MAX} 字符以内"
+
       - name: Send Telegram notification
         uses: appleboy/telegram-action@master
         with:
@@ -1248,7 +1274,7 @@ jobs:
             
             *📝 更新日志：*
             ```
-            ${{ needs.create-release.outputs.changelog_content }}
+            ${{ steps.excerpt.outputs.text }}
             ```
             
             *🔗 链接：*
