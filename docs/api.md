@@ -431,6 +431,8 @@ Base URL: `http://<部署地址>:3001/api`
 }
 ```
 
+> 注意：line 对不同提供商意义不同。Cloudflare / AliyunESA 是作为代理开关（0/1），其他提供商是线路 ID。线路 ID 随提供商而异，例如华为云默认线路为 `default_view`。
+
 ### `PUT /api/domains/:domainId/records/:recordId`
 鉴权：`authMiddleware` + `requireTokenDomainPermission('domainId')`
 
@@ -451,6 +453,8 @@ Base URL: `http://<部署地址>:3001/api`
   "aliyunesa": { "proxied": false }
 }
 ```
+
+> 注意：华为云不支持修改线路，line 参数将被忽略。
 
 ### `DELETE /api/domains/:domainId/records/:recordId`
 鉴权：`authMiddleware` + `requireTokenDomainPermission('domainId')`
