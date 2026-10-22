@@ -102,7 +102,8 @@
             "recordTypesRequired": "Select at least one record type, otherwise this workflow will never trigger.",
             "refHint": "Showing the actual value from the most recent run event",
             "conditionSample": "Value from the last event: {value}",
-            "conditionHostHint": "\"Record host\" is only the host part (e.g. test), without the domain; use the \"Domain\" field to compare full domain names."
+            "conditionHostHint": "\"Record host\" is only the host part (e.g. test), without the domain; use the \"Domain\" field to compare full domain names.",
+            "mustBeTrueWarning": "Must be checked, otherwise the action will not run"
         },
         "about": {
             "community": "コミュニティ",
@@ -1895,7 +1896,10 @@
                 "key": "Variable name",
                 "target": "Target origin",
                 "account_id": "Account",
-                "scope_id": "Site (scope)"
+                "scope_id": "Site (scope)",
+                "collapse": "Confirm whole-group replace",
+                "acknowledge_referenced": "Allow replacing a referenced group",
+                "acknowledge_data_loss": "Allow discarding irrecoverable parameters"
             },
             "actionDesc": {
                 "dns_record_list": "List DNS records of a domain",
@@ -1921,7 +1925,10 @@
             "paramHint": {
                 "diff_digest": "Produced by the preceding plan step. Set \"Store result in variable\" there, then reference that variable here.",
                 "target": "Full declaration of the target origin servers, in the format the origin group expects.",
-                "record_id": "Once a domain is chosen, its DNS records are listed here — just pick one."
+                "record_id": "Once a domain is chosen, its DNS records are listed here — just pick one.",
+                "collapse": "Required. Writing an origin group is a whole-group replace: it only shrinks, never grows. The action will not run unless this is checked.",
+                "acknowledge_referenced": "If the group is still referenced by domains, replacing it immediately changes their origin behaviour. Check this only after reviewing the impact.",
+                "acknowledge_data_loss": "Removed origin servers may carry object-storage private parameters that cannot be rebuilt. Check this only if losing them is acceptable."
             }
         }
     }

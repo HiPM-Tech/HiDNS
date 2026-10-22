@@ -19,7 +19,7 @@ export interface ActionParam {
    * 声明式前端校验（设计 §788：服务端拒绝的内网源站，前端应提前提示）。
    * `public-origin` = 该值不能是内网/回环/本地主机。服务端仍是权威判定。
    */
-  validation?: 'public-origin';
+  validation?: 'public-origin' | 'must-be-true';
   options?: string[];
   /**
    * 候选来源（`/api/workflows/meta/:source`）。

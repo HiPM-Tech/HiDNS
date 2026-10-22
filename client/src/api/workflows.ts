@@ -9,7 +9,7 @@ export interface WorkflowActionParam {
   /** i18n key：参数补充说明（解释这个值从哪来） */
   hint?: string;
   /** 声明式前端校验：public-origin = 不能是内网/回环/本地主机 */
-  validation?: 'public-origin';
+  validation?: 'public-origin' | 'must-be-true';
   options?: string[];
   /** 候选来源，如 'originGroups'；声明后渲染为级联下拉（只能选，不能填） */
   source?: string;

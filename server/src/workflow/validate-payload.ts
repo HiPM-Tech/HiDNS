@@ -9,10 +9,11 @@ import type { ExpressionNode } from './expression/nodes';
  */
 
 const KNOWN_ACTIONS = new Set(ALL_ACTIONS.map((a) => a.name));
-const ACTION_PARAMS: Record<string, Array<{ key: string; required?: boolean; type?: 'text' | 'number' | 'boolean' | 'select'; options?: readonly string[] }>> = Object.fromEntries(
+const ACTION_PARAMS: Record<string, Array<{ key: string; required?: boolean; type?: 'text' | 'number' | 'boolean' | 'select'; options?: readonly string[]; validation?: 'public-origin' | 'must-be-true' }>> = Object.fromEntries(
   ALL_ACTIONS.map((a) => [
     a.name,
-    a.params.map((p) => ({ key: p.key, required: p.required, type: p.type, options: p.options })),
+    // validation 必须透传：漏了它，must-be-true 的保存期检查会形同虚设
+    a.params.map((p) => ({ key: p.key, required: p.required, type: p.type, options: p.options, validation: p.validation })),
   ]),
 );
 

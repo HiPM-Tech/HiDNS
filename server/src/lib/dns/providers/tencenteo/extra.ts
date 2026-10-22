@@ -251,6 +251,11 @@ export const tencenteoOriginGroupCapability: ProviderExtraCapability = {
         { key: 'groupId', label: 'workflow.param.group_id', type: 'text', required: true, source: 'originGroups', sourceParams: ['accountId', 'scopeId'], sourceOptionalParams: ['siteType'], allowFreeInput: true },
         { key: 'target', label: 'workflow.param.target', type: 'text', required: true, hint: 'workflow.paramHint.target', validation: 'public-origin' },
         { key: 'diffDigest', label: 'workflow.param.diff_digest', type: 'text', required: true, hint: 'workflow.paramHint.diff_digest' },
+        // 下面三个是写入前的确认闸门，handler 强制要求。
+        // 之前没声明 = 界面上根本设不了，于是这个动作**永远**抛 COLLAPSE_NOT_ACKNOWLEDGED。
+        { key: 'collapse', label: 'workflow.param.collapse', type: 'boolean', required: true, hint: 'workflow.paramHint.collapse', validation: 'must-be-true' },
+        { key: 'acknowledgeReferenced', label: 'workflow.param.acknowledge_referenced', type: 'boolean', required: false, hint: 'workflow.paramHint.acknowledge_referenced' },
+        { key: 'acknowledgeDataLoss', label: 'workflow.param.acknowledge_data_loss', type: 'boolean', required: false, hint: 'workflow.paramHint.acknowledge_data_loss' },
       ],
     },
   ],

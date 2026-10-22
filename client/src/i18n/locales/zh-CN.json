@@ -102,7 +102,8 @@
             "recordTypesRequired": "请至少选择一个记录类型，否则这个工作流永远不会被触发。",
             "refHint": "显示的是最近一次运行事件里的真实值",
             "conditionSample": "上次事件里的值：{value}",
-            "conditionHostHint": "「记录主机名」只是主机部分（如 test），不含域名；要比完整域名请选「域名」字段。"
+            "conditionHostHint": "「记录主机名」只是主机部分（如 test），不含域名；要比完整域名请选「域名」字段。",
+            "mustBeTrueWarning": "必须勾选，否则动作不会执行"
         },
         "about": {
             "community": "社区",
@@ -1864,7 +1865,10 @@
                 "key": "变量名",
                 "target": "目标源站",
                 "account_id": "账号",
-                "scope_id": "站点（作用域）"
+                "scope_id": "站点（作用域）",
+                "collapse": "确认整组替换",
+                "acknowledge_referenced": "允许覆盖仍被引用的源站组",
+                "acknowledge_data_loss": "允许丢弃不可恢复的私有参数"
             },
             "actionDesc": {
                 "dns_record_list": "列出指定域名下的解析记录",
@@ -1890,7 +1894,10 @@
             "paramHint": {
                 "diff_digest": "由上一步的 plan 产出。请在那个步骤填写「保存结果到变量」，这里再选择对应的变量。",
                 "target": "目标源站的完整声明，按源站组要求的格式填写。",
-                "record_id": "选定域名后，这里会列出该域名下的解析记录，直接选即可。"
+                "record_id": "选定域名后，这里会列出该域名下的解析记录，直接选即可。",
+                "collapse": "必选。源站组的写入是整组覆盖：只会减少条数、不会增加。不勾选时动作不会执行。",
+                "acknowledge_referenced": "源站组仍被域名引用时，整组覆盖会立刻改变这些域名的回源行为。确认影响面后再勾选。",
+                "acknowledge_data_loss": "被移除的源站若带对象存储私有参数，删除后无法重建。确认可以丢弃再勾选。"
             }
         }
     }

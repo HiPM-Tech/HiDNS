@@ -28,6 +28,8 @@ export interface ParamMeta {
   required?: boolean;
   type?: 'text' | 'number' | 'boolean' | 'select';
   options?: readonly string[];
+  /** 声明式校验：`must-be-true` 表示这是写入前的确认闸门，保存期必须是 true */
+  validation?: 'public-origin' | 'must-be-true';
 }
 
 export interface ValidationOptions {
@@ -225,6 +227,23 @@ export function validateExpression(root: unknown, options: ValidationOptions): V
                 issues.push({ code: 'MISSING_ARG', message: `${action} 缺少必填参数 ${param.key}`, path: `${path}.args.${param.key}` });
               }
             }
+            // 写入前的确认闸门：`must-be-true` 的参数在保存期就必须是 true。
+            // 之前 collapse 根本没被声明，界面上设不了，动作在运行期**永远**抛
+            // COLLAPSE_NOT_ACKNOWLEDGED；现在声明了，但还要在保存期拦住「声明了却没勾」。
+            for (const param of allowed) {
+              if (param.validation !== 'must-be-true') continue;
+              const valueNode = argObj[param.key];
+              const isTrue =
+                isObject(valueNode) && valueNode.kind === 'literal' && valueNode.value === true;
+              if (!isTrue) {
+                issues.push({
+                  code: 'MUST_BE_TRUE',
+                  message: `${action} 参数 ${param.key} 必须为 true（这是写入前的确认闸门）`,
+                  path: `${path}.args.${param.key}`,
+                });
+              }
+            }
+
             // select 参数若给的是字面量，必须落在候选集合内
             for (const param of allowed) {
               if (param.type !== 'select' || !param.options?.length) continue;

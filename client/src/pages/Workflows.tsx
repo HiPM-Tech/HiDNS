@@ -734,6 +734,11 @@ export function Workflows() {
                             {param.validation === 'public-origin' && looksPrivateOrigin(argValue) ? (
                               <span className="workflow-param__invalid">{t('workflows.privateOriginWarning')}</span>
                             ) : null}
+                            {/* 写入前的确认闸门：handler 强制要求该值为 true，
+                                不勾选就会在运行期抛错。这里提前说清楚，别等跑完才发现。 */}
+                            {param.validation === 'must-be-true' && argValue !== 'true' ? (
+                              <span className="workflow-param__invalid">{t('workflows.mustBeTrueWarning')}</span>
+                            ) : null}
                           </label>
                         );
                       })}
