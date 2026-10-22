@@ -1,7 +1,22 @@
 name: Build and Push Docker Image
 
-# This workflow can be triggered manually or called by other workflows
+# 三种入口：手动、被其他工作流调用、以及**推 main 时的构建校验**。
+#
+# 为什么加 push 触发：此前 Dockerfile 坏了要等到 nightly（UTC 18:00）或发版才发现。
+# 这里只验证「镜像能不能构建出来」，**不推注册表**（push_enabled 默认 false），
+# 既拿回反馈，又不像旧 nightly 那样每次推 main 都往 GHCR 推 ci-* 镜像。
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
+      - 'docker/**'
+      - 'server/**'
+      - 'client/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/docker-build.yml'
   workflow_dispatch:
     inputs:
       tag:
@@ -76,6 +91,15 @@ jobs:
           IS_BETA="${{ github.event.inputs.beta || inputs.beta }}"
           IS_CI="${{ github.event.inputs.ci || inputs.ci }}"
           PUSH_ENABLED="${{ github.event.inputs.push || inputs.push }}"
+
+          # push 事件没有 inputs：标签用提交短 SHA，且**不推注册表**。
+          # 这里只是构建校验——Dockerfile 或依赖坏了要在合并前就红，而不是等 nightly。
+          if [ -z "$INPUT_TAG" ]; then
+            INPUT_TAG="sha-$(echo "$GITHUB_SHA" | cut -c1-7)"
+          fi
+          if [ -z "$PUSH_ENABLED" ]; then
+            PUSH_ENABLED="false"
+          fi
 
           # Remove 'v' prefix if present
           TAG="${INPUT_TAG#v}"
