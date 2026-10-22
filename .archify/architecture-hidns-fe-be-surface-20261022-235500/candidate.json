@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "HiDNS 前后端接口面与响应信封",
+    "output": ".archify/architecture-hidns-fe-be-surface-20261022-235500/hidns-fe-be-surface.html",
+    "quality_profile": "standard",
+    "viewBox": [
+      1180,
+      660
+    ]
+  },
+  "components": [
+    {
+      "id": "browser",
+      "type": "external",
+      "label": "浏览器 / DDNS-Go",
+      "sublabel": "外部客户端",
+      "pos": [
+        40,
+        150
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "pages",
+      "type": "frontend",
+      "label": "页面组件",
+      "sublabel": "client/src/pages",
+      "pos": [
+        250,
+        150
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "api",
+      "type": "frontend",
+      "label": "api 层",
+      "sublabel": "19 模块 · 174 条调用",
+      "pos": [
+        460,
+        150
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "mw",
+      "type": "backend",
+      "label": "中间件",
+      "sublabel": "authMiddleware / rateLimit",
+      "pos": [
+        670,
+        150
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "routes",
+      "type": "backend",
+      "label": "路由层",
+      "sublabel": "29 文件 · 220 端点",
+      "pos": [
+        880,
+        150
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "services",
+      "type": "backend",
+      "label": "服务层 + BAL",
+      "sublabel": "禁止直连驱动",
+      "pos": [
+        670,
+        330
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "数据库",
+      "sublabel": "SQLite / PG / MySQL",
+      "pos": [
+        460,
+        330
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "upstream",
+      "type": "external",
+      "label": "DNS 提供商",
+      "sublabel": "DNSPod / EdgeOne / 阿里云",
+      "pos": [
+        880,
+        330
+      ],
+      "size": [
+        150,
+        64
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "browser-pages",
+      "from": "browser",
+      "to": "pages",
+      "label": "加载 SPA",
+      "labelDy": -28
+    },
+    {
+      "id": "pages-api",
+      "from": "pages",
+      "to": "api",
+      "label": "统一封装",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pages-routes",
+      "from": "pages",
+      "to": "routes",
+      "label": "裸 fetch · Bearer null",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "top",
+      "via": [
+        [
+          325,
+          70
+        ],
+        [
+          955,
+          70
+        ]
+      ]
+    },
+    {
+      "id": "api-mw",
+      "from": "api",
+      "to": "mw",
+      "label": "HTTP /api"
+    },
+    {
+      "id": "mw-routes",
+      "from": "mw",
+      "to": "routes",
+      "label": "鉴权 / 限流"
+    },
+    {
+      "id": "routes-services",
+      "from": "routes",
+      "to": "services",
+      "label": "调用",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "services-db",
+      "from": "services",
+      "to": "db",
+      "label": "SQL"
+    },
+    {
+      "id": "services-upstream",
+      "from": "services",
+      "to": "upstream",
+      "label": "上游 API"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "响应信封：规范 1 套，实际 3 套",
+      "items": [
+        "sendSuccess/sendError → {code,data,msg}",
+        "ResponseHelper → {code,msg,data,timestamp}",
+        "errorHandler 兜底 → 用 message 而不是 msg"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "统一性缺口",
+      "items": [
+        "134 处 sendError 未传状态码 → HTTP 200 + code:-1",
+        "130 处裸 res.json 绕过封装",
+        "code 有 4 套口径：0/1、-1/-2/-3、HTTP 码"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "外部兼容（DDNS-Go）",
+      "items": [
+        "4 个端点齐全、Token 可用、IDN 有 display_name",
+        "subdomain 透传给上游 → 阿里云按模糊匹配",
+        "GET /api/domains/whois 被 /:id 吞掉"
+      ]
+    }
+  ]
+}
