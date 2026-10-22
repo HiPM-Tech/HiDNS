@@ -11,6 +11,8 @@ export const CONDITION_FIELDS: ConditionField[] = [
   { path: 'event.record.value', type: 'string' },
   { path: 'event.record.oldValue', type: 'string' },
   { path: 'event.record.name', type: 'string' },
+  // 解析全名：主机名 + 域名，可直接与完整域名比较（比 event.record.name 更符合直觉）
+  { path: 'event.record.fqdn', type: 'string' },
   { path: 'event.record.type', type: 'string' },
   { path: 'event.domain.name', type: 'string' },
   { path: 'event.status', type: 'string' },
@@ -373,6 +375,7 @@ export const CONDITION_FIELD_LABEL_KEYS: Record<string, string> = {
   'event.record.value': 'workflows.fieldRecordValue',
   'event.record.oldValue': 'workflows.fieldOldValue',
   'event.record.name': 'workflows.fieldRecordName',
+  'event.record.fqdn': 'workflows.fieldRecordFqdn',
   'event.record.type': 'workflows.fieldRecordType',
   'event.domain.name': 'workflows.fieldDomainName',
   'event.status': 'workflows.fieldStatus',

@@ -103,7 +103,8 @@
             "refHint": "Showing the actual value from the most recent run event",
             "conditionSample": "Value from the last event: {value}",
             "conditionHostHint": "\"Record host\" is only the host part (e.g. test), without the domain; use the \"Domain\" field to compare full domain names.",
-            "mustBeTrueWarning": "Must be checked, otherwise the action will not run"
+            "mustBeTrueWarning": "Must be checked, otherwise the action will not run",
+            "fieldRecordFqdn": "Record FQDN"
         },
         "about": {
             "community": "Comunidad",

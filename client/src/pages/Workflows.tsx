@@ -164,8 +164,10 @@ export function Workflows() {
     queryFn: () => workflowsApi.meta<string[]>('outboundAllowlist'),
   });
   const domainOptionsQuery = useQuery({
-    queryKey: ['workflow-meta', 'domains'],
-    queryFn: () => workflowsApi.meta<Array<{ value: string; label: string; id: number }>>('domains'),
+    // 用 domainNames：它的 value 是**域名名称**（构造事件的 domain.name），并带数字 id（domainId）。
+    // 之前用 domains，value 是 ID，于是域名名称位置被塞了 ID。
+    queryKey: ['workflow-meta', 'domainNames'],
+    queryFn: () => workflowsApi.meta<Array<{ value: string; label: string; id: number }>>('domainNames'),
     enabled: Boolean(runFor),
   });
   const runsQuery = useQuery({

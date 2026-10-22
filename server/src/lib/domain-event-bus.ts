@@ -29,6 +29,14 @@ export interface RecordChangedEvent {
     readonly type: RecordType;
     readonly value?: string;
     readonly oldValue?: string;
+    /**
+     * 解析全名（主机名 + 域名，`@` 时就是域名本身）。
+     *
+     * 为什么要有它：`name` 只是主机部分（`test`），拿它去比完整域名（`test.ddns.hinswu.top`）
+     * 永远不相等，工作流会一直 skipped 且没有任何提示。给一个可直接比较的全名，
+     * 用户不必自己拼 `domain.name` + `record.name`。
+     */
+    readonly fqdn: string;
   };
   readonly actor: { readonly userId?: number; readonly source: ActorSource };
   readonly traceId: string;
@@ -191,6 +199,16 @@ export interface BuildRecordEventInput {
   depth?: number;
 }
 
+
+/** 解析全名：`@` 或空主机名就是域名本身，其余是 `主机名.域名` */
+function buildFqdn(recordName: string, domainName: string): string {
+  const host = String(recordName ?? '').trim();
+  const zone = String(domainName ?? '').trim();
+  if (!host || host === '@') return zone;
+  if (!zone) return host;
+  return `${host}.${zone}`;
+}
+
 export function buildRecordEvent(input: BuildRecordEventInput): RecordChangedEvent | null {
   if (!ALLOWED_RECORD_TYPES.has(input.record.type)) return null;
   return {
@@ -203,6 +221,7 @@ export function buildRecordEvent(input: BuildRecordEventInput): RecordChangedEve
       type: input.record.type as RecordType,
       value: input.record.value,
       oldValue: input.record.oldValue,
+      fqdn: buildFqdn(input.record.name, input.domain.name),
     },
     actor: input.actor ?? { source: 'api' },
     traceId: input.traceId ?? randomUUID(),

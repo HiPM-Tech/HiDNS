@@ -143,12 +143,16 @@ router.get('/meta/:source', authMiddleware, adminOnly, asyncHandler(async (req: 
   // 不是 ID；这里返回名称作为 value，label 带上账号便于区分同名域。
   if (source === 'domainNames') {
     const rows = (await DomainOperations.getUserAccessibleDomains(userId)) as unknown as Array<{
+      id: number;
       name: string;
       account_name?: string;
     }>;
     sendSuccess(res, {
       items: rows.map((row) => ({
         value: String(row.name),
+        // id 也带上：手动运行对话框既要域名名称（构造事件的 domain.name），
+        // 又要数字主键（domainId）。只给名称会让它把 ID 当名称传出去。
+        id: Number(row.id),
         label: row.account_name ? `${row.name} (${row.account_name})` : String(row.name),
       })),
     });

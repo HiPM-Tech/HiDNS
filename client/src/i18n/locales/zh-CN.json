@@ -103,7 +103,8 @@
             "refHint": "显示的是最近一次运行事件里的真实值",
             "conditionSample": "上次事件里的值：{value}",
             "conditionHostHint": "「记录主机名」只是主机部分（如 test），不含域名；要比完整域名请选「域名」字段。",
-            "mustBeTrueWarning": "必须勾选，否则动作不会执行"
+            "mustBeTrueWarning": "必须勾选，否则动作不会执行",
+            "fieldRecordFqdn": "解析全名"
         },
         "about": {
             "community": "社区",
