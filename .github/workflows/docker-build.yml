@@ -78,6 +78,7 @@ jobs:
       processed_tag: ${{ steps.version.outputs.processed_tag }}
       is_beta: ${{ steps.version.outputs.is_beta }}
       is_ci: ${{ steps.version.outputs.is_ci }}
+      is_push_build: ${{ steps.version.outputs.is_push_build }}
       push_enabled: ${{ steps.version.outputs.push_enabled }}
       image_name: ${{ env.IMAGE_NAME }}
     steps:
@@ -118,7 +119,15 @@ jobs:
             TAG="${TAG}-beta"
           fi
 
+          # 只有「推 main 触发的构建」才滚动更新 `ci` 标签；
+          # 手动 dispatch 的 ci 构建可能来自任意分支，不该动这个指针。
+          IS_PUSH_BUILD="false"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            IS_PUSH_BUILD="true"
+          fi
+
           echo "processed_tag=$TAG" >> $GITHUB_OUTPUT
+          echo "is_push_build=$IS_PUSH_BUILD" >> $GITHUB_OUTPUT
           echo "is_beta=$IS_BETA" >> $GITHUB_OUTPUT
           echo "is_ci=$IS_CI" >> $GITHUB_OUTPUT
           echo "push_enabled=$PUSH_ENABLED" >> $GITHUB_OUTPUT
@@ -273,6 +282,16 @@ jobs:
             --tag "${IMAGE_BASE}:${TAG}" \
             "${IMAGE_BASE}:${TAG}-amd64" \
             "${IMAGE_BASE}:${TAG}-arm64"
+
+          # 推 main 触发的构建额外维护一个滚动的 `ci` 标签，指向最新一次 main 构建。
+          # 只对 push 事件生效：手动 dispatch 的 ci 构建可能来自任意分支，不该动这个指针。
+          if [ "${{ needs.prepare.outputs.is_push_build }}" = "true" ]; then
+            docker buildx imagetools create \
+              --tag "${IMAGE_BASE}:ci" \
+              "${IMAGE_BASE}:${TAG}-amd64" \
+              "${IMAGE_BASE}:${TAG}-arm64"
+            echo "Rolling tag updated: ci -> ${TAG}"
+          fi
 
           # CI 构建：不创建 latest/beta tag
           if [ "$IS_CI" = "true" ]; then
