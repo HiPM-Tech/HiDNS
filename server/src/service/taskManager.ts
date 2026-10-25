@@ -55,7 +55,7 @@ const MAX_REQUEUE_DEFERRALS = 60;
 /** 未显式配置超时的任务所使用的兜底超时（毫秒），确保任务必然结束、ID 必然释放 */
 const DEFAULT_TASK_TIMEOUT_MS = 30 * 60 * 1000;
 
-class TaskManager {
+export class TaskManager {
   private runningTasks: Map<string, TaskInfo> = new Map();
   private taskQueue: QueuedTask[] = [];
   private maxConcurrentTasks: number = 3; // 全局最大并发任务数
@@ -254,6 +254,7 @@ class TaskManager {
       queuedCount: this.taskQueue.length,
     });
 
+    let timedOut = false;
     try {
       // 兜底超时：即便调用方未配置超时，也必须保证任务最终结束，
       // 否则任务 ID 永不释放，后续同 ID 提交将永久无法执行。
@@ -262,10 +263,18 @@ class TaskManager {
         ? options.timeout
         : DEFAULT_TASK_TIMEOUT_MS;
 
+      const fnPromise = fn().finally(() => {
+        // 超时后 fn 仍可能在跑：只有它真正结束才释放 ID，避免同 ID 双跑
+        if (timedOut) {
+          this.runningTasks.delete(taskId);
+          this.processQueue();
+        }
+      });
       const executionPromise = Promise.race([
-        fn(),
+        fnPromise,
         new Promise<never>((_, reject) => {
           timeoutId = setTimeout(() => {
+            timedOut = true;
             reject(new Error(`Task timeout after ${timeout}ms`));
           }, timeout);
         }),
@@ -323,11 +332,11 @@ class TaskManager {
         reject(err);
       }
     } finally {
-      // 移除运行中的任务
-      this.runningTasks.delete(taskId);
-
-      // 继续处理队列
-      this.processQueue();
+      // 超时路径：任务本体可能仍在运行，交给 fnPromise.finally 释放 ID
+      if (!timedOut) {
+        this.runningTasks.delete(taskId);
+        this.processQueue();
+      }
     }
   }
 

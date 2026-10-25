@@ -180,7 +180,7 @@ export class DnsnekoAdapter implements DnsAdapter {
   ): Promise<PageResult<DnsRecord>> {
     try {
       const domainId = await this.resolveDomainId();
-      if (!domainId) return { total: 0, list: [] };
+      if (!domainId) { this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果'; return { total: 0, list: [] }; }
 
       const parsed = this.parseDomainRef();
       const params: Dict = { domainId, page, size: pageSize, domainType: parsed.domainType };

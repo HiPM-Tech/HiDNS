@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, Dict, normalizeRrName, safeString, TencentCloudAdapter, toNumber, toRecordStatus, resolveProviderLine } from '../internal';
+import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, Dict, normalizeRrName, safeString, TencentCloudAdapter, toNumber, toRecordStatus, resolveProviderLine, requireNumericRecordId } from '../internal';
 
 const log = createProviderAdapterLogger('Dnspod');
 export class DnspodAdapter extends TencentCloudAdapter {
@@ -181,7 +181,7 @@ export class DnspodAdapter extends TencentCloudAdapter {
     try {
       const data = await this.call<Dict>('DescribeRecord', {
         Domain: this.domain,
-        RecordId: toNumber(recordId, 0),
+        RecordId: requireNumericRecordId(recordId),
       });
       const info = (data.RecordInfo as Dict | undefined) ?? {};
       return {
@@ -221,7 +221,7 @@ export class DnspodAdapter extends TencentCloudAdapter {
       if (remark !== undefined && recordId) {
         await this.call('ModifyRecordRemark', {
           Domain: this.domain,
-          RecordId: toNumber(recordId, 0),
+          RecordId: requireNumericRecordId(recordId),
           Remark: remark,
         });
       }
@@ -246,7 +246,7 @@ export class DnspodAdapter extends TencentCloudAdapter {
     try {
       await this.call('ModifyRecord', {
         Domain: this.domain,
-        RecordId: toNumber(recordId, 0),
+        RecordId: requireNumericRecordId(recordId),
         SubDomain: normalizeRrName(name),
         RecordType: this.convertType(type),
         Value: value,
@@ -259,7 +259,7 @@ export class DnspodAdapter extends TencentCloudAdapter {
       if (remark !== undefined) {
         await this.call('ModifyRecordRemark', {
           Domain: this.domain,
-          RecordId: toNumber(recordId, 0),
+          RecordId: requireNumericRecordId(recordId),
           Remark: remark,
         });
       }
@@ -274,7 +274,7 @@ export class DnspodAdapter extends TencentCloudAdapter {
     try {
       await this.call('DeleteRecord', {
         Domain: this.domain,
-        RecordId: toNumber(recordId, 0),
+        RecordId: requireNumericRecordId(recordId),
       });
       return true;
     } catch (e) {
@@ -287,7 +287,7 @@ export class DnspodAdapter extends TencentCloudAdapter {
     try {
       await this.call('ModifyRecordStatus', {
         Domain: this.domain,
-        RecordId: toNumber(recordId, 0),
+        RecordId: requireNumericRecordId(recordId),
         Status: status === 1 ? 'ENABLE' : 'DISABLE',
       });
       return true;

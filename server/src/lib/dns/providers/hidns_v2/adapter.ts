@@ -212,7 +212,7 @@ export class HidnsV2Adapter implements DnsAdapter {
   ): Promise<PageResult<DnsRecord>> {
     try {
       const domainId = await this.resolveDomainId();
-      if (!domainId) return { total: 0, list: [] };
+      if (!domainId) { this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果'; return { total: 0, list: [] }; }
 
       const parsed = this.parseDomainRef();
       const params: Dict = { page, pageSize, domainType: parsed.domainType };
@@ -221,7 +221,7 @@ export class HidnsV2Adapter implements DnsAdapter {
 
       const res = await this.request<{ total: number; list: HidnsV2Record[] }>('GET', `/domains/${domainId}/records`, params);
 
-      if (res.code !== 0) return { total: 0, list: [] };
+      if (res.code !== 0) { this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果'; return { total: 0, list: [] }; }
 
       let list = (res.data?.list || []).map((r) => this.mapRecord(r));
 

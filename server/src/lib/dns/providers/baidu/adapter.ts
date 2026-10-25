@@ -196,6 +196,7 @@ export class BaiduAdapter extends BaseAdapter {
   ): Promise<PageResult<DnsRecord>> {
     try {
       if (!this.config.domain) {
+        this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
         return { total: 0, list: [] };
       }
 

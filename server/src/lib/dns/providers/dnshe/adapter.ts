@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, Dict, normalizeRrName, safeString, BaseAdapter, toNumber, toRecordStatus, fetchWithFallback } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, Dict, normalizeRrName, safeString, BaseAdapter, toNumber, toRecordStatus, fetchWithFallback, requireNumericRecordId } from '../internal';
 import { renewSubdomain as renewSubdomainApi } from './renewal';
 import { getWhois as getWhoisApi } from './whois';
 
@@ -195,7 +195,8 @@ export class DnsheAdapter extends BaseAdapter implements DnsAdapter {
 
       if (!res.success || !res.records) {
         log.error('getDomainRecords failed: API returned no records', { success: res.success });
-        return { total: 0, list: [] };
+        this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
+      return { total: 0, list: [] };
       }
 
       let list = res.records.map((r) => this.mapRecord(r));
@@ -338,7 +339,7 @@ export class DnsheAdapter extends BaseAdapter implements DnsAdapter {
   ): Promise<boolean> {
     try {
       const body: Dict = {
-        record_id: toNumber(recordId, 0),
+        record_id: requireNumericRecordId(recordId),
         content: value,
         ttl,
       };
@@ -362,7 +363,7 @@ export class DnsheAdapter extends BaseAdapter implements DnsAdapter {
   async deleteDomainRecord(recordId: string): Promise<boolean> {
     try {
       const res = await this.request<Dict>('dns_records', 'delete', 'POST', {
-        record_id: toNumber(recordId, 0),
+        record_id: requireNumericRecordId(recordId),
       });
       return res.success;
     } catch (e) {

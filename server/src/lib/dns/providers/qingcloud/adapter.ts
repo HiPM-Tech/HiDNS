@@ -123,6 +123,7 @@ export class QingcloudAdapter extends BaseAdapter {
     try {
       const domainId = await this.resolveDomainId();
       if (!domainId) {
+        this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
         return { total: 0, list: [] };
       }
 
@@ -170,6 +171,7 @@ export class QingcloudAdapter extends BaseAdapter {
     try {
       const domainId = await this.resolveDomainId();
       if (!domainId) {
+        this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
         return { total: 0, list: [] };
       }
 

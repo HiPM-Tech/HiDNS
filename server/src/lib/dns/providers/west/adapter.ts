@@ -207,7 +207,8 @@ export class WestAdapter extends BaseAdapter implements DnsAdapter {
       });
 
       if (res.result !== 200 || !res.data) {
-        return { total: 0, list: [] };
+        this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
+      return { total: 0, list: [] };
       }
 
       let list = asArray<WestRecordItem>(res.data.items).map((item) => this.mapRecord(item));

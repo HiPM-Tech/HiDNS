@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine } from '../internal';
+import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine, requireNumericRecordId } from '../internal';
 
 const log = createProviderAdapterLogger('Rainyun');
 interface RainyunConfig {
@@ -155,6 +155,7 @@ export class RainyunAdapter extends BaseAdapter {
     try {
       const domainId = await this.resolveDomainId();
       if (!domainId) {
+        this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
         return { total: 0, list: [] };
       }
 
@@ -164,6 +165,7 @@ export class RainyunAdapter extends BaseAdapter {
       );
 
       if (res.code !== 200 || !res.data) {
+        this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
         return { total: 0, list: [] };
       }
 
@@ -298,7 +300,7 @@ export class RainyunAdapter extends BaseAdapter {
       }
 
       const body: Dict = {
-        record_id: toNumber(recordId, 0),
+        record_id: requireNumericRecordId(recordId),
         host: name === '@' ? '' : name,
         type: type.toUpperCase(),
         value: value,
@@ -334,7 +336,7 @@ export class RainyunAdapter extends BaseAdapter {
         `/product/domain/${domainId}/dns/`,
         'DELETE',
         {
-          record_id: toNumber(recordId, 0),
+          record_id: requireNumericRecordId(recordId),
         }
       );
 

@@ -93,7 +93,7 @@ export class NamesiloAdapter extends BaseAdapter {
     _status?: number
   ): Promise<PageResult<DnsRecord>> {
     try {
-      if (!this.config.domain) return { total: 0, list: [] };
+      if (!this.config.domain) { this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果'; return { total: 0, list: [] }; }
       const reply = await this.request('dnsListRecords', { domain: this.config.domain });
       const listNode = reply.resource_record;
       let list = this.toList<XmlDict>(listNode).map((r) => this.mapRecord(r, this.normalizeLine(line)));

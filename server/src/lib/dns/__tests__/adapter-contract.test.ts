@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DnsProviderService } from '../../../service/dns-provider-service';
 import { proxyCapabilityError } from '../../../routes/records';
-import { resolveProviderLine } from '../providers/common';
+import { resolveProviderLine, requireNumericRecordId } from '../providers/common';
 import { providerDefinitions } from '../providers/registry';
 
 const PROVIDERS_DIR = path.resolve(__dirname, '..', 'providers');
@@ -132,5 +132,33 @@ describe('resolveProviderLine（默认线路归一化）', () => {
 
   it('真实线路原样保留', () => {
     expect(resolveProviderLine('Dianxin', 'default_view')).toBe('Dianxin');
+  });
+});
+
+describe('错误通道与记录 ID（复审整改）', () => {
+  it('getDomainRecords 的空结果折叠必须写入 this.error（caihong 合法空 zone 除外）', () => {
+    const offenders: string[] = [];
+    for (const { file, source } of adapterSources()) {
+      const start = source.indexOf('getDomainRecords');
+      if (start < 0) continue;
+      const end = source.indexOf('\n  async ', start + 10);
+      const body = source.slice(start, end < 0 ? source.length : end);
+      const re = /return \{ total: 0, list: \[\] \};/g;
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(body))) {
+        const around = body.slice(Math.max(0, match.index - 260), match.index);
+        if (!around.includes('this.error') && !around.includes('合法的空 zone')) {
+          offenders.push(path.relative(PROVIDERS_DIR, file));
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('requireNumericRecordId 拒绝 0/空/非数字，避免落到 0 号记录', () => {
+    expect(requireNumericRecordId('123')).toBe(123);
+    expect(() => requireNumericRecordId('0')).toThrow(/非法记录 ID/);
+    expect(() => requireNumericRecordId('')).toThrow(/非法记录 ID/);
+    expect(() => requireNumericRecordId('abc')).toThrow(/非法记录 ID/);
   });
 });

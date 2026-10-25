@@ -45,6 +45,18 @@ export async function resolveCreatedRecordId(
  * - 历史哨兵 '0'：只有默认线路本身就是 '0' 时才保留，否则回落 defaultLine（华为云等）；
  * - 其它值原样透传，由上游校验。
  */
+/**
+ * 严格解析上游要求的数字记录 ID。
+ * 历史实现用 toNumber(recordId, 0)，非法 ID 会静默落到「0 号记录」。
+ */
+export function requireNumericRecordId(recordId: string): number {
+  const n = Number(recordId);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(`非法记录 ID：${recordId || '(空)'}`);
+  }
+  return n;
+}
+
 export function resolveProviderLine(line: string | undefined, defaultLine: string): string {
   const trimmed = typeof line === 'string' ? line.trim() : '';
   if (!trimmed) return defaultLine;

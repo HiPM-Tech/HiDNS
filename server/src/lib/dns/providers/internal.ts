@@ -49,6 +49,7 @@ export {
   resolveDomainIdHelper,
   resolveCreatedRecordId,
   resolveProviderLine,
+  requireNumericRecordId,
   uuid,
   isSrv,
   parseSrvValue,

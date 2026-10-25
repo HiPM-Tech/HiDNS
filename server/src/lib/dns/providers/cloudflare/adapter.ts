@@ -191,6 +191,7 @@ export class CloudflareAdapter implements DnsAdapter {
         domainId: (this.config as any).domainId,
         domain: this.config.domain
       });
+      this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
       return { total: 0, list: [] };
     }
 
@@ -200,6 +201,7 @@ export class CloudflareAdapter implements DnsAdapter {
     if (!zoneValid) {
       log.error(`Zone validation failed for zoneId: ${zoneId}. The zone may not exist or API token may lack permissions.`);
       this.error = `Zone validation failed. Please check if zoneId '${zoneId}' is correct and API token has proper permissions.`;
+      this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
       return { total: 0, list: [] };
     }
 
@@ -217,7 +219,7 @@ export class CloudflareAdapter implements DnsAdapter {
     if (keyword) path += `&search=${encodeURIComponent(keyword)}`;
 
     const res = await this.request<CfRecord[]>('GET', path);
-    if (!res.success) return { total: 0, list: [] };
+    if (!res.success) { this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果'; return { total: 0, list: [] }; }
     const total = res.result_info?.total_count ?? res.result.length;
     return {
       total,

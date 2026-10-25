@@ -549,7 +549,7 @@ Base URL: `http://<部署地址>:3001/api`
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| GET | `/api/providers/:type/icon` | 无 | 获取提供商图标（SVG/PNG） |
+| GET | `/api/providers/:type/icon` | `authMiddleware` | 获取提供商图标（SVG/PNG），需登录 |
 | GET | `/api/providers/:type/renewable-domains` | `authMiddleware` | 列出提供商上的续期域名（管理员+） |
 
 ---
@@ -565,7 +565,7 @@ Base URL: `http://<部署地址>:3001/api`
 | 状态 | 限流规则 | 实现方式 |
 |------|----------|----------|
 | **未认证** | 2 请求/秒（按 IP） | 命中 `rdapLimiter`，返回 429 |
-| **已认证**（Bearer token 或 session cookie） | 不限速 | `rdapLimiter` 的 `skip` 回调检测到认证信息后跳过 |
+| **会话登录**（session cookie） | 不限速 | `rdapLimiter` 的 `skip` 只对 session cookie 生效；Bearer 令牌按普通限流（2 次/秒），防止伪造头绕过 |
 
 限流器配置（`middleware/rateLimit.ts:88-99`）：
 ```typescript

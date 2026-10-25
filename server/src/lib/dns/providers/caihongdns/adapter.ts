@@ -233,12 +233,14 @@ export class CaihongDnsAdapter implements DnsAdapter {
 
       // Check for error
       if (res.code !== undefined && res.code !== 0) {
-        return { total: 0, list: [] };
+        this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
+      return { total: 0, list: [] };
       }
 
       const rows: CaihongDnsRecord[] | undefined = res.rows;
       if (!rows || rows.length === 0) {
-        return { total: 0, list: [] };
+        this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
+      return { total: 0, list: [] };
       }
 
       return {

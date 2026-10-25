@@ -68,6 +68,7 @@ export class DpdnsReverseAdapter extends BaseAdapter {
     status?: number,
   ): Promise<PageResult<DnsRecord>> {
     log.debug('getDomainRecords called (not implemented)');
+    this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
     return { total: 0, list: [] };
   }
 

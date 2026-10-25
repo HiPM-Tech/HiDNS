@@ -210,7 +210,8 @@ export class HiDNSAdapter implements DnsAdapter {
       const res = await this.request<{ total: number; list: HiDNSRecord[] }>('GET', path);
 
       if (res.code !== 0) {
-        return { total: 0, list: [] };
+        this.error = this.error || '读取记录失败：未解析到域名或上游返回空结果';
+      return { total: 0, list: [] };
       }
 
       return {
