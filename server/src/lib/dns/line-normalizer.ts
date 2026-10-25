@@ -15,3 +15,24 @@ export function normalizeLine(line: string | null | undefined, defaultLine: stri
 
 /** 兼容旧调用名（语义完全一致） */
 export const resolveProviderLine = normalizeLine;
+
+/**
+ * 线路列表归一（默认线路只保留前端「默认线路」选项）：
+ * - 过滤默认线路（id === defaultLine）
+ * - 按 id 去重、丢弃空 id
+ * - 名称缺省时回填 id
+ */
+export function normalizeLineList<T extends { id: string; name?: string }>(
+  lines: T[],
+  defaultLine: string,
+): Array<{ id: string; name: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ id: string; name: string }> = [];
+  for (const raw of lines) {
+    const id = String(raw.id ?? '').trim();
+    if (!id || id === defaultLine || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, name: String(raw.name ?? '').trim() || id });
+  }
+  return out;
+}

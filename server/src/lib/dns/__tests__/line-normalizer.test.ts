@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { normalizeLine } from '../line-normalizer';
+import { normalizeLine, normalizeLineList } from '../line-normalizer';
 import { providerDefinitions } from '../providers/registry';
 
 describe('线路归一中间层', () => {
@@ -17,6 +17,19 @@ describe('线路归一中间层', () => {
     expect(normalizeLine('电信', '默认')).toBe('电信');
     expect(normalizeLine('default_view', 'default')).toBe('default_view');
     expect(normalizeLine('10=0', '默认')).toBe('10=0');
+  });
+
+  it('列表归一：过滤默认线路、按 id 去重、空 id 丢弃', () => {
+    expect(normalizeLineList([
+      { id: '默认', name: '默认' },
+      { id: '电信', name: '电信' },
+      { id: '电信', name: '电信（重复）' },
+      { id: '', name: '空' },
+      { id: '联通' },
+    ], '默认')).toEqual([
+      { id: '电信', name: '电信' },
+      { id: '联通', name: '联通' },
+    ]);
   });
 
   it('每个适配器内部声明 DEFAULT_LINE，且与 registry 的 defaultLine 一致', () => {

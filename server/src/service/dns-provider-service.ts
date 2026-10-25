@@ -18,6 +18,7 @@ import type { Domain, DnsAccount } from '../types';
 import { getProviderDefinitions } from '../lib/dns/providers/registry';
 import { normalizeProviderType } from '../lib/dns/providerAlias';
 import { getProviderLinesCached } from './providerLines';
+import { normalizeLineList } from '../lib/dns/line-normalizer';
 
 const log = createLogger('DnsProviderService');
 export class DnsProviderService {
@@ -154,7 +155,7 @@ export class DnsProviderService {
     const providerType = normalizeProviderType(String(account?.type ?? ''));
     const definition = getProviderDefinitions().find((item) => item.type === providerType);
     if (!definition || definition.lineSource === 'builtin') {
-      return adapter.getRecordLines();
+      return normalizeLineList(await adapter.getRecordLines(), definition?.defaultLine ?? '');
     }
 
     const result = await getProviderLinesCached({
@@ -162,7 +163,8 @@ export class DnsProviderService {
       defaultLine: definition.defaultLine,
       fetchLines: () => adapter.getRecordLines(),
     });
-    return result.lines;
+    // 默认线路统一由前端「默认线路」选项表达，接口不重复返回
+    return normalizeLineList(result.lines, definition.defaultLine);
   }
 
   /**

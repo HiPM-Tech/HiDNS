@@ -1,24 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { displayLine, normalizeLineOptions } from '../line-options';
+import { displayLine } from '../line-options';
 
-const lines = [
-  { id: '0', name: '默认' },
-  { id: '1', name: '电信' },
-  { id: '1', name: '电信（重复）' },
-  { id: 'default_view', name: '默认' },
-];
-
-describe('线路下拉归一', () => {
-  it('过滤默认线路 id 并去重', () => {
-    expect(normalizeLineOptions(lines, '0')).toEqual([
-      { id: '1', name: '电信' },
-      { id: 'default_view', name: '默认' },
-    ]);
+describe('编辑态线路展示（列表归一已下沉到服务端中间层）', () => {
+  it('默认线路记录展示为「默认线路」', () => {
+    expect(displayLine('0', '0')).toBe('');
+    expect(displayLine('默认', '默认')).toBe('');
   });
 
-  it('编辑记录时默认线路展示为「默认线路」', () => {
-    expect(displayLine('0', '0')).toBe('');
-    expect(displayLine('默认', '0')).toBe('默认');
-    expect(displayLine('1', '0')).toBe('1');
+  it('非默认线路原样展示', () => {
+    expect(displayLine('电信', '默认')).toBe('电信');
+    expect(displayLine(null, '默认')).toBe('');
   });
 });

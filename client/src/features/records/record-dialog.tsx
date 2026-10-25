@@ -9,7 +9,7 @@ import {
 import { getRecordTypeDef, validateRecordValue, PROXIABLE_RECORD_TYPES } from '../../types/record-types';
 import { useSaveRecord } from './use-records';
 import type { DnsRecordRow, RecordLine } from './api';
-import { normalizeLineOptions, displayLine } from './line-options';
+import { displayLine } from './line-options';
 
 const EXTRA_LABELS: Record<string, string> = {
   mx: '优先级',
@@ -90,8 +90,6 @@ export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines,
   const [extras, setExtras] = useState<Record<string, string>>(initial.extras);
   const [proxied, setProxied] = useState(initial.proxied);
   const [error, setError] = useState<string | null>(null);
-
-  const selectableLines = useMemo(() => normalizeLineOptions(lines, effectiveDefaultId), [lines, effectiveDefaultId]);
 
   const typeDef = useMemo(() => getRecordTypeDef(type), [type]);
   const extraFields = typeDef?.extraFields ?? [];
@@ -222,7 +220,7 @@ export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines,
               <SelectTrigger id="record-line"><SelectValue placeholder="默认线路" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__default">默认线路</SelectItem>
-                {selectableLines.map((item) => <SelectItem key={item.id} value={item.id}>{item.name || item.id}</SelectItem>)}
+                {lines.map((item) => <SelectItem key={item.id} value={item.id}>{item.name || item.id}</SelectItem>)}
               </SelectContent>
             </Select>
             {isEdit && !lineEditable && <p className="text-xs text-muted-foreground">该提供商的线路创建后不可修改</p>}
