@@ -165,3 +165,41 @@ router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response)
 - ✅ **ddns-go**: `c:\Users\HINS\Documents\Trae\DNSMgr-1\server\src\lib\dns\providers\dnsmgr.ts`
 - ✅ **certd**: HiPM DNSMgr Access & Provider
 - ✅ **VPS8**: 已适配分页对象格式
+
+
+---
+
+## 两套契约（2026-10 起明确分工）
+
+| 契约 | 触发条件 | data 形态 | 域名写法 | 附加字段 |
+| --- | --- | --- | --- | --- |
+| **UI**（前端） | 浏览器会话（JWT / cookie），无 `format=array` | `{ list, total, page, pageSize, totalPages }` | **Unicode**（前端直接显示） | `can_write`、分组模式下 `_type/group_parentId/groupName/parentPresent` |
+| **API**（外部适配器） | `format=array` **或** API Token | 裸数组 | **Punycode** + `display_name`（Unicode） | 与域名行同字段，另附 `can_write` |
+
+判定优先级：`format=array` > Token 认证 > 会话（实现见 `routes/domains.ts` 的 `resolveDomainListShape()`，有单测守护）。
+
+> 为什么必须分开：前端需要分页与展示名，外部工具需要"一次拿全量 + ASCII 名字做后缀匹配"。混用会让一方解析失败——历史上就是 TS 里靠 `format === 'array' || tokenPayload` 隐式判断，容易在改动中走样。
+
+## IDN（xn--）处理
+
+- 入库与比较统一用 **Punycode**（`normalizeDomain` 会把中文/繁中/日文域名转成 `xn--` 形式）；
+- 公共后缀表里 PSL 用 Unicode 写的中文后缀（如 `公司.cn`）在解析时**转 Punycode** 入库，否则 `例子.公司.cn` 会被误判成 `公司.cn`；
+- API 契约返回 Punycode（`name`）并提供 `display_name`（Unicode）；UI 契约直接返回 Unicode。
+
+## DDNS-Go 兼容现状与结论
+
+| 项 | 现状 | 结论 |
+| --- | --- | --- |
+| 认证 | `Authorization: Bearer <API Token>`（或会话 cookie） | 兼容 |
+| 域名列表 | Token → 裸数组 + `display_name` | 兼容 |
+| 域名权限 | `allowed_domains` 为 `null`/`[]` 时**不限制**（历史语义） | 兼容 ddns-go 的"只填令牌"用法 |
+| 记录写 | `PUT /api/domains/:domainId/records/:recordId`、`POST /api/domains/:domainId/records`，需 `records.write` | 兼容 |
+| 初始化门禁 | 未初始化时 API 一律 503 | 预期行为 |
+
+**是否迭代抛弃：不抛弃。** 理由：
+
+1. 这套契约只多一个分支判断，成本极低；
+2. ddns-go / certd 这类工具一旦失败是**静默不更新解析**，用户很难第一时间发现，属于高风险兼容面；
+3. 真要收口，先决条件是"Token 仍能拿到全量域名"，而这一点与权限模型（`allowed_domains`）绑在一起，不是单独能删的。
+
+若将来必须改：先在 `X-HiDNS-Compat` 响应头标注弃用期（至少两个 minor 版本），再在 `docs/api.md` 与 CHANGELOG 双处公告。

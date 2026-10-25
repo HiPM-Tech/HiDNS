@@ -124,27 +124,34 @@ function isBinaryEnvironment(): boolean {
 export function resolveDefaultDbPath(): string {
   // 优先级 1：用户显式指定（排除临时内存数据库）
   if (process.env.DB_PATH && !process.env._TEMP_DB) return process.env.DB_PATH;
+  return path.join(resolveDataDir(), 'hidns.db');
+}
 
-  // 优先级 2：用户指定数据目录
-  if (process.env.HIDNS_DATA_DIR) {
-    return path.join(process.env.HIDNS_DATA_DIR, 'data', 'hidns.db');
+/**
+ * 解析数据目录（与 {@link resolveDefaultDbPath} 同源，供初始化标记等旁路文件使用）。
+ *
+ * 关键约束：数据库落在哪儿，标记就落在哪儿。历史实现用 `process.cwd()` 拼路径，
+ * 在 HIDNS_DATA_DIR / SEA 二进制部署下会与数据库目录脱钩——标记可能写到不可写目录，
+ * 导致「已初始化」状态无法持久化，重启且数据库不可达时初始化入口被重新打开。
+ */
+export function resolveDataDir(): string {
+  if (process.env.DB_PATH && !process.env._TEMP_DB && process.env.DB_PATH !== ':memory:') {
+    return path.dirname(path.resolve(process.env.DB_PATH));
   }
-
-  // 优先级 3：二进制环境
+  if (process.env.HIDNS_DATA_DIR) {
+    return path.join(process.env.HIDNS_DATA_DIR, 'data');
+  }
   if (isBinaryEnvironment()) {
     if (process.platform === 'win32') {
-      return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'HiDNS', 'data', 'hidns.db');
+      return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'HiDNS', 'data');
     }
     if (process.platform === 'darwin') {
-      return path.join(os.homedir(), 'Library', 'Application Support', 'HiDNS', 'data', 'hidns.db');
+      return path.join(os.homedir(), 'Library', 'Application Support', 'HiDNS', 'data');
     }
-    // Linux
     const xdgData = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
-    return path.join(xdgData, 'hidns', 'data', 'hidns.db');
+    return path.join(xdgData, 'hidns', 'data');
   }
-
-  // 优先级 4：开发环境
-  return path.resolve(process.cwd(), 'data', 'hidns.db');
+  return path.resolve(process.cwd(), 'data');
 }
 
 /**

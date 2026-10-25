@@ -31,8 +31,6 @@ export default defineConfig(({ mode }) => {
               return 'react-vendor';
             }
             if (id.includes('@tanstack/react-query')) return 'query-vendor';
-            if (id.includes('tdesign-react') || id.includes('tdesign-icons-react')) return 'tdesign-vendor';
-            if (id.includes('i18next') || id.includes('react-i18next')) return 'i18n-vendor';
             return undefined;
           },
         },
@@ -43,6 +41,14 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': {
           target: 'http://localhost:3001',
+          changeOrigin: true,
+          // /api 规则先于 /api/socket 匹配，这里也要开 ws，否则实时通道握手失败
+          ws: true,
+        },
+        // 实时通道：前端连的是 /api/socket/ws（不是 /ws），代理必须同时覆盖
+        '/api/socket': {
+          target: 'ws://localhost:3001',
+          ws: true,
           changeOrigin: true,
         },
         '/ws': {

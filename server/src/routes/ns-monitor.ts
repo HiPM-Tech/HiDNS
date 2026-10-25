@@ -3,6 +3,7 @@
  * NS 监测路由 - 新架构（用户级）
  */
 
+import { sendError, sendSuccess } from '../utils/http';
 import { Router, Request, Response } from 'express';
 import { NSMonitorOperations, DomainOperations, getDbType, formatDateForDB } from '../db/bal/business-adapter';
 import { authMiddleware } from '../middleware/auth';
@@ -43,15 +44,12 @@ router.get('/user/prefs', authMiddleware, asyncHandler(async (req: Request, res:
 
   const prefs = await NSMonitorOperations.getUserPrefs(userId);
 
-  res.json({
-    success: true,
-    data: prefs || {
+  sendSuccess(res, prefs || {
       user_id: userId,
       notify_email: true,
       notify_channels: true,
       check_interval: 3600,
-    },
-  });
+    });
 }));
 
 /**
@@ -80,19 +78,13 @@ router.post('/resolve-ns', authMiddleware, asyncHandler(async (req: Request, res
   const { domain } = req.body;
 
   if (!domain || typeof domain !== 'string') {
-    res.status(400).json({
-      success: false,
-      error: 'Domain is required',
-    });
+    sendError(res, 'Domain is required', 400);
     return;
   }
 
   // 验证域名格式（支持 IDN）
   if (!isValidDomain(domain)) {
-    res.status(400).json({
-      success: false,
-      error: 'Invalid domain format',
-    });
+    sendError(res, 'Invalid domain format', 400);
     return;
   }
 
@@ -103,9 +95,7 @@ router.post('/resolve-ns', authMiddleware, asyncHandler(async (req: Request, res
     // 获取 Unicode 格式的域名用于显示
     const unicodeDomain = toUnicode(domain);
 
-    res.json({
-      success: true,
-      data: {
+    sendSuccess(res, {
         domain: unicodeDomain,
         punycodeDomain: normalizeDomain(domain),
         nsRecords: nsResult.nsRecords,
@@ -114,17 +104,13 @@ router.post('/resolve-ns', authMiddleware, asyncHandler(async (req: Request, res
         isPoisoned: nsResult.isPoisoned,
         // 推荐使用加密查询结果，如果失败则使用明文结果
         recommendedNs: nsResult.encryptedResult?.records?.map(r => r.data) || nsResult.plainResult?.records?.map(r => r.data) || [],
-      },
-    });
+      });
   } catch (error) {
     log.error('Failed to resolve NS records', {
       domain,
       error: error instanceof Error ? error.message : String(error),
     });
-    res.status(500).json({
-      success: false,
-      error: 'Failed to resolve NS records',
-    });
+    sendError(res, 'Failed to resolve NS records', 500);
   }
 }));
 
@@ -168,7 +154,7 @@ router.put('/user/prefs', authMiddleware, asyncHandler(async (req: Request, res:
   }
 
   if (Object.keys(updates).length === 0) {
-    res.status(400).json({ success: false, error: 'No valid fields to update' });
+    sendError(res, 'No valid fields to update', 400);
     return;
   }
 
@@ -201,7 +187,7 @@ router.put('/user/prefs', authMiddleware, asyncHandler(async (req: Request, res:
     log.error('Failed to send ns_monitor_prefs_updated event', { error });
   }
 
-  res.json({ success: true, msg: 'Preferences updated successfully' });
+  sendSuccess(res, null, 'Preferences updated successfully');
 }));
 
 // ============================================================================
@@ -225,10 +211,7 @@ router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response)
 
   const { list, total } = await NSMonitorOperations.getUserMonitorsWithPagination(userId, page, pageSize, keyword);
 
-  res.json({
-    success: true,
-    data: { list, total, page, pageSize },
-  });
+  sendSuccess(res, { list, total, page, pageSize });
 }));
 
 /**
@@ -277,10 +260,7 @@ router.get('/available-domains', authMiddleware, asyncHandler(async (req: Reques
     account_id: d.account_id,
   }));
 
-  res.json({
-    success: true,
-    data: displayDomains,
-  });
+  sendSuccess(res, displayDomains);
 }));
 
 /**
@@ -298,14 +278,11 @@ router.get('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
 
   const monitor = await NSMonitorOperations.getById(parseInt(id), userId);
   if (!monitor) {
-    res.status(404).json({ success: false, error: 'Configuration not found' });
+    sendError(res, 'Configuration not found', 404);
     return;
   }
 
-  res.json({
-    success: true,
-    data: monitor,
-  });
+  sendSuccess(res, monitor);
 }));
 
 /**
@@ -323,7 +300,7 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
   const role = normalizeRole(req.user!.role);
 
   if (!domain_name) {
-    res.status(400).json({ success: false, error: 'domain_name is required' });
+    sendError(res, 'domain_name is required', 400);
     return;
   }
 
@@ -333,7 +310,7 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
   // Verify domain exists in domains table
   const domain = await DomainOperations.getByName(normalizedDomainName);
   if (!domain || !domain.name) {
-    res.status(404).json({ success: false, error: 'Domain not found in domains table' });
+    sendError(res, 'Domain not found in domains table', 404);
     return;
   }
   const domainId = domain.id as number;
@@ -343,7 +320,7 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
   if (!isSuper(role)) {
     const access = await getDomainAccess(domainId, userId, role);
     if (!access.canWrite) {
-      res.status(403).json({ success: false, error: 'Access denied' });
+      sendError(res, 'Access denied', 403);
       return;
     }
   }
@@ -403,10 +380,7 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
     log.error('Failed to send ns_monitor_created event', { error });
   }
 
-  res.json({
-    success: true,
-    data: { id },
-  });
+  sendSuccess(res, { id });
 }));
 
 /**
@@ -426,7 +400,7 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
 
   const monitor = await NSMonitorOperations.getById(parseInt(id), userId);
   if (!monitor) {
-    res.status(404).json({ success: false, error: 'Configuration not found' });
+    sendError(res, 'Configuration not found', 404);
     return;
   }
 
@@ -435,7 +409,7 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
   if (enabled !== undefined) updates.enabled = toDbBoolean(enabled, dbType);
 
   if (Object.keys(updates).length === 0) {
-    res.status(400).json({ success: false, error: 'No fields to update' });
+    sendError(res, 'No fields to update', 400);
     return;
   }
 
@@ -460,7 +434,7 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
     log.error('Failed to send ns_monitor_updated event', { error });
   }
 
-  res.json({ success: true });
+  sendSuccess(res, null, 'success');
 }));
 
 /**
@@ -478,7 +452,7 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req: Request, res: Res
 
   const monitor = await NSMonitorOperations.getById(parseInt(id), userId);
   if (!monitor) {
-    res.status(404).json({ success: false, error: 'Configuration not found' });
+    sendError(res, 'Configuration not found', 404);
     return;
   }
 
@@ -500,7 +474,7 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req: Request, res: Res
     log.error('Failed to send ns_monitor_deleted event', { error });
   }
 
-  res.json({ success: true });
+  sendSuccess(res, null, 'success');
 }));
 
 /** 执行 NS 检查并返回结果 */
@@ -584,7 +558,7 @@ router.post('/check', authMiddleware, asyncHandler(async (req: Request, res: Res
   const userId = req.user!.userId;
 
   if (!domain_name) {
-    res.status(400).json({ success: false, error: 'domain_name is required' });
+    sendError(res, 'domain_name is required', 400);
     return;
   }
 
@@ -593,7 +567,7 @@ router.post('/check', authMiddleware, asyncHandler(async (req: Request, res: Res
 
   const monitor = await NSMonitorOperations.getByDomainName(userId, normalizedDomainName);
   if (!monitor) {
-    res.status(404).json({ success: false, error: 'Configuration not found for this domain' });
+    sendError(res, 'Configuration not found for this domain', 404);
     return;
   }
 
@@ -604,7 +578,7 @@ router.post('/check', authMiddleware, asyncHandler(async (req: Request, res: Res
     return;
   }
 
-  res.json({ success: true, data: result.result });
+  sendSuccess(res, result.result);
 }));
 
 export default router;

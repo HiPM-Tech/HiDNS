@@ -44,7 +44,8 @@ const router = Router();
  *       200:
  *         description: Audit logs with pagination
  */
-router.get('/', authMiddleware, async (req: Request, res: Response) => {
+// 审计是全租户数据（含域名与来源 IP）：必须管理员，且 userId 不允许由 query 指定
+router.get('/', authMiddleware, adminOnly, async (req: Request, res: Response) => {
   try {
     const userId = req.query.userId ? parseInt(req.query.userId as string) : undefined;
     const action = req.query.action as string | undefined;
@@ -105,7 +106,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
  *       200:
  *         description: Exported audit logs
  */
-router.get('/export', authMiddleware, async (req: Request, res: Response) => {
+router.get('/export', authMiddleware, adminOnly, async (req: Request, res: Response) => {
   try {
     const format = (req.query.format as string) || 'json';
     const userId = req.query.userId ? parseInt(req.query.userId as string) : undefined;
@@ -126,9 +127,17 @@ router.get('/export', authMiddleware, async (req: Request, res: Response) => {
 
     if (format === 'csv') {
       const headers = 'id,user_id,auth_type,module,action,resource_type,resource_id,response_status,ip_address,created_at\n';
-      const rows = logs.map(l =>
-        `${l.id},${l.user_id},${l.auth_type},${l.module},${l.action},${l.resource_type || ''},${l.resource_id || ''},${l.response_status || ''},${l.ip_address || ''},${l.created_at}`
-      ).join('\n');
+      // 与 service/auditExport.ts 同一套转义：字段可能来自用户输入（module/action/resource_id），
+      // 不转义既是 CSV 结构破坏，也是公式注入入口。
+      const cell = (value: unknown) => {
+        let str = String(value ?? '');
+        if (/^[=+\-@\t\r]/.test(str)) str = "'" + str;
+        return /[",\n]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str;
+      };
+      const rows = logs.map(l => [
+        l.id, l.user_id, l.auth_type, l.module, l.action,
+        l.resource_type ?? '', l.resource_id ?? '', l.response_status ?? '', l.ip_address ?? '', l.created_at,
+      ].map(cell).join(',')).join('\n');
       sendSuccess(res, {
         format: 'csv',
         content_type: 'text/csv',

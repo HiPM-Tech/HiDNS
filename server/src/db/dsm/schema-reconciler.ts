@@ -7,6 +7,21 @@ const log = createLogger('DSM').sub('SchemaReconciler');
 
 export type DropTablePolicy = 'never' | 'dry-run-only' | 'safe-only' | 'always';
 
+/**
+ * 删表策略默认值。
+ *
+ * 历史默认 `always`：每次启动都会 DROP 掉 schema 之外的所有表，仅留一行 warn。
+ * 同库内的历史表、外部工具表、误建表都会被静默清除，属不可逆数据损失。
+ * 现改为默认 `never`，需要清理时用 `HIDNS_DSM_DROP_TABLES=always|safe-only|dry-run-only` 显式开启。
+ */
+function resolveDropTablePolicy(): DropTablePolicy {
+  const raw = (process.env.HIDNS_DSM_DROP_TABLES || '').trim().toLowerCase();
+  if (raw === 'always' || raw === 'safe-only' || raw === 'dry-run-only' || raw === 'never') {
+    return raw;
+  }
+  return 'never';
+}
+
 export interface ReconcileOptions {
   dryRun?: boolean;
   dropTablePolicy?: DropTablePolicy;
@@ -431,7 +446,7 @@ export class SchemaReconciler {
   }
 
   async reconcile(schema: DatabaseSchema, options: ReconcileOptions = {}): Promise<void> {
-    const { dryRun = false, dropTablePolicy = 'always', forceBackup = true } = options;
+    const { dryRun = false, dropTablePolicy = resolveDropTablePolicy(), forceBackup = true } = options;
     const dbType = this.getDbType();
     log.info( `Starting reconciliation for ${dbType} (Version: ${schema.version})...`);
 
@@ -467,9 +482,8 @@ export class SchemaReconciler {
       }
     }
 
-    if (dropTablePolicy !== 'never') {
-      await this.syncTablesDeletion(schema.tables, dryRun, dropTablePolicy);
-    }
+    // 删表永远先于建表/改列执行；policy 为 never 时只报告不删除
+    await this.syncTablesDeletion(schema.tables, dryRun, dropTablePolicy);
 
     for (const tableDef of schema.tables) {
       await this.syncTable(tableDef, options.dryRun || false);
@@ -569,8 +583,6 @@ export class SchemaReconciler {
   }
 
   private async syncTablesDeletion(targetTables: TableDef[], dryRun: boolean, policy: DropTablePolicy): Promise<void> {
-    if (policy === 'never') return;
-
     const dbType = this.getDbType();
     const targetNames = new Set(targetTables.map(t => t.name.toLowerCase()));
 
@@ -589,6 +601,11 @@ export class SchemaReconciler {
     for (const tableName of existingTables) {
       if (!targetNames.has(tableName)) {
         if (tableName.startsWith('sqlite_') || tableName === 'schema_versions') {
+          continue;
+        }
+
+        if (policy === 'never') {
+          log.warn( 'Obsolete table retained (policy: never). Set HIDNS_DSM_DROP_TABLES=safe-only to clean up.', { table: tableName });
           continue;
         }
 

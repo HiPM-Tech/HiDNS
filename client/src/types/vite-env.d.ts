@@ -7,6 +7,8 @@ declare module '*.css' {
 // Vite import.meta.env type augmentation
 interface ImportMetaEnv {
   readonly VITE_API_URL?: string;
+  /** 'none' 关闭第三方默认背景图（自托管/内网），见 lib/theme.tsx */
+  readonly VITE_DEFAULT_BACKGROUND?: string;
   readonly VITE_APP_VERSION?: string;
   readonly DEV: boolean;
   readonly PROD: boolean;

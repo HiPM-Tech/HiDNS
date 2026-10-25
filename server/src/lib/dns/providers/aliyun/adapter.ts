@@ -72,7 +72,7 @@ export class AliyunAdapter extends AliyunRpcAdapter {
       return { total: toNumber(data.TotalCount, list.length), list };
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
-      log.error('getDomainList failed', this.error);
+      log.error('getDomainList failed', { error: { name: 'AliyunApiError', message: this.error } });
       return { total: 0, list: [] };
     }
   }
@@ -110,6 +110,7 @@ export class AliyunAdapter extends AliyunRpcAdapter {
       return { total: toNumber(data.TotalCount, list.length), list };
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
+      log.warn('getDomainRecords failed', { error: { name: 'AliyunApiError', message: this.error } });
       return { total: 0, list: [] };
     }
   }

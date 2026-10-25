@@ -314,28 +314,6 @@ export class CloudflareAdapter implements DnsAdapter {
     return res.success;
   }
 
-  async getTunnels(accountId: string): Promise<any[]> {
-    const res = await this.request<any[]>('GET', `/accounts/${accountId}/cfd_tunnel`);
-    if (!res.success) return [];
-    return res.result;
-  }
-
-  async getTunnelConfig(accountId: string, tunnelId: string): Promise<any> {
-    const res = await this.request<any>('GET', `/accounts/${accountId}/cfd_tunnel/${tunnelId}/configurations`);
-    if (!res.success) return null;
-    return res.result;
-  }
-
-  async updateTunnelConfig(accountId: string, tunnelId: string, config: any): Promise<boolean> {
-    const res = await this.request<any>('PUT', `/accounts/${accountId}/cfd_tunnel/${tunnelId}/configurations`, { config });
-    return res.success;
-  }
-
-  async deleteTunnel(accountId: string, tunnelId: string): Promise<boolean> {
-    const res = await this.request<any>('DELETE', `/accounts/${accountId}/cfd_tunnel/${tunnelId}`);
-    return res.success;
-  }
-
   private mapRecord(r: CfRecord): DnsRecord {
     const zoneName = this.getZoneName(r);
     const normalizedManaged = this.normalizeManagedRecordName(r.name, zoneName);

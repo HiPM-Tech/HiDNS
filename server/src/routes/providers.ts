@@ -28,7 +28,13 @@ router.get('/:type/icon', asyncHandler(async (req: Request, res: Response) => {
     // Support both development (src) and production (dist) environments
     // In dev: __dirname = server/dist/routes, need to go up to server/src/lib/dns/providers
     // In prod: __dirname = server/dist/routes, need to go up to server/dist/lib/dns/providers
-    const providersDir = path.join(__dirname, '..', 'lib', 'dns', 'providers');
+    // type 来自路径参数：必须白名单化，否则 %2f 穿越可读出仓库外任意 icon.* 文件
+  // （既是文件存在性 oracle，也可能泄露内容）。
+  if (!/^[a-z0-9_-]+$/i.test(type)) {
+    sendError(res, 'Invalid provider type', 400);
+    return;
+  }
+  const providersDir = path.join(__dirname, '..', 'lib', 'dns', 'providers');
 
     log.info(`Looking for icon in: ${providersDir}`);
 
@@ -66,7 +72,7 @@ router.get('/:type/icon', asyncHandler(async (req: Request, res: Response) => {
     if (!iconPath || !fs.existsSync(iconPath)) {
       // Return 404 if icon not found
       log.warn(`Icon not found for provider: ${type}`);
-      res.status(404).json({ error: 'Icon not found' });
+      sendError(res, 'Icon not found', 404);
       return;
     }
 
@@ -88,7 +94,7 @@ router.get('/:type/icon', asyncHandler(async (req: Request, res: Response) => {
     res.send(iconData);
   } catch (error) {
     log.error(`Failed to serve icon for ${type}`, { error });
-    res.status(500).json({ error: 'Failed to load icon' });
+    sendError(res, 'Failed to load icon', 500);
   }
 }));
 
@@ -100,7 +106,7 @@ router.get('/:type/renewable-domains', authMiddleware, asyncHandler(async (req: 
   // Only allow admins and super admins
   const role = normalizeRole(req.user?.role);
   if (role < 2) {
-    sendError(res, 'Permission denied');
+    sendError(res, 'Permission denied', 403);
     return;
   }
 

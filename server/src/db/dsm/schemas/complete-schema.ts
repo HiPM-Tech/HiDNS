@@ -222,7 +222,10 @@ export const COMPLETE_SCHEMA: DatabaseSchema = {
         { name: 'updated_at', type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' },
       ],
       indexes: [
-        { name: 'idx_user_2fa_user_id', columns: ['user_id'] }
+        { name: 'idx_user_2fa_user_id', columns: ['user_id'] },
+        // 业务上「一个用户一种 2FA 类型只有一条」；没有唯一约束时 SQLite 的
+        // ON CONFLICT(user_id, type) 会直接报错，导致 /security/2fa/enable 必 500。
+        { name: 'uniq_user_2fa_user_type', columns: ['user_id', 'type'], unique: true }
       ],
       foreignKeys: [
         { column: 'user_id', refTable: 'users', refColumn: 'id', onDelete: 'CASCADE' }
@@ -917,6 +920,19 @@ export const COMPLETE_SCHEMA: DatabaseSchema = {
       indexes: [
         { name: 'idx_workflow_runs_workflow_id', columns: ['workflow_id'] },
         { name: 'idx_workflow_runs_trace_id', columns: ['trace_id'] }
+      ]
+    },
+    {
+      // 公共后缀（可注册域判定用）：由定时任务从上游列表下拉入库，内置清单只作为首次种子。
+      // 单独建表而不是写死在代码里，是为了不重启就能更新（新后缀如 .zip / 多段后缀会持续出现）。
+      name: 'public_suffixes',
+      columns: [
+        { name: 'suffix', type: 'string', length: 255, primaryKey: true },
+        { name: 'source', type: 'string', length: 64, nullable: false, defaultValue: 'builtin' },
+        { name: 'updated_at', type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' },
+      ],
+      indexes: [
+        { name: 'idx_public_suffixes_source', columns: ['source'] }
       ]
     }
   ]

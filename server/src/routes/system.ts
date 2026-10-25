@@ -72,6 +72,7 @@ router.get('/version', authMiddleware, async (_req: Request, res: Response) => {
       code: 0,
       data: {
         version: serverVersion,
+        nodeVersion: process.version,
         deployMode,
         logLevel,
         nodeStatus: {

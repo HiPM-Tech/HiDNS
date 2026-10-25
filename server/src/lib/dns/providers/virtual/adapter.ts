@@ -76,9 +76,19 @@ export class VirtualAdapter implements DnsAdapter {
   private zone(): VirtualZone {
     this.ensureEnabled();
     const zone = this.store.zone(this.zoneId) ?? this.store.zoneByName(this.domainName);
-    if (!zone) throw new Error(`虚拟站点不存在: ${this.zoneId || this.domainName || '(未指定)'}`);
-    this.zoneId = zone.ZoneId;
-    return zone;
+    if (zone) {
+      this.zoneId = zone.ZoneId;
+      return zone;
+    }
+    // 开发/测试提供商：允许直接为主机上新增的域名自动建站点。
+    // 否则「在域名页新增一个域名 → 打开记录页」会立刻报「虚拟站点不存在」，
+    // 让整套演练流程在第一步就断掉（真实提供商由上游站点决定，不会走到这里）。
+    if (this.domainName) {
+      const created = this.store.addZone(this.domainName);
+      this.zoneId = created.ZoneId;
+      return created;
+    }
+    throw new Error(`虚拟站点不存在: ${this.zoneId || '(未指定)'}`);
   }
 
   /** 源站组裸原语：与腾讯云提供商同一套客户端实现 */

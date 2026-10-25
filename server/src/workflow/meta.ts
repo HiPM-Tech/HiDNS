@@ -35,11 +35,53 @@ export function buildStaticMeta(source: StaticMetaSource): MetaItem[] {
       }));
 
     case 'triggerTypes':
+      // params 必须与 workflow/engine.ts 的 TriggerSpec 对齐，否则前端会退回 JSON 编辑：
+      //   record.changed → recordTypes（仅 A/AAAA，§4.0.5）
+      //   ns.changed     → statuses（空 = 只报「非 ok」）
+      //   whois.expiring → withinDays（必填）
       return [
-        { value: 'record.changed', label: 'workflow.trigger.record_changed' },
-        { value: 'domain.changed', label: 'workflow.trigger.domain_changed' },
-        { value: 'ns.changed', label: 'workflow.trigger.ns_changed' },
-        { value: 'whois.expiring', label: 'workflow.trigger.whois_expiring' },
+        {
+          value: 'record.changed',
+          label: 'workflow.trigger.record_changed',
+          params: [
+            {
+              key: 'recordTypes',
+              label: 'workflow.param.record_types',
+              type: 'multiselect',
+              required: false,
+              options: ['A', 'AAAA'],
+              hint: 'workflow.hint.record_types',
+            },
+          ],
+        },
+        { value: 'domain.changed', label: 'workflow.trigger.domain_changed', params: [] },
+        {
+          value: 'ns.changed',
+          label: 'workflow.trigger.ns_changed',
+          params: [
+            {
+              key: 'statuses',
+              label: 'workflow.param.statuses',
+              type: 'multiselect',
+              required: false,
+              options: ['ok', 'mismatch', 'missing', 'poisoned'],
+              hint: 'workflow.hint.statuses',
+            },
+          ],
+        },
+        {
+          value: 'whois.expiring',
+          label: 'workflow.trigger.whois_expiring',
+          params: [
+            {
+              key: 'withinDays',
+              label: 'workflow.param.within_days',
+              type: 'number',
+              required: true,
+              hint: 'workflow.hint.within_days',
+            },
+          ],
+        },
       ];
 
     case 'recordTypes':

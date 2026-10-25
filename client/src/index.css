@@ -1,3 +1,4 @@
 /* Import global styles and theme */
 @import './styles/globals.css';
-
+/* 新设计系统 tokens（语义 token；旧 --color-* 变量的使用面随页面迁移逐步收敛） */
+@import './ui/tokens.css';

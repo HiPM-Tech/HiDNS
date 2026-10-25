@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="64" height="64" role="img" aria-label="HiDNS">
+  <rect width="24" height="24" rx="6" fill="#0a76a9"/>
+  <g stroke="#ffffff" stroke-width="2.2" stroke-linecap="round">
+    <path d="M7.2 4.6v14.8"/>
+    <path d="M16.8 4.6v14.8"/>
+  </g>
+  <rect x="8.8" y="9.7" width="6.4" height="4.6" rx="2.3" fill="#ffffff"/>
+</svg>

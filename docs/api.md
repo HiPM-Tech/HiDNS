@@ -12,7 +12,28 @@ Base URL: `http://<部署地址>:3001/api`
 - `noTokenAuth()` 标记的路由仅允许 JWT 鉴权，禁止 API Token
 - `adminOnly` 标记的路由仅限管理员/超级管理员
 - `requireTokenDomainPermission()` 标记的路由要求 Token 具备域名级写权限
-- 公共路由（`/api/init/*`、`/api/rdap/*`、`/api/system/*`、`/api/mcp/.well-known/*`）无需鉴权
+- 公共路由（`/api/init/*`、`/api/rdap/*`、`/api/mcp/.well-known/*`）无需鉴权；`/api/system/*` **需要鉴权**（历史文档写反，实现为 `authMiddleware`）
+
+### API 令牌的 allowed_domains 语义（安全边界）
+
+| 取值 | 含义 |
+| --- | --- |
+| `null` / 未提供 | 不限制域名（历史令牌） |
+| `[]`（空数组） | **不限制域名**（向后兼容 ddns-go 等只填令牌的外部工具） |
+| `[1,2,3]` | 白名单：仅可访问列出的域名 |
+
+> 这是「默认放开」的语义：如果将来收紧令牌创建时的校验，务必同步 `routes/tokens.ts` 的创建校验与本文，否则空数组会等价于通配令牌。
+
+### 分页口径（统一约定）
+
+默认 **20 条 / 上限 100**；确有业务理由的例外必须在代码里显式声明并在此登记：
+
+| 端点 | 默认 | 上限 | 理由 |
+| --- | --- | --- | --- |
+| `/api/domains`、`/api/domains/:id/records`、`/api/servicemonitor`、`/api/ns-monitor` | 20 | 100 | 标准分页 |
+| `/api/domains?grouped=true` | 20 | **1000** | 前端一次性取回后本地分组 |
+| `/api/audit/logs`、`/api/logs` | **50** | **200** | 运维排查场景，页内需要更长上下文 |
+| `/api/resource-monitor/history` | **60** | **1440** | 按分钟采样的时间序列（1440 = 一天） |
 
 ### 通用响应格式
 
@@ -26,6 +47,21 @@ Base URL: `http://<部署地址>:3001/api`
 
 - `code === 0`：成功
 - `code !== 0`：失败，`msg` 包含错误描述
+
+### 错误码契约
+
+`code` **与 HTTP 状态码一致**（不再出现「HTTP 200 + code:-1」）：
+
+| HTTP / code | 语义 |
+| --- | --- |
+| 400 | 参数或业务校验失败（默认） |
+| 401 | 未认证 / 会话失效 |
+| 403 | 已认证但无权限（角色、域名、Token 权限、初始化门禁） |
+| 404 | 资源不存在或不可见 |
+| 409 | 冲突（重名、重复授权等） |
+| 422 | 语义合法但不可处理（如批量超出上限） |
+| 500 | 服务端异常 |
+| 503 | 系统未初始化或数据库不可达（初始化门禁） |
 
 ---
 
@@ -45,6 +81,8 @@ Base URL: `http://<部署地址>:3001/api`
 鉴权：无（公开）
 
 测试数据库连接。
+
+> **初始化门禁（三态）**：`initialized` 时本组端点返回 403；`uninitialized` 且数据库可达时可用；**数据库不可达时整组返回 503**（仅 `GET /api/init/status`、`GET /api/init/db-config` 两个只读探测放行）。此时请通过环境变量或 `data/.env` 修正数据库配置——这是刻意关闭自救入口，用于切断「数据库故障 → 重配数据库 → 建管理员」的未授权接管链。
 
 请求体：
 ```json
@@ -284,14 +322,16 @@ Base URL: `http://<部署地址>:3001/api`
 
 查询参数：
 - `page` - 页码，默认 1
-- `pageSize` - 每页数量，默认 50，最大 100
+- `pageSize` - 每页数量，默认 **20**，最大 100（超出截断为 100）
 - `account_id` - 按 DNS 账号过滤
 - `keyword` - 域名关键词搜索
 - `domain_match` - 智能域名匹配（专为 API Token 设计，传入完整 FQDN 自动匹配后缀）
 - `domain_type` - 域名类型过滤
 - `domain_status` - 域名状态过滤
 - `format` - 返回格式
-- `pinned_domains` - 是否返回置顶域名
+- `pinned_domains` - 置顶域名 ID 列表（逗号分隔），服务端据此把这些域名排在结果前面；不传则按默认排序
+- `grouped` - `true` 时返回按**可注册域**聚合的块：列表里会插入 `{ _type: 'group_header', id, groupName, childIds, parentPresent }` 组头行（`parentPresent=false` 表示父域尚未添加，前端显示「父域未添加」提示），子域行带 `_groupParentId`；分页按「块」计数
+- `virtual_groups` - 与 `grouped` 配合：`true` 时父域未添加也虚拟出组头（界面默认），`false` 时只有父域已添加才成组
 - `include_disabled` - 是否包含已禁用的域名
 
 > Token 认证时，直接返回数组而非 `{ list, total }` 对象。
@@ -398,7 +438,7 @@ Base URL: `http://<部署地址>:3001/api`
 
 查询参数：
 - `page` - 页码，默认 1
-- `pageSize` - 每页数量，默认 20，最大 100
+- `pageSize` - 每页数量，默认 20，最大 100（超出被截断为 100）
 - `keyword` - 关键词搜索
 - `subdomain` - 主机记录过滤
 - `value` - 记录值过滤
@@ -471,6 +511,9 @@ Base URL: `http://<部署地址>:3001/api`
 
 批量添加 DNS 记录。
 
+- 单次最多 **100** 条，超出返回 **422**（`{code:422,msg:"At most 100 records per batch"}`）。
+- 返回逐条结果：`{ total, addedIds, results: [{ line, ok, recordId?, error? }], errors }`，部分成功不整体回滚。
+
 ```json
 {
   "records": [
@@ -503,7 +546,7 @@ Base URL: `http://<部署地址>:3001/api`
 
 ## 11. RDAP/WHOIS 查询
 
-路由来源：`routes/rdap.ts`，挂载于 `app.use('/api/rdap', rdapLimiter, rdapRouter)`。
+路由来源：`routes/rdap.ts`；**注册在 `server/src/api/index.ts` 的模块清单里**（`prefix: '/api/rdap'`，`middlewares: [rdapLimiter]`，`exemptFromInitGate: true`）。`app.ts` 不再直接 `app.use` 业务路由。
 
 ### 鉴权方式
 
@@ -676,19 +719,7 @@ Content-Type: `application/rdap+json`
 | PUT | `/api/security/users/:userId/require-2fa` | 同上 | 更新用户 2FA 要求 `{ require2FA }` |
 | POST | `/api/security/user-require-2fa` | 同上 | 设置用户 2FA `{ userId, require2FA }` |
 
-### 安全策略（备用路由）
-
-路由来源：`routes/securityPolicy.ts`
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|------|------|------|------|
-| GET | `/api/security/policy` | `authMiddleware` + `noTokenAuth` + `adminOnly` | 获取安全策略 |
-| PUT | `/api/security/policy` | 同上 | 更新安全策略 |
-| POST | `/api/security/password-strength` | 无 | 检查密码强度 |
-| GET | `/api/security/2fa/requirement` | `authMiddleware` | 获取当前用户 2FA 要求 |
-| GET | `/api/security/trusted-devices` | `authMiddleware` | 列出信任设备 |
-| DELETE | `/api/security/trusted-devices/:id` | `authMiddleware` | 移除信任设备 |
-| POST | `/api/security/check-device` | `authMiddleware` | 检查设备是否信任 |
+> 说明：历史 `routes/securityPolicy.ts` 与本表**同前缀挂载**。与 `security.ts` 重名的端点（`/policy`、`/password-strength`、`/trusted-devices`）被前者遮蔽、从未生效；两个独占端点 `GET /api/security/2fa/requirement`、`POST /api/security/check-device` 则是**可达**的。本次重构已删除该文件，并把这两个独占端点迁入 `routes/security.ts`（鉴权与实现保持不变），因此上表新增两行、无端点下线。
 
 ---
 
@@ -721,10 +752,6 @@ Content-Type: `application/rdap+json`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/tunnels` | 列出所有 Cloudflare Tunnel |
-| GET | `/api/tunnels/:accountId/:tunnelId` | 获取 Tunnel 配置 |
-| PUT | `/api/tunnels/:accountId/:tunnelId/config` | 更新 Tunnel 配置 |
-| DELETE | `/api/tunnels/:accountId/:tunnelId` | 删除 Tunnel |
 
 ---
 
@@ -735,7 +762,7 @@ Content-Type: `application/rdap+json`
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/tokens` | 列出用户 API Token |
-| POST | `/api/tokens` | 创建 Token `{ name, allowed_domains, start_time?, end_time? }` |
+| POST | `/api/tokens` | 创建 Token `{ name, allowed_domains, allowed_services?, max_role?, start_time?, end_time? }`；`allowed_services` 未传默认 `["*"]`（与创建者同权限），`max_role` 不得高于创建者角色（超出返回 403、非法值 400） |
 | PUT | `/api/tokens/:id` | 更新 Token `{ name?, allowed_domains?, start_time?, end_time? }` |
 | DELETE | `/api/tokens/:id` | 删除 Token |
 | PATCH | `/api/tokens/:id/status` | 切换 Token 状态 `{ is_active }` |

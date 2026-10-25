@@ -5,9 +5,6 @@
 /* CSS Variables for theming */
 :root {
   --app-control-radius: 6px;
-  --app-ui-scale: 0.9;
-  --app-scaled-vh: calc(100vh / var(--app-ui-scale));
-  --app-scaled-vw: calc(100vw / var(--app-ui-scale));
 
   /* Light mode (default) */
   --color-bg-primary: #ffffff;
@@ -62,23 +59,12 @@ html.dark {
   --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
 }
 
-/* Base styles */
+/* Base styles —— 底色/字体/背景图统一由 ui/tokens.css 的 @layer base 负责；
+   这里曾引用 TDesign 的 --td-* 变量（仓库里已无定义），且未包在 @layer 内，
+   会静默压过 tokens 的同名声明。 */
 body {
   margin: 0;
-  width: var(--app-scaled-vw);
-  min-height: var(--app-scaled-vh);
-  background-color: var(--td-bg-color-page);
-  color: var(--td-text-color-primary);
-  font-family: var(--td-font-family);
-  transition: background-color 0.2s, color 0.2s;
-  zoom: var(--app-ui-scale);
-}
-
-@supports not (zoom: 1) {
-  body {
-    transform: scale(var(--app-ui-scale));
-    transform-origin: top left;
-  }
+  min-height: 100vh;
 }
 
 html,

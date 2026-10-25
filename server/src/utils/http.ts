@@ -69,15 +69,24 @@ export function parsePagination(
 export function sendSuccess<T>(res: Response, data?: T, msg = 'success', statusCode = 200): Response {
   return res.status(statusCode).json({
     code: 0,
-    data,
+    data: data ?? null,
     msg,
   } as ApiResponse<T>);
 }
 
-export function sendError(res: Response, msg: string, statusCode = 200, data?: unknown): Response {
-  return res.status(statusCode).json({
-    code: statusCode >= 400 ? statusCode : -1,
-    data,
+/**
+ * 统一错误响应。
+ *
+ * 语义约束（docs/refactor/00-PLAN.md §3）：`code` 必须与 HTTP 状态码一致，
+ * 默认 400（客户端错误）；权限拒绝显式 403、资源不存在 404、冲突 409、服务端异常 500。
+ * 历史默认 200 让 120+ 处错误路径"成功返回"，已废弃。
+ */
+export function sendError(res: Response, msg: string, statusCode = 400, data?: unknown): Response {
+  const status = statusCode >= 400 ? statusCode : 400;
+  return res.status(status).json({
+    code: status,
+    // 统一补 null：否则信封里整个 data 键会消失，前端/外部适配器读到 undefined
+    data: data ?? null,
     msg,
   } as ApiResponse);
 }

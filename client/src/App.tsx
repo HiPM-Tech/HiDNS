@@ -1,102 +1,103 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider } from './contexts/AuthContext';
-import { Layout } from './components/Layout';
-import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { Landing } from './pages/Landing';
-import { Login } from './pages/Login';
-import { OAuthCallback } from './pages/OAuthCallback';
-import { Setup } from './pages/Setup';
-import { McpOAuthConsent } from './pages/McpOAuthConsent';
+import { ThemeProvider } from './lib/theme';
+import { RequireAdmin } from './app/require-admin';
+import { ProtectedShell } from './app/protected-shell';
+// 首屏直达的两个页面保持同步加载：落地页与登录页是冷启动必经路径，
+// 再套一层 lazy 只会让首屏多一次往返。
+import { LandingPage } from './features/marketing/landing-page';
+import { LoginPage } from './features/auth/login-page';
 
-import { I18nProvider } from './contexts/I18nContext';
-import { ThemeProvider } from './contexts/ThemeContext';
-import { UiScaleProvider } from './contexts/UiScaleContext';
-import { useDialogAutoHideScrollbar } from './hooks/useDialogAutoHideScrollbar';
-
-// 路由级懒加载：减小首屏 bundle，按需加载页面
-const Dashboard = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
-const Audit = lazy(() => import('./pages/Audit').then((m) => ({ default: m.Audit })));
-const Accounts = lazy(() => import('./pages/Accounts').then((m) => ({ default: m.Accounts })));
-const Domains = lazy(() => import('./pages/Domains').then((m) => ({ default: m.Domains })));
-const Records = lazy(() => import('./pages/Records').then((m) => ({ default: m.Records })));
-const Users = lazy(() => import('./pages/Users').then((m) => ({ default: m.Users })));
-const Teams = lazy(() => import('./pages/Teams').then((m) => ({ default: m.Teams })));
-const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
-const Security = lazy(() => import('./pages/Security').then((m) => ({ default: m.Security })));
-const Tunnels = lazy(() => import('./pages/Tunnels').then((m) => ({ default: m.Tunnels })));
-const Tokens = lazy(() => import('./pages/Tokens').then((m) => ({ default: m.Tokens })));
-const McpManagement = lazy(() => import('./pages/McpManagement').then((m) => ({ default: m.McpManagement })));
-const About = lazy(() => import('./pages/About').then((m) => ({ default: m.About })));
-const System = lazy(() => import('./pages/System').then((m) => ({ default: m.System })));
-const Workflows = lazy(() => import('./pages/Workflows').then((m) => ({ default: m.Workflows })));
+/**
+ * 控制台内部一律路由级懒加载：主包只保留 shell + 首屏页面，
+ * 各 feature 页面各自成块（此前全部静态导入，主包 619 kB）。
+ */
+const DashboardPage = lazy(() => import('./features/dashboard/dashboard-page').then((m) => ({ default: m.DashboardPage })));
+const DomainsPage = lazy(() => import('./features/domains/domains-page').then((m) => ({ default: m.DomainsPage })));
+const DomainMonitoringPage = lazy(() => import('./features/domains/monitoring-page').then((m) => ({ default: m.DomainMonitoringPage })));
+const RecordsPage = lazy(() => import('./features/records/records-page').then((m) => ({ default: m.RecordsPage })));
+const AccountsPage = lazy(() => import('./features/accounts/accounts-page').then((m) => ({ default: m.AccountsPage })));
+const TokensPage = lazy(() => import('./features/tokens/tokens-page').then((m) => ({ default: m.TokensPage })));
+const SecurityPage = lazy(() => import('./features/security/security-page').then((m) => ({ default: m.SecurityPage })));
+const SettingsPage = lazy(() => import('./features/settings/settings-page').then((m) => ({ default: m.SettingsPage })));
+const AuditPage = lazy(() => import('./features/audit/audit-page').then((m) => ({ default: m.AuditPage })));
+const TeamsPage = lazy(() => import('./features/teams/teams-page').then((m) => ({ default: m.TeamsPage })));
+const UsersPage = lazy(() => import('./features/users/users-page').then((m) => ({ default: m.UsersPage })));
+const SystemPage = lazy(() => import('./features/system/system-page').then((m) => ({ default: m.SystemPage })));
+const WorkflowsPage = lazy(() => import('./features/workflows/workflows-page').then((m) => ({ default: m.WorkflowsPage })));
+const McpPage = lazy(() => import('./features/mcp/mcp-page').then((m) => ({ default: m.McpPage })));
+const AboutPage = lazy(() => import('./features/about/about-page').then((m) => ({ default: m.AboutPage })));
+const SetupPage = lazy(() => import('./features/setup/setup-page').then((m) => ({ default: m.SetupPage })));
+const OAuthCallbackPage = lazy(() => import('./features/oauth/oauth-callback-page').then((m) => ({ default: m.OAuthCallbackPage })));
+const McpConsentPage = lazy(() => import('./features/oauth/mcp-consent-page').then((m) => ({ default: m.McpConsentPage })));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
 });
 
-// 路由级 fallback：避免页面切换时空白
+/** 路由级 fallback：与页面骨架一致的浅色占位，避免切换时闪白 */
 function RouteFallback() {
-  return <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>Loading…</div>;
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
+        <span className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
+        加载中…
+      </div>
+    </div>
+  );
 }
 
 function App() {
-  useDialogAutoHideScrollbar();
-
   return (
     <ErrorBoundary>
-      <UiScaleProvider>
-        <QueryClientProvider client={queryClient}>
-          <ThemeProvider>
-            <I18nProvider>
-              <AuthProvider>
-                <BrowserRouter>
-                  <Routes>
-                    <Route path="/" element={<Landing />} />
-                    <Route path="/setup" element={<Setup />} />
-                    <Route path="/login" element={<Login />} />
-                    <Route path="/oauth/callback" element={<OAuthCallback />} />
-                    <Route path="/oauth/authorize" element={<McpOAuthConsent />} />
-                    <Route element={<ProtectedRoute />}>
-                      <Route element={<Layout />}>
-                        <Route path="dash" element={<Suspense fallback={<RouteFallback />}><Dashboard /></Suspense>} />
-                        <Route path="dash/accounts" element={<Suspense fallback={<RouteFallback />}><Accounts /></Suspense>} />
-                        <Route path="dash/domains" element={<Suspense fallback={<RouteFallback />}><Domains activeTab="list" /></Suspense>} />
-                        <Route path="dash/domains/servicemonitor" element={<Suspense fallback={<RouteFallback />}><Domains activeTab="servicemonitor" /></Suspense>} />
-                        <Route path="dash/domains/ns-monitor" element={<Suspense fallback={<RouteFallback />}><Domains activeTab="ns-monitor" /></Suspense>} />
-                        <Route path="dash/domains/renewal" element={<Suspense fallback={<RouteFallback />}><Domains activeTab="renewal" /></Suspense>} />
-                        <Route path="dash/domains/:id/records" element={<Suspense fallback={<RouteFallback />}><Records /></Suspense>} />
-                        <Route path="dash/tunnels" element={<Suspense fallback={<RouteFallback />}><Tunnels /></Suspense>} />
-                        <Route path="dash/tokens" element={<Suspense fallback={<RouteFallback />}><Tokens /></Suspense>} />
-                        <Route path="dash/mcp" element={<Suspense fallback={<RouteFallback />}><McpManagement /></Suspense>} />
-                        <Route path="dash/teams" element={<Suspense fallback={<RouteFallback />}><Teams /></Suspense>} />
-                        <Route path="dash/settings" element={<Suspense fallback={<RouteFallback />}><Settings /></Suspense>} />
-                        <Route path="dash/security" element={<Suspense fallback={<RouteFallback />}><Security /></Suspense>} />
-                        <Route path="dash/about" element={<Suspense fallback={<RouteFallback />}><About /></Suspense>} />
-                        <Route element={<AdminRoute />}>
-                          <Route path="dash/users" element={<Suspense fallback={<RouteFallback />}><Users /></Suspense>} />
-                          <Route path="dash/audit" element={<Suspense fallback={<RouteFallback />}><Audit /></Suspense>} />
-                          <Route path="dash/workflows" element={<Suspense fallback={<RouteFallback />}><Workflows /></Suspense>} />
-                          <Route path="dash/system" element={<Suspense fallback={<RouteFallback />}><System activeTab="overview" /></Suspense>} />
-                          <Route path="dash/system/database" element={<Suspense fallback={<RouteFallback />}><System activeTab="database" /></Suspense>} />
-                          <Route path="dash/system/security" element={<Suspense fallback={<RouteFallback />}><System activeTab="security" /></Suspense>} />
-                          <Route path="dash/system/access" element={<Suspense fallback={<RouteFallback />}><System activeTab="access" /></Suspense>} />
-                          <Route path="dash/system/network" element={<Suspense fallback={<RouteFallback />}><System activeTab="network" /></Suspense>} />
-                          <Route path="dash/system/notifications" element={<Suspense fallback={<RouteFallback />}><System activeTab="notifications" /></Suspense>} />
-                          <Route path="dash/system/workflow" element={<Suspense fallback={<RouteFallback />}><System activeTab="workflow" /></Suspense>} />
-                        </Route>
-                      </Route>
-                    </Route>
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </Routes>
-                </BrowserRouter>
-              </AuthProvider>
-            </I18nProvider>
-          </ThemeProvider>
-        </QueryClientProvider>
-      </UiScaleProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+        <BrowserRouter>
+          <Suspense fallback={<RouteFallback />}>
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/setup" element={<SetupPage />} />
+              <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
+              <Route path="/oauth/authorize" element={<McpConsentPage />} />
+
+              <Route element={<ProtectedShell />}>
+                <Route path="dash" element={<DashboardPage />} />
+                <Route path="dash/accounts" element={<AccountsPage />} />
+                <Route path="dash/domains" element={<DomainsPage />} />
+                <Route path="dash/domains/servicemonitor" element={<DomainMonitoringPage activeTab="servicemonitor" />} />
+                <Route path="dash/domains/ns-monitor" element={<DomainMonitoringPage activeTab="ns-monitor" />} />
+                <Route path="dash/domains/renewal" element={<DomainMonitoringPage activeTab="renewal" />} />
+                <Route path="dash/domains/:id/records" element={<RecordsPage />} />
+                <Route path="dash/tokens" element={<TokensPage />} />
+                <Route path="dash/mcp" element={<McpPage />} />
+                <Route path="dash/teams" element={<TeamsPage />} />
+                <Route path="dash/settings" element={<SettingsPage />} />
+                <Route path="dash/security" element={<SecurityPage />} />
+                <Route path="dash/about" element={<AboutPage />} />
+
+                <Route element={<RequireAdmin />}>
+                  <Route path="dash/users" element={<UsersPage />} />
+                  <Route path="dash/audit" element={<AuditPage />} />
+                  <Route path="dash/workflows" element={<WorkflowsPage />} />
+                  <Route path="dash/system" element={<SystemPage activeTab="overview" />} />
+                  <Route path="dash/system/database" element={<SystemPage activeTab="database" />} />
+                  <Route path="dash/system/security" element={<SystemPage activeTab="security" />} />
+                  <Route path="dash/system/access" element={<SystemPage activeTab="access" />} />
+                  <Route path="dash/system/network" element={<SystemPage activeTab="network" />} />
+                  <Route path="dash/system/notifications" element={<SystemPage activeTab="notifications" />} />
+                  <Route path="dash/system/workflow" element={<SystemPage activeTab="workflow" />} />
+                </Route>
+              </Route>
+
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+        </ThemeProvider>
+      </QueryClientProvider>
     </ErrorBoundary>
   );
 }

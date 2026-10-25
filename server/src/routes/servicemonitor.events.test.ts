@@ -25,6 +25,10 @@ vi.mock('../middleware/auth', () => ({
     req.user = mocks.user;
     next();
   },
+  // servicemonitor 现在复用 domains 路由的 getDomainAccess，间接引入这些中间件，mock 需补齐
+  requireTokenDomainPermission: () => (_req: any, _res: any, next: any) => next(),
+  noTokenAuth: () => (_req: any, _res: any, next: any) => next(),
+  adminOnly: (_req: any, _res: any, next: any) => next(),
 }));
 vi.mock('../db/bal/business-adapter', () => ({
   DomainOperations: { getById: vi.fn(async () => ({ id: 11, created_by: 100, team_id: null })) },

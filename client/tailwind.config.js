@@ -4,9 +4,51 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      // 布局宽度：页面中轴只用这三档 + 认证卡一档，避免每个页面各自 max-w-6xl/7xl 乱跳
+      maxWidth: {
+        content: 'var(--w-content)',
+        'content-narrow': 'var(--w-content-narrow)',
+        'content-wide': 'var(--w-content-wide)',
+        auth: 'var(--w-auth-card)',
+      },
+      width: {
+        sidebar: 'var(--w-sidebar)',
+        'sidebar-collapsed': 'var(--w-sidebar-collapsed)',
+      },
+      height: {
+        header: 'var(--h-header)',
+      },
       colors: {
-        // Primary palette
+        // ---- 语义 token（shadcn 约定：CSS 变量 + hsl）----
+        background: 'hsl(var(--background) / <alpha-value>)',
+        foreground: 'hsl(var(--foreground) / <alpha-value>)',
+        card: {
+          DEFAULT: 'hsl(var(--card) / <alpha-value>)',
+          foreground: 'hsl(var(--card-foreground) / <alpha-value>)',
+        },
+        popover: {
+          DEFAULT: 'hsl(var(--popover) / <alpha-value>)',
+          foreground: 'hsl(var(--popover-foreground) / <alpha-value>)',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted) / <alpha-value>)',
+          foreground: 'hsl(var(--muted-foreground) / <alpha-value>)',
+        },
+        accent: {
+          DEFAULT: 'hsl(var(--accent) / <alpha-value>)',
+          foreground: 'hsl(var(--accent-foreground) / <alpha-value>)',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive) / <alpha-value>)',
+          foreground: 'hsl(var(--destructive-foreground) / <alpha-value>)',
+        },
+        border: 'hsl(var(--border) / <alpha-value>)',
+        input: 'hsl(var(--input) / <alpha-value>)',
+        ring: 'hsl(var(--ring) / <alpha-value>)',
+        // ---- 品牌与状态色阶（保留既有色阶，供图表/图标使用）----
         primary: {
+          DEFAULT: 'hsl(var(--primary) / <alpha-value>)',
+          foreground: 'hsl(var(--primary-foreground) / <alpha-value>)',
           50: '#f0f9ff',
           100: '#e0f2fe',
           200: '#bae6fd',
@@ -18,7 +60,6 @@ export default {
           800: '#075985',
           900: '#0c3d66',
         },
-        // Semantic colors
         success: {
           50: '#f0fdf4',
           100: '#dcfce7',
@@ -55,7 +96,6 @@ export default {
           800: '#991b1b',
           900: '#7f1d1d',
         },
-        // Neutral palette
         neutral: {
           50: '#fafafa',
           100: '#f5f5f5',
@@ -69,6 +109,21 @@ export default {
           900: '#171717',
         },
       },
+      borderRadius: {
+        none: '0',
+        sm: 'calc(var(--radius) - 4px)',
+        base: 'calc(var(--radius) - 2px)',
+        md: 'var(--radius)',
+        lg: 'calc(var(--radius) + 4px)',
+        xl: 'calc(var(--radius) + 8px)',
+        full: '9999px',
+      },
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+      },
+      // 黄金比例间距阶梯：8 × φ^(n/2)，与 ui/tokens.css 的 --u-* 同源。
+      // 用法：p-phi-8 = 27px（卡片内距），gap-phi-6 = 16px（卡片间距）→ 两者比值 ≈ φ。
       spacing: {
         xs: '0.25rem',
         sm: '0.5rem',
@@ -77,7 +132,21 @@ export default {
         xl: '2rem',
         '2xl': '2.5rem',
         '3xl': '3rem',
+        'phi-1': '5px',
+        'phi-2': '6px',
+        'phi-3': '8px',
+        'phi-4': '10px',
+        'phi-5': '13px',
+        'phi-6': '16px',
+        'phi-7': '21px',
+        'phi-8': '27px',
+        'phi-9': '34px',
+        'phi-10': '43px',
+        'phi-11': '55px',
+        'phi-12': '70px',
       },
+      // 字号阶梯（每级 ×φ）：11 · 13 · 14 · 16 · 20 · 26 · 33 · 42 · 68
+      // 语义档位：micro(11 徽标) / caption(13 顶栏/标注) / title(20 卡片标题) / heading(26 页面标题)
       fontSize: {
         xs: ['0.75rem', { lineHeight: '1rem' }],
         sm: ['0.875rem', { lineHeight: '1.25rem' }],
@@ -86,15 +155,13 @@ export default {
         xl: ['1.25rem', { lineHeight: '1.75rem' }],
         '2xl': ['1.5rem', { lineHeight: '2rem' }],
         '3xl': ['1.875rem', { lineHeight: '2.25rem' }],
-      },
-      borderRadius: {
-        none: '0',
-        sm: '0.25rem',
-        base: '0.375rem',
-        md: '0.5rem',
-        lg: '0.75rem',
-        xl: '1rem',
-        full: '9999px',
+        micro: ['0.6875rem', { lineHeight: '1rem', letterSpacing: '0' }],
+        caption: ['0.8125rem', { lineHeight: '1.125rem' }],
+        title: ['1.25rem', { lineHeight: '1.75rem' }],
+        // 中文不做负字距（会把字挤在一起）：heading/hero 均显式归零
+        heading: ['1.625rem', { lineHeight: '2.125rem', letterSpacing: '0' }],
+        hero: ['2.625rem', { lineHeight: '3.25rem', letterSpacing: '0' }],
+        'hero-lg': ['4.25rem', { lineHeight: '4.75rem', letterSpacing: '0' }],
       },
       boxShadow: {
         xs: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
@@ -104,13 +171,19 @@ export default {
         lg: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
         xl: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
       },
-      transitionDuration: {
-        fast: '150ms',
-        base: '200ms',
-        slow: '300ms',
+      transitionDuration: { fast: '150ms', base: '200ms', slow: '300ms' },
+      transitionTimingFunction: { smooth: 'cubic-bezier(0.4, 0, 0.2, 1)' },
+      keyframes: {
+        'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
+        'fade-out': { from: { opacity: '1' }, to: { opacity: '0' } },
+        'zoom-in': { from: { opacity: '0', transform: 'scale(0.96)' }, to: { opacity: '1', transform: 'scale(1)' } },
+        'slide-up': { from: { opacity: '0', transform: 'translateY(6px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
       },
-      transitionTimingFunction: {
-        smooth: 'cubic-bezier(0.4, 0, 0.2, 1)',
+      animation: {
+        'fade-in': 'fade-in 150ms ease-out',
+        'fade-out': 'fade-out 120ms ease-in',
+        'zoom-in': 'zoom-in 160ms cubic-bezier(0.4, 0, 0.2, 1)',
+        'slide-up': 'slide-up 180ms cubic-bezier(0.4, 0, 0.2, 1)',
       },
     },
   },

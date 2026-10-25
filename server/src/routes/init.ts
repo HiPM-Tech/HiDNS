@@ -29,7 +29,7 @@ const initLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { code: 429, msg: 'Too many setup requests, please try again later.' },
+  handler: (_req: Request, res: Response) => res.status(429).json({ code: 429, data: null, msg: '初始化请求过于频繁，请稍后再试' }),
 });
 
 router.use(initLimiter);
@@ -226,9 +226,9 @@ router.post('/database', requireInitSurface, async (req: Request, res: Response)
         data: {
           success: true,
           skipToComplete: true,
-          message: 'Database already initialized with users. Setup complete.'
+          message: '数据库已有用户，初始化已完成。'
         },
-        msg: 'Database already initialized with users. Setup complete.',
+        msg: '数据库已有用户，初始化已完成。',
       });
     } catch (error) {
       log.error('Failed to connect to existing database', { error });
@@ -254,7 +254,7 @@ router.post('/database', requireInitSurface, async (req: Request, res: Response)
         data: {
           success: true,
           skipToUserCreation: true,
-          message: 'Database already initialized. Proceed to create admin user.'
+          message: '数据库已就绪，请创建管理员账户。'
         },
         msg: 'Database already initialized. Please create admin user.',
       });
@@ -362,13 +362,13 @@ router.post('/admin', requireInitSurface, async (req: Request, res: Response) =>
     await SecretOperations.rotateRuntimeSecrets();
 
     // 初始化完成：立刻把系统标记为已初始化，使初始化入口即时关闭
-    markInitialized();
+    const markerPersisted = markInitialized();
 
-    log.info('Admin user created successfully', { username, email });
+    log.info('Admin user created successfully', { username, email, markerPersisted });
 
     res.json({
       code: 0,
-      data: { success: true },
+      data: { success: true, markerPersisted },
       msg: 'Admin user created successfully',
     });
   } catch (error) {

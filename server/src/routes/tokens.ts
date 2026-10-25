@@ -1,7 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware, noTokenAuth } from '../middleware/auth';
 import { createUserToken, getUserTokens, deleteUserToken, toggleTokenStatus, updateTokenPermissions } from '../service/token';
-import { DomainOperations } from '../db/bal/business-adapter';
+import { normalizeTokenDomains, resolveTokenPolicy } from '../service/token-policy';
+import { DomainOperations, TeamOperations } from '../db/bal/business-adapter';
+import { sendError } from '../utils/http';
+import { logAuditOperation } from '../service/audit';
 import { normalizeRole } from '../utils/roles';
 import { wsService } from '../service/websocket';
 import { createLogger } from '../lib/logger';
@@ -129,25 +132,75 @@ router.get('/', authMiddleware, noTokenAuth('token management'), async (req: Req
  *         description: Invalid request parameters
  */
 router.post('/', authMiddleware, noTokenAuth('token management'), async (req: Request, res: Response) => {
-  const { name, allowed_domains, start_time, end_time } = req.body;
+  const { name, allowed_domains, allowed_services, start_time, end_time, max_role } = req.body as {
+    name?: string;
+    allowed_domains?: Array<number | string>;
+    allowed_services?: string[];
+    start_time?: string;
+    end_time?: string;
+    max_role?: number;
+  };
 
   if (!name || !allowed_domains) {
     res.status(400).json({ code: 400, msg: 'Missing required fields' });
     return;
   }
 
-  // Token inherits user's role - no separate max_role needed
   const userRole = normalizeRole(req.user!.role);
+  const domainIds = normalizeTokenDomains(allowed_domains);
+  if (domainIds.length === 0) {
+    res.status(400).json({ code: 400, msg: 'allowed_domains must contain at least one valid domain id' });
+    return;
+  }
+
+  // 归属校验：白名单里的域名必须是创建者能读到的，否则可以塞入别人的域名 id，
+  // 再靠令牌读取跨租户域名信息（渗透测试 A-4）。口径与 GET /domains 的可见性一致。
+  {
+    const role = normalizeRole(req.user!.role);
+    const isSuperRole = role >= 3;
+    const teamIds = await TeamOperations.getTeamIdsByUserId(req.user!.userId);
+    const accessible = await DomainOperations.getAccessibleDomains({
+      userId: req.user!.userId,
+      teamIds,
+      isSuper: isSuperRole,
+    });
+    const accessibleIds = new Set(accessible.map((row) => Number((row as { id: unknown }).id)));
+    const inaccessible = domainIds.filter((id) => !accessibleIds.has(id));
+    if (inaccessible.length > 0) {
+      sendError(res, 'No permission for domains: ' + inaccessible.join(', '), 403);
+      return;
+    }
+  }
+
+  // 服务权限与角色上限：创建时即可表达，且不得越过创建者自身权限。
+  // 历史实现把 allowed_services 硬编码为 ['*']、max_role 取创建者角色，导致「创建时无法限制、更新时才能改」。
+  const policy = resolveTokenPolicy({
+    allowedServices: allowed_services,
+    maxRole: max_role,
+    userRole,
+  });
+  if (!policy.ok) {
+    res.status(policy.status).json({ code: policy.status, msg: policy.message });
+    return;
+  }
 
   try {
     const result = await createUserToken(req.user!.userId, {
       name,
-      allowed_domains,
-      allowed_services: ['*'], // Allow all services - token has same permissions as user
+      allowed_domains: domainIds,
+      allowed_services: policy.services,
       start_time,
       end_time,
-      max_role: userRole,
+      max_role: policy.maxRole,
     });
+
+    // 令牌创建等于签发长期凭据：必须留审计（此前 0 条记录）
+    await logAuditOperation(req.user!.userId, 'create_token', name, {
+      tokenId: result.tokenData?.id,
+      domains: domainIds.length,
+      services: policy.services,
+      maxRole: policy.maxRole,
+    }, req);
 
     res.json({
       code: 0,
@@ -207,6 +260,7 @@ router.delete('/:id', authMiddleware, noTokenAuth('token management'), async (re
 
   try {
     await deleteUserToken(tokenId, req.user!.userId);
+    await logAuditOperation(req.user!.userId, 'delete_token', String(tokenId), {}, req);
     res.json({ code: 0, msg: 'Token deleted successfully' });
 
     // 推送 WebSocket 消息给当前用户
@@ -271,6 +325,7 @@ router.patch('/:id/status', authMiddleware, noTokenAuth('token management'), asy
 
   try {
     await toggleTokenStatus(tokenId, req.user!.userId, is_active);
+    await logAuditOperation(req.user!.userId, 'toggle_token', String(tokenId), { is_active }, req);
     res.json({ code: 0, msg: 'Token status updated' });
   } catch (error) {
     res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to update token status' });

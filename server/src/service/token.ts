@@ -180,8 +180,10 @@ export function hasServicePermission(tokenPayload: TokenPayload, service: string
 // Also verifies that the token's creator (user) has access to the domain
 export async function hasDomainPermission(tokenPayload: TokenPayload, domainId: number): Promise<boolean> {
   // First check if token explicitly allows this domain
-  const tokenAllowsDomain = tokenPayload.allowedDomains.includes(domainId) || 
-         tokenPayload.allowedDomains.length === 0; // empty array means all domains
+  // 空数组 = 不限制（向后兼容 ddns-go 这类只配令牌的外部工具）；
+  // 需要收敛权限时必须显式列域名。口径同 middleware/auth.ts 的 requireTokenDomainPermission。
+  const tokenAllowsDomain = tokenPayload.allowedDomains.includes(domainId) ||
+         tokenPayload.allowedDomains.length === 0;
   
   if (!tokenAllowsDomain) return false;
   

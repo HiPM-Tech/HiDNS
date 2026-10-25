@@ -42,7 +42,8 @@ router.get('/registration-options', authMiddleware, async (req: Request, res: Re
   });
 
   if (!options.challenge) {
-    return res.status(500).json({ code: -1, msg: 'Failed to generate challenge' });
+    sendError(res, 'Failed to generate challenge', 500);
+    return;
   }
 
   userChallengeStore.set(userId, options.challenge);
@@ -107,10 +108,11 @@ router.get('/login-options', async (req: Request, res: Response) => {
     ? await UserOperations.getByEmail(username) as { id: number } | undefined
     : await UserOperations.getByUsername(username) as { id: number } | undefined;
   
-  if (!user) return sendError(res, 'User not found', 404);
-  
+  // 统一响应，避免用户名枚举：未知用户与「无通行密钥」必须不可区分
+  if (!user) return sendError(res, 'No passkeys available', 400);
+
   const userCredentials = await getUserWebAuthnCredentials(user.id);
-  if (userCredentials.length === 0) return sendError(res, 'No passkeys found', 400);
+  if (userCredentials.length === 0) return sendError(res, 'No passkeys available', 400);
   
   const options = await generateAuthenticationOptions({
     rpID,
@@ -122,7 +124,8 @@ router.get('/login-options', async (req: Request, res: Response) => {
   });
   
   if (!options.challenge) {
-    return res.status(500).json({ code: -1, msg: 'Failed to generate challenge' });
+    sendError(res, 'Failed to generate challenge', 500);
+    return;
   }
   
   loginChallengeStore.set(user.id, options.challenge);

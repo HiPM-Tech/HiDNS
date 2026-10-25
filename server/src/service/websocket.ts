@@ -28,7 +28,48 @@ interface WSClient {
 
 class WSService {
   private wss: WebSocketServer | null = null;
-  private clients: Map<number, WSClient> = new Map();
+  /**
+   * 连接表：key = `${userId}#${seq}`。
+   *
+   * 同一用户允许多条连接（多标签页/多设备）。此前按 userId 单键存储，
+   * 新连接注册时会把旧连接 close 掉，两个标签页互相踢、指示器每秒闪断，
+   * 且被踢的那个标签页从此收不到任何事件（只能靠手动刷新）。
+   */
+  private clients: Map<string, WSClient> = new Map();
+  private connectionSeq = 0;
+  /** 单用户最大连接数：多页签/多设备够用，同时挡住「一个账号开上千条连接」的资源放大 */
+  private static readonly MAX_CONNECTIONS_PER_USER = 10;
+  /** 用户 → 连接 key 集合：让 socketsOf 从 O(全表) 降到 O(该用户的连接数) */
+  private readonly userIndex: Map<number, Set<string>> = new Map();
+
+  /** 某用户当前的所有连接 */
+  private socketsOf(userId: number): WSClient[] {
+    const keys = this.userIndex.get(userId);
+    if (!keys || keys.size === 0) return [];
+    const out: WSClient[] = [];
+    for (const key of keys) {
+      const client = this.clients.get(key);
+      if (client) out.push(client);
+    }
+    return out;
+  }
+
+  private track(key: string, client: WSClient): void {
+    this.clients.set(key, client);
+    const set = this.userIndex.get(client.userId) ?? new Set<string>();
+    set.add(key);
+    this.userIndex.set(client.userId, set);
+  }
+
+  private untrack(key: string): void {
+    const client = this.clients.get(key);
+    this.clients.delete(key);
+    if (!client) return;
+    const set = this.userIndex.get(client.userId);
+    if (!set) return;
+    set.delete(key);
+    if (set.size === 0) this.userIndex.delete(client.userId);
+  }
   private heartbeatInterval: NodeJS.Timeout | null = null;
 
   /**
@@ -101,14 +142,12 @@ class WSService {
         log.info('API token authentication successful', { userId, role, ip: clientIp });
       }
 
-      // 如果已存在连接，关闭旧连接
-      const existingClient = this.clients.get(userId);
-      if (existingClient) {
-        log.info('Closing existing WebSocket connection', { userId });
-        existingClient.ws.close(4000, 'New connection established');
+      // 注册新客户端（同一用户允许多条连接，但要有上限）
+      if (this.socketsOf(userId).length >= WSService.MAX_CONNECTIONS_PER_USER) {
+        log.warn('Too many connections for user, rejecting new socket', { userId });
+        ws.close(4005, 'Too many connections');
+        return;
       }
-
-      // 注册新客户端
       const client: WSClient = {
         ws,
         userId,
@@ -119,7 +158,7 @@ class WSService {
         rateLimitWindow: Date.now(),
       };
 
-      this.clients.set(userId, client);
+      this.track(`${userId}#${++this.connectionSeq}`, client);
 
       log.info('WebSocket client connected', {
         userId,
@@ -136,12 +175,12 @@ class WSService {
 
       // 处理消息
       ws.on('message', (data: string) => {
-        this.handleMessage(userId, data.toString());
+        this.handleMessage(client, data.toString());
       });
 
       // 处理断开连接
       ws.on('close', () => {
-        this.handleDisconnect(userId);
+        this.handleDisconnect(userId, ws);
       });
 
       // 处理错误
@@ -150,15 +189,13 @@ class WSService {
           userId,
           error: error.message
         });
-        this.handleDisconnect(userId);
+        this.handleDisconnect(userId, ws);
       });
 
       // 心跳响应
       ws.on('pong', () => {
-        const client = this.clients.get(userId);
-        if (client) {
-          client.isAlive = true;
-        }
+        // 直接闭包引用本连接：不必为了改一个布尔值去遍历全部连接
+        client.isAlive = true;
       });
 
     } catch (error) {
@@ -172,9 +209,9 @@ class WSService {
   /**
    * 处理客户端消息
    */
-  private handleMessage(userId: number, message: string): void {
-    const client = this.clients.get(userId);
+  private handleMessage(client: WSClient, message: string): void {
     if (!client) return;
+    const userId = client.userId;
 
     // Rate limiting: max 10 messages per second
     const now = Date.now();
@@ -233,15 +270,25 @@ class WSService {
   /**
    * 处理客户端断开连接
    */
-  private handleDisconnect(userId: number): void {
-    const client = this.clients.get(userId);
-    if (client) {
-      this.clients.delete(userId);
-      log.info('WebSocket client disconnected', {
-        userId,
-        totalClients: this.clients.size
-      });
+  /**
+   * 断开处理。
+   *
+   * 必须带上 socket 做身份校验：同用户重连时我们先 close 旧连接、再注册新连接，
+   * 而旧连接的 close 事件是**异步**落地的——不校验身份就会把刚注册的新连接删掉，
+   * 新连接虽然 OPEN，但再也收不到 pong/广播（clientCount 归零还会让资源采集停摆）。
+   */
+  private handleDisconnect(userId: number, ws?: WebSocket): void {
+    // 按 socket 身份精确删除：同一用户可能有多条连接，删错会把别人的连接一起带走
+    let removed = false;
+    for (const [key, client] of this.clients) {
+      if (client.userId !== userId) continue;
+      if (ws && client.ws !== ws) continue;
+      this.untrack(key);
+      removed = true;
+      break;
     }
+    if (!removed) return;
+    log.info('WebSocket client disconnected', { userId, totalClients: this.clients.size });
   }
 
   /**
@@ -249,11 +296,11 @@ class WSService {
    */
   private startHeartbeat(): void {
     this.heartbeatInterval = setInterval(() => {
-      this.clients.forEach((client, userId) => {
+      this.clients.forEach((client, key) => {
         if (!client.isAlive) {
-          log.warn('Client failed heartbeat, disconnecting', { userId });
+          log.warn('Client failed heartbeat, disconnecting', { userId: client.userId });
           client.ws.terminate();
-          this.clients.delete(userId);
+          this.untrack(key);
           return;
         }
 
@@ -266,36 +313,47 @@ class WSService {
   /**
    * 向指定用户发送消息
    */
+  /**
+   * 发给指定用户的**所有**在线连接（多标签页/多设备都会收到）。
+   * 名字沿用历史叫法，语义是「按用户投递」，不是「按单个 socket」。
+   */
   sendToClient(userId: number, message: any): boolean {
-    const client = this.clients.get(userId);
-    if (!client || client.ws.readyState !== WebSocket.OPEN) {
-      return false;
+    const data = JSON.stringify(message);
+    let sent = false;
+    for (const client of this.socketsOf(userId)) {
+      if (client.ws.readyState !== WebSocket.OPEN) continue;
+      try {
+        client.ws.send(data);
+        sent = true;
+      } catch (error) {
+        log.error('Failed to send message to client', {
+          userId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
     }
-
-    try {
-      client.ws.send(JSON.stringify(message));
-      return true;
-    } catch (error) {
-      log.error('Failed to send message to client', {
-        userId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return false;
-    }
+    return sent;
   }
 
   /**
    * 向所有在线用户广播消息
    */
+  /** 当前在线连接数（用于让周期任务在无人订阅时跳过采集/广播） */
+  get clientCount(): number {
+    return this.clients.size;
+  }
+
   broadcast(message: any): void {
+    // 没有连接时直接返回：既省一次 JSON.stringify，也避免把「无人接收」当成已送达
+    if (this.clients.size === 0) return;
     const data = JSON.stringify(message);
-    this.clients.forEach((client, userId) => {
+    this.clients.forEach((client) => {
       if (client.ws.readyState === WebSocket.OPEN) {
         try {
           client.ws.send(data);
         } catch (error) {
           log.error('Failed to broadcast to client', {
-            userId,
+            userId: client.userId,
             error: error instanceof Error ? error.message : String(error)
           });
         }
@@ -322,18 +380,22 @@ class WSService {
       if (!Number.isFinite(userId) || seen.has(userId)) continue;
       seen.add(userId);
 
-      const client = this.clients.get(userId);
-      if (!client || client.ws.readyState !== WebSocket.OPEN) continue;
-
-      try {
-        client.ws.send(data);
-        delivered += 1;
-      } catch (error) {
-        log.error('Failed to send message to users', {
-          userId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+      const sockets = this.socketsOf(userId);
+      if (sockets.length === 0) continue;
+      let any = false;
+      for (const client of sockets) {
+        if (client.ws.readyState !== WebSocket.OPEN) continue;
+        try {
+          client.ws.send(data);
+          any = true;
+        } catch (error) {
+          log.error('Failed to send message to users', {
+            userId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
+      if (any) delivered += 1;
     }
 
     return delivered;
@@ -344,13 +406,13 @@ class WSService {
    */
   broadcastToRole(role: string, message: any): void {
     const data = JSON.stringify(message);
-    this.clients.forEach((client, userId) => {
+    this.clients.forEach((client) => {
       if (client.role === role && client.ws.readyState === WebSocket.OPEN) {
         try {
           client.ws.send(data);
         } catch (error) {
           log.error('Failed to broadcast to role', {
-            userId,
+            userId: client.userId,
             role,
             error: error instanceof Error ? error.message : String(error)
           });
@@ -363,18 +425,7 @@ class WSService {
    * 向指定用户发送消息
    */
   sendToUser(userId: number, message: any): void {
-    const client = this.clients.get(userId);
-    if (client && client.ws.readyState === WebSocket.OPEN) {
-      try {
-        const data = JSON.stringify(message);
-        client.ws.send(data);
-      } catch (error) {
-        log.error('Failed to send message to user', {
-          userId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
-    }
+    this.sendToClient(userId, message);
   }
 
   /**
@@ -386,10 +437,11 @@ class WSService {
       this.heartbeatInterval = null;
     }
 
-    this.clients.forEach((client, userId) => {
+    this.clients.forEach((client) => {
       client.ws.close(1001, 'Server shutting down');
     });
     this.clients.clear();
+    this.userIndex.clear();
 
     if (this.wss) {
       this.wss.close();

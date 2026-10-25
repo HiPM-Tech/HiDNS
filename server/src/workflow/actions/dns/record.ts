@@ -111,7 +111,8 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
     const name = requireString(args, 'name');
     const type = requireString(args, 'type');
     const value = requireString(args, 'value');
-    const recordId = await adapter.addDomainRecord(name, type, value, '0', optionalPositiveNumber(args.ttl, 600));
+    // 线路不指定（undefined）→ 由适配器决定默认线路；硬编码 '0' 会把华为云等真实线路 ID 的提供商打挂
+    const recordId = await adapter.addDomainRecord(name, type, value, undefined, optionalPositiveNumber(args.ttl, 600));
     if (!recordId) throw new Error('创建记录失败');
     publish(ctx, domain, 'created', { id: recordId, name, type, value });
     return { recordId };
@@ -124,7 +125,18 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
     const previous = await adapter.getDomainRecordInfo(recordId);
     if (!previous) throw new AuthorizationError(404, '记录不存在');
     const value = requireString(args, 'value');
-    const ok = await adapter.updateDomainRecord(recordId, previous.Name, previous.Type, value);
+    // 保留原记录的线路/TTL/MX/权重/备注：只改值，不能顺带重置其它字段（阿里云 update 默认 ttl=600）
+    const ok = await adapter.updateDomainRecord(
+      recordId,
+      previous.Name,
+      previous.Type,
+      value,
+      previous.Line,
+      previous.TTL,
+      previous.MX,
+      previous.Weight,
+      previous.Remark,
+    );
     if (!ok) throw new Error('更新记录失败');
     publish(ctx, domain, 'updated', { id: recordId, name: previous.Name, type: previous.Type, value, oldValue: previous.Value });
     return { recordId, value };
@@ -191,7 +203,7 @@ export const dnsRecordHandlers: Record<string, BrandedActionHandler> = {
           name,
           type,
           value,
-          '0',
+          undefined,
           optionalPositiveNumber(item.ttl, 600),
         );
         if (recordId) {

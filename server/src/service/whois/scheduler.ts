@@ -9,6 +9,23 @@ import { createLogger } from '../../lib/logger';
 
 const log = createLogger('WhoisService').sub('Scheduler');
 
+/** 轮转游标：保证多次调度能覆盖全部域名（避免每次都只处理前 N 条） */
+let whoisCursor = 0;
+
+/**
+ * 按游标轮转切分批次（纯函数，便于单测）。
+ * 返回本轮切片与下一次的游标；列表较短时一次处理完并重置游标。
+ */
+export function sliceWhoisBatch<T>(domains: T[], limit: number, cursor: number): { batch: T[]; nextCursor: number } {
+  if (limit <= 0) return { batch: [], nextCursor: cursor };
+  if (domains.length <= limit) return { batch: domains, nextCursor: 0 };
+  const start = cursor % domains.length;
+  const head = domains.slice(start, start + limit);
+  const tail = head.length < limit ? domains.slice(0, limit - head.length) : [];
+  const batch = [...head, ...tail];
+  return { batch, nextCursor: (start + batch.length) % domains.length };
+}
+
 /**
  * 初始化 WHOIS 调度器
  * 在应用启动时注册所有支持 WHOIS 的 DNS 提供商调度器
@@ -60,7 +77,20 @@ export async function syncAllDomainsWhois(forceRefresh: boolean = false): Promis
   let failCount = 0;
   const failedDomains: string[] = [];
 
-  const tasks = domains.map((d: any) => {
+  // 队列保护：一次性把几千个域名塞进全局队列会饿死其它任务（缓存失效任务 2.5s 内 0 次调度，
+  // 实测 5011 条 WHOIS 任务需要 2 小时排空）。每轮最多处理上限条，剩余下一轮继续。
+  // 分片必须**轮转**：之前直接 slice(0,200) 且查询无排序，
+  // 结果永远是同一批 id（实测 250 个域名时 201+ 永不处理）。
+  // 这里用模块级游标按数组顺序切片，每轮从上次结束处继续，处理完一轮回到起点。
+  const WHOIS_BATCH_LIMIT = Number(process.env.WHOIS_BATCH_LIMIT ?? 200) || 200;
+  const sliced = sliceWhoisBatch(domains as unknown[], WHOIS_BATCH_LIMIT, whoisCursor);
+  const batch = sliced.batch as typeof domains;
+  whoisCursor = sliced.nextCursor;
+  if (domains.length > batch.length) {
+    log.warn('WHOIS batch sliced to protect task queue', { total: domains.length, processing: batch.length, limit: WHOIS_BATCH_LIMIT, nextCursor: whoisCursor });
+  }
+
+  const tasks = batch.map((d: any) => {
     return taskManager.submit(
       {
         id: `whois-${d.id}`,

@@ -59,6 +59,18 @@ export async function updateLoginLimitConfig(config: Partial<LoginLimitConfig>):
 }
 
 // Check if login is allowed for identifier (username or email)
+/**
+ * 锁定维度：账号 + 来源 IP。
+ *
+ * 只用账号做键时，任何人故意用错误密码试 5 次就能把别人的账号锁死（定向拒绝服务，
+ * 第三轮实测可自锁 15 分钟）；加上 IP 后攻击者只能锁住自己。
+ * 代价是分布式撞库需要多 IP，因此仍保留全局登录限流与密码复杂度要求。
+ */
+function attemptKey(identifier: string, ipAddress: string): string {
+  const normalized = identifier.toLowerCase();
+  return ipAddress ? `${normalized}|${ipAddress}` : normalized;
+}
+
 export async function checkLoginAllowed(identifier: string, ipAddress: string = ''): Promise<{ allowed: boolean; message?: string; remainingAttempts?: number }> {
   const config = await getLoginLimitConfig();
 
@@ -67,8 +79,8 @@ export async function checkLoginAllowed(identifier: string, ipAddress: string = 
   }
 
   try {
-    // Check existing attempt record
-    const result = await LoginLimitOperations.getAttempt(identifier);
+    // Check existing attempt record（键 = 账号|IP）
+    const result = await LoginLimitOperations.getAttempt(attemptKey(identifier, ipAddress));
 
     const attempt = result as LoginAttempt | undefined;
 
@@ -109,9 +121,10 @@ export async function recordFailedAttempt(identifier: string, ipAddress: string 
 
   try {
     const normalizedIdentifier = identifier.toLowerCase();
+    const key = attemptKey(identifier, ipAddress);
 
-    // Get existing record
-    const result = await LoginLimitOperations.getAttempt(identifier);
+    // Get existing record（键 = 账号|IP，避免定向锁死他人账号）
+    const result = await LoginLimitOperations.getAttempt(key);
 
     const attempt = result as LoginAttempt | undefined;
     const nowTime = new Date();
@@ -158,8 +171,9 @@ export async function recordFailedAttempt(identifier: string, ipAddress: string 
         message: remainingAttempts > 0 ? `${remainingAttempts} attempt(s) remaining.` : undefined,
       };
     } else {
-      // Create new record
-      await LoginLimitOperations.createAttempt(normalizedIdentifier, ipAddress);
+      // Create new record：键必须与读取时一致（账号|IP），
+      // 否则计数永远查不到、5 次后仍显示「9 attempt(s) remaining」且每次失败多插一行。
+      await LoginLimitOperations.createAttempt(key, ipAddress);
 
       const remainingAttempts = config.maxAttempts - 1;
       return {
@@ -174,9 +188,9 @@ export async function recordFailedAttempt(identifier: string, ipAddress: string 
 }
 
 // Clear login attempts on successful login
-export async function clearLoginAttempts(identifier: string): Promise<void> {
+export async function clearLoginAttempts(identifier: string, ipAddress: string = ''): Promise<void> {
   try {
-    await LoginLimitOperations.clearAttempts(identifier);
+    await LoginLimitOperations.clearAttempts(attemptKey(identifier, ipAddress));
   } catch (e) {
     log.error('Failed to clear attempts', { error: e });
   }

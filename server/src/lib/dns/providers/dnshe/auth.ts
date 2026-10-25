@@ -1,7 +1,6 @@
-import { fetchWithFallback } from '../internal';
-import { createLogger } from '../../../../lib/logger';
+import { createProviderAuthLogger, fetchWithFallback } from '../internal';
 
-const log = createLogger('DNS').sub('DNSHE');
+const log = createProviderAuthLogger('DNSHE');
 
 export interface DnsheAuthConfig {
   apiKey: string;

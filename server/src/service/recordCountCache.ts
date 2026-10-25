@@ -18,7 +18,9 @@ async function refreshDomainRecordCount(domain: Domain, account: DnsAccount): Pr
     const dnsAdapter = createAdapter(account.type, cfg, domain.name, domain.third_id);
     const result = await dnsAdapter.getDomainRecords(1, 10);
 
-    if (result.total !== domain.record_count) {
+    // 适配器把读失败折叠成 { total: 0, list: [] }，与"真的 0 条"同形：
+    // 计数只允许在拿到非空结果时回写，否则一次上游抖动会把 record_count 永久写成 0。
+    if (result.total > 0 && result.total !== domain.record_count) {
       await DomainOperations.updateRecordCount(domain.id, result.total);
       log.info(`Updated record count for ${domain.name}: ${domain.record_count} -> ${result.total}`);
     }

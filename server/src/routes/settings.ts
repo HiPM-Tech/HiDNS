@@ -24,8 +24,8 @@ const router = Router();
  * SMTP / OAuth / 登录限制」告知所有在线用户，而本文件所有读写接口都挂了
  * adminOnly（GET /settings/* 同样只允许管理员）。
  *
- * 前端只有系统设置页（client/src/pages/System.tsx）订阅这些事件，非管理员本来
- * 拿不到配置内容，收窄后不影响其功能。
+ * 前端只有系统设置页（client/src/features/system/security-tab.tsx）订阅这些事件，
+ * 非管理员本来拿不到配置内容，收窄后不影响其功能。
  * 收件人为空时跳过并记 warn，不回退全局广播（fail-closed）。
  */
 async function pushSettingsEvent(message: { type: string; data: unknown }): Promise<void> {

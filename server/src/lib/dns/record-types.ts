@@ -182,12 +182,40 @@ export function getRecordTypeDef(type: string): RecordTypeDef | undefined {
   return DNS_RECORD_DEFS[type as RecordType];
 }
 
+/**
+ * IPv6 字面量校验。
+ *
+ * 不能拿规范化后的 hostname 与原文做字符串相等：`2001:DB8::1` 会被 URL 规范成
+ * `2001:db8::1`，导致合法大写/全 8 组写法被判非法（C 端细节轮 P1）。
+ */
+function isIpv6Literal(value: string): boolean {
+  try {
+    const url = new URL(`http://[${value}]/`);
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    return host.includes(':') && /^[0-9a-f:.]+$/i.test(host);
+  } catch {
+    return false;
+  }
+}
+
 export function validateRecordValue(type: string, value: string): string | null {
   const def = getRecordTypeDef(type);
   if (!def) return `Unknown record type: ${type}`;
 
   const v = value.trim();
   if (!v) return 'Value is required';
+
+  // SRV 的提交值是「priority weight port target」四段（记录名与目标分开），
+  // 不能按 hostname 校验整串——否则 UI 新建 SRV 必然失败（第五轮 E2E 卡点）。
+  if (type.trim().toUpperCase() === 'SRV') {
+    const parts = v.split(/\s+/);
+    if (parts.length !== 4) return 'SRV 需要「优先级 权重 端口 目标」四段';
+    const [priority, weight, port] = parts;
+    if (!/^\d+$/.test(priority) || Number(priority) > 65535) return 'SRV 优先级必须是 0-65535';
+    if (!/^\d+$/.test(weight) || Number(weight) > 65535) return 'SRV 权重必须是 0-65535';
+    if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) return 'SRV 端口必须是 1-65535';
+    return isValidHostnameCheck(parts[3]) ? null : 'SRV 目标必须是合法主机名';
+  }
 
   switch (def.valueType) {
     case 'ipv4': {
@@ -197,9 +225,8 @@ export function validateRecordValue(type: string, value: string): string | null 
       return valid ? null : 'Invalid A record value: must be a valid IPv4 address';
     }
     case 'ipv6': {
-      if (!v.includes(':')) return 'Invalid AAAA record value: must be an IPv6 address';
-      try { return new URL(`http://[${v}]`).hostname === `[${v}]` ? null : 'Invalid IPv6 address'; }
-      catch { return 'Invalid IPv6 address'; }
+      if (!v.includes(':')) return 'AAAA 记录必须是 IPv6 地址';
+      return isIpv6Literal(v) ? null : 'IPv6 地址格式不正确';
     }
     case 'hostname': {
       return isValidHostnameCheck(v) ? null : 'Invalid hostname value';

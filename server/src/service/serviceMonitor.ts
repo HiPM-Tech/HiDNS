@@ -48,6 +48,8 @@ export interface ServiceMonitorStatus {
 // ---- SSL Certificate Config & Result types ----
 
 export interface SSLCertConfig {
+  /** 允许内网目标（需管理员创建；元数据地址仍拒绝） */
+  allowPrivate?: boolean;
   port?: number;
   warn_days_before?: number;
   check_chain?: boolean;
@@ -69,6 +71,8 @@ export interface SSLCertResult extends Record<string, unknown> {
 // ---- Endpoint Config & Result types ----
 
 export interface EndpointConfig {
+  /** 允许内网目标（需管理员创建；元数据地址仍拒绝） */
+  allowPrivate?: boolean;
   protocol?: 'http' | 'https';
   port?: number;
   path?: string;
@@ -104,6 +108,8 @@ export interface DnsFailoverConfig {
   checkPort?: number;
   checkPath?: string;
   autoSwitchBack?: boolean;
+  /** 允许指向内网/保留地址（自建内网 DNS 场景；需管理员创建，禁元数据地址） */
+  allowPrivate?: boolean;
 }
 
 export interface DnsFailoverResult extends Record<string, unknown> {
@@ -132,8 +138,8 @@ export async function getMonitors(userId: number): Promise<(ServiceMonitorMonito
   return monitors;
 }
 
-export async function getMonitorsWithPagination(userId: number, page: number, pageSize: number, type?: string): Promise<{ monitors: (ServiceMonitorMonitor & { status?: ServiceMonitorStatus })[]; total: number }> {
-  const { list: rows, total } = await ServiceMonitorOperations.getByUserWithPagination(userId, page, pageSize, type) as any;
+export async function getMonitorsWithPagination(userId: number, page: number, pageSize: number, type?: string, keyword?: string): Promise<{ monitors: (ServiceMonitorMonitor & { status?: ServiceMonitorStatus })[]; total: number }> {
+  const { list: rows, total } = await ServiceMonitorOperations.getByUserWithPagination(userId, page, pageSize, type, keyword) as any;
   const monitors: (ServiceMonitorMonitor & { status?: ServiceMonitorStatus })[] = [];
 
   for (const row of rows) {
@@ -277,6 +283,13 @@ export async function checkSSL(
   const port = config.port || 443;
   const warnDays = config.warn_days_before || 30;
 
+  // TLS 直连同样是出口：不校验就会变成「任意 host:port 的内网端口扫描 oracle」
+  // （渗透测试第二轮实测 127.0.0.1:3999 能通过 wrong version number / ECONNREFUSED 区分端口状态）。
+  const sslGuard = await guardTarget(target, config.allowPrivate);
+  if (!sslGuard.ok) {
+    return { status: 'error', responseTime: Date.now() - startTime, error: sslGuard.reason, resultData: null };
+  }
+
   // Step 1: DNS resolve via HiDNS internal resolver
   const resolved = await resolveDomainWithFallback(target);
   if ('error' in resolved) {
@@ -380,6 +393,11 @@ export async function checkEndpoint(
   resultData: EndpointResult | null;
 }> {
   const startTime = Date.now();
+  // 目标必须是公网：既挡「解析到内网的域名」，也挡直接写 IP
+  const targetGuard = await guardTarget(target, config.allowPrivate);
+  if (!targetGuard.ok) {
+    return { status: 'error', responseTime: null, error: targetGuard.reason, resultData: null };
+  }
   const protocol = config.protocol || 'https';
   const port = config.port || (protocol === 'https' ? 443 : 80);
   const path = config.path || '/';
@@ -424,7 +442,17 @@ export async function checkEndpoint(
             if (redirectCount < MAX_REDIRECTS) {
               redirectCount++;
               const redirectUrl = new URL(res.headers.location, currentUrl).href;
-              doRequest(redirectUrl);
+              // 每一跳都要复核：公网 302 指向 169.254.169.254 就是完整 SSRF 绕过。
+              // 注意只取 hostname——之前把整条 URL 传给只接受 hostname 的函数，
+              // 导致所有跳转都被判「目标无法解析」，followRedirects 直接失效。
+              const redirectHost = new URL(redirectUrl).hostname.replace(/^\[|\]$/g, '');
+              void resolvePublicTarget(redirectHost).then((guard) => {
+                if (!guard.ok) {
+                  resolve({ status: 'error', responseTime, error: '重定向目标被拒绝: ' + guard.reason, resultData: null });
+                  return;
+                }
+                doRequest(redirectUrl);
+              });
               return;
             }
             resolve({
@@ -518,10 +546,19 @@ export async function checkFailover(
     }
   }
 
-  // Step 1: DNS resolve primary value
-  const resolved = await resolveDomainWithFallback(config.primaryValue);
-  if ('error' in resolved) {
-    return { status: 'error', responseTime: Date.now() - startTime, error: `Primary target resolve failed: ${resolved.error}`, resultData: null };
+  // Step 0: 出口校验（failover 的 http 探测同样是 SSRF 出口）
+  const failoverGuard = await guardTarget(config.primaryValue, config.allowPrivate);
+  if (!failoverGuard.ok) {
+    return { status: 'error', responseTime: Date.now() - startTime, error: failoverGuard.reason, resultData: null };
+  }
+
+  // Step 1: DNS resolve primary value（IP 字面量跳过：故障转移最常见的配置就是填 IP）
+  const net = require('node:net') as typeof import('node:net');
+  if (!net.isIP(config.primaryValue)) {
+    const resolved = await resolveDomainWithFallback(config.primaryValue);
+    if ('error' in resolved) {
+      return { status: 'error', responseTime: Date.now() - startTime, error: `Primary target resolve failed: ${resolved.error}`, resultData: null };
+    }
   }
 
   // Step 2: Check primary reachability
@@ -633,6 +670,115 @@ async function updateFailoverDnsRecord(domainId: number, config: DnsFailoverConf
 }
 
 /**
+ * 目标出口守卫。
+ *
+ * 默认只允许公网；监控配置里显式 allowPrivate=true（且由管理员创建）时放行内网，
+ * 但**元数据地址永远拒绝**（169.254.169.254 / fd00:ec2::254 这类云凭据端点）。
+ */
+async function guardTarget(target: string, allowPrivate?: boolean): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const net = require('node:net') as typeof import('node:net');
+  const privateResult = net.isIP(target)
+    ? (isPrivateAddress(target) ? { ok: false as const, reason: '目标不允许指向内网/保留地址' } : { ok: true as const })
+    : null;
+  const result = privateResult ?? await resolvePublicTarget(target);
+  if (result.ok) return result;
+  if (allowPrivate && !isMetadataAddress(target)) return { ok: true };
+  return result;
+}
+
+/** 云元数据地址：任何情况下都不允许探测 */
+function isMetadataAddress(target: string): boolean {
+  return /^(169\.254\.169\.254|fd00:ec2::254)$/i.test(target.trim());
+}
+
+/**
+ * 健康检查路径白名单。
+ *
+ * 路径来自监控配置，若直接拼进 `http://host:port${path}`，
+ * `@127.0.0.1:3999/x` 这类 userinfo 写法会把 host 改写掉（第六轮实测可探测内网）。
+ * 这里强制「以 / 开头、不含 @ \ 空白与控制字符」，否则回落为 '/'。
+ */
+export function sanitizeCheckPath(path: unknown): string {
+  const raw = String(path ?? '/').trim();
+  return /^\/[^@\\\s\u0000-\u001f]*$/.test(raw) ? raw : '/';
+}
+
+/**
+ * 私有/保留地址判定（**只接受 IP 字面量**）。
+ * 非 IP 输入返回 false —— 之前兜底 return true 会把 example.com 也判成内网，
+ * 导致 endpoint 监控对所有域名失效（第二轮回归发现的功能回归）。
+ */
+export function isPrivateAddress(address: string): boolean {
+  const net = require('node:net') as typeof import('node:net');
+  const version = net.isIP(address);
+  if (version === 0) return false;
+  if (version === 4) {
+    const [a, b] = address.split('.').map(Number);
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 0) return true;
+    if (a === 169 && b === 254) return true;   // link-local / 云元数据
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a >= 224) return true;                  // multicast / reserved
+    return false;
+  }
+  if (version === 6) {
+    const lower = address.toLowerCase();
+    if (lower === '::1' || lower === '::') return true;
+    if (lower.startsWith('fe80')) return true;  // link-local
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // ULA
+
+    // IPv4 映射地址有两种写法：::ffff:127.0.0.1（点分）与 ::ffff:7f00:1（十六进制）。
+    // 只处理点分会漏掉后者，而 net.connect / tls.connect 都接受它并直连内网
+    // （第三轮实测 ::ffff:7f00:1 可连到 127.0.0.1 的监听端口）。
+    if (lower.startsWith('::ffff:')) {
+      const rest = lower.slice('::ffff:'.length);
+      if (rest.includes('.')) return isPrivateAddress(rest);
+      const groups = rest.split(':');
+      if (groups.length === 2) {
+        const hi = parseInt(groups[0], 16);
+        const lo = parseInt(groups[1], 16);
+        if (Number.isFinite(hi) && Number.isFinite(lo)) {
+          const v4 = [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff].join('.');
+          return isPrivateAddress(v4);
+        }
+      }
+      return true; // 形态不认识的映射地址：按私有处理（fail-closed）
+    }
+    return false;
+  }
+  // 非 IP（version === 0）在上面已返回 false
+  return false;
+}
+
+/**
+ * 解析目标并确认全部地址都是公网：服务监控的 target 由普通用户填写，
+ * 不过滤会变成「任意 SSRF + 内网正文回显」（渗透测试 A-6）。
+ */
+export async function resolvePublicTarget(hostname: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const net = require('node:net') as typeof import('node:net');
+  // IP 字面量直接判，不做 DNS 解析（否则会被 DoH/解析器打回，监控里填 IP 也会失效）
+  if (net.isIP(hostname)) {
+    return isPrivateAddress(hostname)
+      ? { ok: false, reason: '目标不允许指向内网/保留地址' }
+      : { ok: true };
+  }
+  const dns = require('node:dns') as typeof import('node:dns');
+  try {
+    const addresses = await dns.promises.lookup(hostname, { all: true, verbatim: true });
+    if (addresses.length === 0) return { ok: false, reason: '目标无法解析' };
+    const blocked = addresses.filter((entry) => isPrivateAddress(entry.address));
+    if (blocked.length > 0) {
+      return { ok: false, reason: '目标解析到内网/保留地址: ' + blocked.map((b) => b.address).join(', ') };
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: '目标无法解析: ' + (error instanceof Error ? error.message : String(error)) };
+  }
+}
+
+/**
  * 校验监控目标：仅允许 IP（含 IPv6）或合法域名。
  * 目标值会进入 ping 进程参数与 HTTP URL，必须先做白名单校验。
  */
@@ -693,13 +839,15 @@ async function checkIpAvailabilitySimple(ip: string, method: string, port: numbe
         socket.connect(port, ip);
       });
     } else {
-      const url = `http://${ip}:${port}${path || '/'}`;
+      const safePath = sanitizeCheckPath(path);
       return new Promise((resolve) => {
-        const req = http.get(url, { timeout: 5000 }, (res) => {
-          resolve(res.statusCode! < 500);
+        const req = http.request({ host: ip, port, path: safePath, method: 'GET', timeout: 5000 }, (res) => {
+          res.resume();
+          resolve((res.statusCode ?? 500) < 500);
         });
         req.on('error', () => resolve(false));
         req.on('timeout', () => { req.destroy(); resolve(false); });
+        req.end();
       });
     }
   } catch { return false; }

@@ -50,3 +50,10 @@ Thumbs.db
 
 # Temp files
 tmp_*/
+
+# 崩溃转储（曾出现 2GB core dump 落在 client/ 下）
+core
+core.*
+
+# 覆盖率产物（vitest --coverage）
+coverage

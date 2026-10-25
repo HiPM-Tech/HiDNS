@@ -85,7 +85,16 @@ function escapeSmtpText(text: string): string {
   return text.replace(/\r?\n\./g, '\r\n..');
 }
 
+/** 邮件头注入防护：CR/LF 与裸控制字符一律剔除（Subject/To 都可能来自用户输入） */
+function sanitizeHeader(value: string): string {
+  return String(value ?? '').replace(/[\r\n\u0000-\u001f]+/g, ' ').trim();
+}
+
 async function sendRawSmtpMail(config: SmtpConfig, to: string, subject: string, text: string): Promise<void> {
+  const safeTo = sanitizeHeader(to);
+  const safeSubject = sanitizeHeader(subject);
+  to = safeTo;
+  subject = safeSubject;
   if (!config.host || !config.port || !config.fromEmail) throw new Error('SMTP configuration is incomplete');
 
   const timeoutMs = Number(process.env.SMTP_TIMEOUT_MS || 15000);

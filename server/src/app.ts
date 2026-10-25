@@ -1,6 +1,6 @@
-// Load environment variables FIRST, before any other imports
-// This ensures JWT_SECRET and other env vars are available during module initialization
+// config/env 在模块求值期就会加载 .env（见该文件末尾），这里保留 import 以固定求值顺序。
 import { loadEnv } from './config/env';
+import { sendError } from './utils/http';
 loadEnv();
 
 // 未配置数据库时使用临时内存数据库，避免在引导前生成实际的 SQLite 文件
@@ -208,54 +208,25 @@ import {
   refreshSystemState,
   markInitialized,
 } from './service/systemState';
-import { authMiddleware, adminOnly } from './middleware/auth';
-import { errorHandler, asyncHandler } from './middleware/errorHandler';
+import { errorHandler } from './middleware/errorHandler';
 import { requestLogger, requestIdMiddleware } from './middleware/requestLogger';
 import { clientIPMiddleware } from './middleware/clientIP';
 
-import authRouter from './routes/auth';
-import usersRouter from './routes/users';
-import teamsRouter from './routes/teams';
-import accountsRouter from './routes/accounts';
-import domainsRouter from './routes/domains';
-import providersRouter from './routes/providers';
-import recordsRouter, { emailTemplatesRouter } from './routes/records';
-import initRouter from './routes/init';
-import systemRouter from './routes/system';
-import settingsRouter from './routes/settings';
-import securityRouter from './routes/security';
-import securityPolicyRouter from './routes/securityPolicy';
-import auditRouter from './routes/audit';
-// emailTemplatesRouter has been moved to records.ts under /api/domains/email-templates
-// import emailTemplatesRouter from './routes/emailTemplates';
-import tunnelsRouter from './routes/tunnels';
-import webauthnRouter from './routes/webauthn';
-import tokensRouter from './routes/tokens';
-import nsMonitorRouter from './routes/ns-monitor';
-import networkRouter from './routes/network';
-import rdapRouter from './routes/rdap';
-import mcpConfigRouter from './routes/mcp-config';
-import mcpApiKeysRouter from './routes/mcp-apikeys';
-import mcpOAuthRouter from './routes/mcp-oauth';
-import mcpAuditRouter from './routes/mcp-audit';
-import mcpProtocolRouter from './routes/mcp-protocol';
-import servicemonitorRouter from './routes/servicemonitor';
-import resourceMonitorRouter from './routes/resource-monitor';
-import { rdapLimiter } from './middleware/rateLimit';
-import { getAuditLogs } from './service/auditExport';
-import { getString, parseInteger, parsePagination, sendError, sendSuccess } from './utils/http';
+// API 模块清单、初始化门禁与统一挂载集中在 server/src/api/（唯一注册点）
+import { createApiLayer } from './api';
 
 import { startServiceMonitorJob } from './service/serviceMonitorJob';
 import { startWhoisJob } from './service/whois';
 import { startNsMonitorJob } from './service/nsMonitorJob';
 import { startDomainRenewalJob } from './service/domainRenewalJob';
 import { startRecordCountCacheRefresh } from './service/recordCountCache';
-import workflowsRouter from './routes/workflows';
 import { startWorkflowModule, stopWorkflowModule } from './workflow';
 import { startDomainSyncJob } from './service/domainSyncJob';
 import { startGroupedCacheRefreshJob } from './service/groupedCacheJob';
 import { startMcpOAuthCleanupJob } from './service/mcpOAuthCleanupJob';
 import { startResourceMonitorJob } from './service/resource/job';
+import { startPublicSuffixJob } from './service/publicSuffixJob';
+import { NSMonitorOperations } from './db/bal/business-adapter';
 import { startResourcePruneJob } from './service/resource/prune';
 import { checkForUpdate, downloadUpdate } from './service/autoUpdater';
 
@@ -318,9 +289,16 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Middlewares
 // Trust proxy - enables correct req.protocol and req.ip behind reverse proxies
-const trustProxy = process.env.TRUST_PROXY;
-if (trustProxy !== undefined && trustProxy !== '') {
-  app.set('trust proxy', trustProxy);
+const trustProxy = (process.env.TRUST_PROXY ?? '').trim();
+if (trustProxy !== '') {
+  // 原样把字符串塞给 express 会在 'true' 时报 "invalid IP address: true" 直接崩溃；
+  // 这里做一次归一化：true/false、数字（跳数）、其余按逗号分隔的地址段。
+  let parsed: boolean | number | string[] = [trustProxy];
+  if (/^(true|1)$/i.test(trustProxy)) parsed = true;
+  else if (/^(false|0)$/i.test(trustProxy)) parsed = false;
+  else if (/^\d+$/.test(trustProxy)) parsed = Number(trustProxy);
+  else parsed = trustProxy.split(',').map((item) => item.trim()).filter(Boolean);
+  app.set('trust proxy', parsed);
 } else if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', [
     'loopback',
@@ -370,12 +348,19 @@ const corsOptions = {
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
-      return callback(new Error('Not allowed by CORS'));
+      // 注意：这里必须 callback(null, false) 而不是抛错。
+      // 同源 POST 也会带 Origin，抛错会让它们统一 500（第四轮实测登录直接不可用）；
+      // 返回 false 只是不发 CORS 头，浏览器会拦住跨源，同源请求不受影响。
+      return callback(null, false);
     }
 
-    // Default: allow all origins (development mode)
-    // This makes it work out of the box without configuration
-    return callback(null, true);
+    // 默认拒绝跨源：此前默认 callback(null,true) 等于「反射任意 Origin + credentials」，
+    // 任何站点都能带用户 cookie 调管理接口（CSRF 面）。开发期只放行本机来源。
+    const isLocalDev = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin);
+    if (isLocalDev && process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    return callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -444,167 +429,23 @@ restricted to specific domains and time ranges.
       },
     },
   },
-  apis: ['./src/routes/*.ts', './dist/routes/*.js'],
+  apis: ['./src/routes/*.ts', './src/api/modules/*.ts', './dist/routes/*.js', './dist/api/modules/*.js'],
 };
 
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
 
-/**
- * 初始化门禁（依据 §应用初始化：未初始化模式仅开放初始化路由）。
- *
- * 采用「默认拒绝 + 显式豁免」而非枚举受保护前缀——后者曾遗漏 10 个前缀。
- * `isSystemInitialized()` 由 service/systemState 维护，区分「数据库不可达」与
- * 「系统未初始化」，避免数据库故障时初始化入口被重新打开。
- */
-const INIT_SURFACE_EXEMPT_PREFIXES = [
-  '/api/init', // 系统初始化（§路由：始终可用，不受初始化检查限制）
-  '/api/rdap', // 公开 RDAP 路由（§服务层：无需鉴权）
-];
+// API 层：模块清单 + 初始化门禁 + 统一挂载（唯一注册点见 server/src/api/index.ts）
+const apiLayer = createApiLayer({
+  isInitialized: isSystemInitialized,
+  isSurfaceOpen: isInitSurfaceOpen,
+});
 
-function isInitExemptPath(pathname: string): boolean {
-  return INIT_SURFACE_EXEMPT_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-  );
-}
-
-function initCheckMiddleware(req: Request, res: Response, next: NextFunction) {
-  // 仅约束 API 路由：静态资源与 SPA 必须保持可用，否则初始化向导页面无法加载
-  if (!req.path.startsWith('/api/')) {
-    return next();
-  }
-  if (isSystemInitialized()) {
-    return next();
-  }
-  if (isInitExemptPath(req.path)) {
-    return next();
-  }
-  // Return 503 if not initialized
-  res.status(503).json({
-    code: 503,
-    msg: 'System not initialized. Please complete setup first.',
-    data: { needsInit: true }
-  });
-}
-
-// 门禁注册在 /api/docs 与所有业务路由之前
-app.use(initCheckMiddleware);
+// 门禁必须注册在 /api/docs 与全部业务模块之前
+app.use(apiLayer.gate);
 
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Initialize routes - always available
-app.use('/api/init', initRouter);
-
-// Routes - these will only be accessible if isInitialized is true
-app.use('/api/auth', authRouter);
-app.use('/api/users', usersRouter);
-app.use('/api/teams', teamsRouter);
-app.use('/api/accounts', accountsRouter);
-app.use('/api/domains/email-templates', emailTemplatesRouter); // Use separate router to avoid conflicts
-app.use('/api/domains', domainsRouter);
-app.use('/api/providers', providersRouter);
-app.use('/api/domains/:domainId/records', recordsRouter);
-app.use('/api/rdap', rdapLimiter, rdapRouter);
-app.use('/api/system', systemRouter);
-app.use('/api/settings', settingsRouter);
-app.use('/api/security', securityRouter);
-app.use('/api/security', securityPolicyRouter);
-app.use('/api/audit', auditRouter);
-// Email templates API moved to /api/domains/email-templates (see records.ts)
-// app.use('/api/email-templates', emailTemplatesRouter);
-app.use('/api/tunnels', tunnelsRouter);
-app.use('/api/auth/webauthn', webauthnRouter);
-app.use('/api/tokens', tokensRouter);
-app.use('/api/ns-monitor', nsMonitorRouter);
-app.use('/api/network', networkRouter);
-app.use('/api/servicemonitor', servicemonitorRouter);
-app.use('/api/resource-monitor', resourceMonitorRouter);
-// 工作流：按 §路由 354 的「默认拒绝 + 显式豁免」，此处注册即受 initCheckMiddleware 保护，
-// **不得**加入豁免清单。
-app.use('/api/workflows', workflowsRouter);
-
-// MCP 路由 - 统一合并到父级路由器，避免重复注册 /api/mcp
-const mcpRouter = express.Router();
-mcpRouter.use('/', mcpConfigRouter); // /config, /status, /.well-known/*
-mcpRouter.use('/api-keys', mcpApiKeysRouter); // Authenticated
-mcpRouter.use('/oauth', mcpOAuthRouter); // Mixed（部分公开、部分需认证）
-mcpRouter.use('/audit-logs', mcpAuditRouter); // Authenticated
-mcpRouter.use('/audit-stats', mcpAuditRouter); // Authenticated
-// 协议路由放最后，确保更具体的管理路由优先匹配
-mcpRouter.use('/', mcpProtocolRouter); // /(Streamable HTTP), /sse(SSE)
-app.use('/api/mcp', mcpRouter);
-
-// Logs route
-/**
- * @swagger
- * /api/logs:
- *   get:
- *     summary: Get operation logs (admin only)
- *     tags: [Logs]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *       - in: query
- *         name: pageSize
- *         schema:
- *           type: integer
- *       - in: query
- *         name: domain
- *         schema:
- *           type: string
- *       - in: query
- *         name: userId
- *         schema:
- *           type: integer
- *       - in: query
- *         name: action
- *         schema:
- *           type: string
- *       - in: query
- *         name: startDate
- *         schema:
- *           type: string
- *           example: 2026-04-01
- *       - in: query
- *         name: endDate
- *         schema:
- *           type: string
- *           example: 2026-04-04
- *     responses:
- *       200:
- *         description: Operation logs
- */
-app.get('/api/logs', authMiddleware, adminOnly, async (req: Request, res: Response) => {
-  try {
-    const { page, pageSize } = parsePagination(req.query, { defaultPageSize: 50, maxPageSize: 200 });
-    const { total, logs } = await getAuditLogs(page, pageSize, {
-      domain: getString(req.query.domain),
-      userId: parseInteger(req.query.userId),
-      action: getString(req.query.action),
-      startDate: getString(req.query.startDate),
-      endDate: getString(req.query.endDate),
-    });
-
-    sendSuccess(res, {
-      total,
-      list: logs.map((log) => ({
-        id: log.id,
-        user_id: log.userId,
-        username: log.username,
-        nickname: log.nickname,
-        action: log.action,
-        domain: log.domain,
-        data: JSON.stringify(log.data),
-        created_at: log.createdAt,
-      })),
-    });
-  } catch (error) {
-    sendError(res, error instanceof Error ? error.message : 'Failed to fetch logs', 500);
-  }
-});
+apiLayer.mount(app);
 
 // Serve static files from client build directory
 // Support both development and packaged executable (SEA binary)
@@ -658,6 +499,13 @@ if (clientBuildPath) {
     console.warn('⚠️ Client build directory not found. API-only mode.');
   }
 }
+
+// 未匹配的 API 路由统一返回 JSON 404。
+// 只靠 spaFallback 不够：它只处理 GET（且只认 /api/ 前缀），POST/PUT/DELETE 会落到
+// Express 默认的 HTML 404（"<pre>Cannot POST ...</pre>"），违反 {code,data,msg} 契约。
+app.all('/api/*', (req: Request, res: Response) => {
+  sendError(res, 'API endpoint not found', 404);
+});
 
 // SPA fallback — 处理所有非 API 路由
 // 注意：express.static 已在前面注册，正常情况下静态资源会被它拦截。
@@ -753,6 +601,12 @@ async function initializeApp() {
       startGroupedCacheRefreshJob();
       startResourceMonitorJob();
       startResourcePruneJob();
+      // 公共后缀表：先载入 DB（内存快照），再异步拉上游；失败只记日志不影响启动
+      startPublicSuffixJob();
+      // 一次性回收历史孤儿 NS 监控（域名已删除但仍在校验）
+      void NSMonitorOperations.deleteOrphans()
+        .then((removed) => { if (removed > 0) log.info('Cleaned orphan NS monitors', { removed }); })
+        .catch((error) => log.warn('Failed to clean orphan NS monitors', { error }));
       startWorkflowModule();
     };
 
@@ -851,12 +705,18 @@ async function initializeApp() {
         if (state === 'initialized' && !jobsStarted) {
           jobsStarted = true;
           clearInterval(initCheckInterval);
+          // 恢复路径必须与首次启动路径**逐项一致**：此前这里漏了续期/WHOIS 调度器、
+          // 分组缓存刷新与公共后缀任务，导致降级恢复后自动续期不注册、PSL 不载入。
+          initRenewalSchedulers();
+          initWhoisSchedulers();
           startServiceMonitorJob();
           startWhoisJob();
           startNsMonitorJob();
           startDomainRenewalJob();
           startRecordCountCacheRefresh(30); // Refresh every 30 minutes
           startDomainSyncJob(0.5); // Sync every 30 minutes
+          startGroupedCacheRefreshJob();
+          startPublicSuffixJob();
           startResourceMonitorJob();
           startResourcePruneJob();
           startWorkflowModule();

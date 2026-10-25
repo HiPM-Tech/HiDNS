@@ -10,7 +10,7 @@ import type { RecordType } from '../lib/dns/record-types';
 import { getDomainAccess } from './domains';
 import { normalizeRole } from '../utils/roles';
 import { logAuditOperation } from '../service/audit';
-import { parseInteger, sendError, sendSuccess } from '../utils/http';
+import { parseInteger, parsePagination, sendError, sendSuccess } from '../utils/http';
 import { DomainOperations, DnsAccountOperations } from '../db/bal/business-adapter';
 import { hasWorkflowSubscribers, publishRecordEvent } from '../workflow/publish';
 import { findRecordMeta } from '../lib/dns/record-lookup';
@@ -18,6 +18,8 @@ import { createLogger } from '../lib/logger';
 import { wsService } from '../service/websocket';
 import { getDomainAudienceUserIds } from '../service/realtime-audience';
 import { normalizeDomain, isValidDomain } from '../utils/dns';
+import { normalizeProviderType } from '../lib/dns/providerAlias';
+import { resolveLineInput } from '../service/record-line';
 import { validateRecordValue, validateExtraField, getRecordTypeDef } from '../lib/dns/record-types';
 import { getAvailableTemplates, getEmailTemplate, generatePreview } from '../lib/dns/emailTemplate';
 
@@ -116,13 +118,13 @@ async function pushRecordEvent(domainId: number, message: RecordRealtimeMessage)
 }
 
 async function getAdapterForDomain(domain: Domain) {
-  log.info('Getting adapter for domain', { domainId: domain.id, domainName: domain.name, accountId: domain.account_id, thirdId: domain.third_id });
+  log.debug('Getting adapter for domain', { domainId: domain.id, domainName: domain.name, accountId: domain.account_id, thirdId: domain.third_id });
   const account = await DnsAccountOperations.getById(domain.account_id) as DnsAccount | undefined;
   if (!account) {
     log.error('Account not found', { accountId: domain.account_id });
     throw new Error('Account not found');
   }
-  log.info('Found account', { accountType: account.type, accountName: account.name });
+  log.debug('Found account', { accountType: account.type, accountName: account.name });
   // MySQL JSON type returns object directly, SQLite/PostgreSQL returns string
   const cfg = typeof account.config === 'string' ? JSON.parse(account.config) as Record<string, string> : account.config as Record<string, string>;
 
@@ -131,9 +133,9 @@ async function getAdapterForDomain(domain: Domain) {
   const isHiDNS = account.type === 'hidns';
   const domainId = isHiDNS && domain.third_id ? domain.third_id : String(domain.id);
 
-  log.info('Creating adapter', { type: account.type, domain: domain.name, thirdId: domain.third_id, localDomainId: domain.id, effectiveDomainId: domainId, isHiDNS });
+  log.debug('Creating adapter', { type: account.type, domain: domain.name, thirdId: domain.third_id, localDomainId: domain.id, effectiveDomainId: domainId, isHiDNS });
   const adapter = createAdapter(account.type, cfg, domain.name, domain.third_id, domainId);
-  log.info('Adapter created');
+  log.debug('Adapter created');
   return adapter;
 }
 
@@ -171,34 +173,40 @@ async function updateDomainRecordCount(domainId: number, count: number): Promise
  *       200:
  *         description: List of DNS records
  */
-router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response, next) => {
-  log.info('=== GET /records route entered ===', { domainId: req.params.domainId, path: req.path, originalUrl: req.originalUrl });
+router.get('/', authMiddleware, requireTokenDomainPermission('domainId'), asyncHandler(async (req: Request, res: Response, next) => {
+  log.debug('=== GET /records route entered ===', { domainId: req.params.domainId, path: req.path, originalUrl: req.originalUrl });
 
   // 检查是否有 domainId 参数，如果没有则交给下一个路由处理（如 email-templates）
   if (!req.params.domainId) {
-    log.info('No domainId parameter, passing to next route');
+    log.debug('No domainId parameter, passing to next route');
     return next();
   }
 
   const domainId = parseInteger(req.params.domainId) ?? 0;
-  log.info('Parsed domainId', { domainId });
+  log.debug('Parsed domainId', { domainId });
   const access = await getDomainAccess(domainId, req.user!.userId, normalizeRole(req.user!.role));
-  log.info('Got domain access', { hasDomain: !!access.domain, canRead: access.canRead });
+  log.debug('Got domain access', { hasDomain: !!access.domain, canRead: access.canRead });
   if (!access.domain || !access.canRead) {
-    sendError(res, 'Domain not found');
+    sendError(res, 'Domain not found', 404);
     return;
   }
-  const { page = '1', pageSize = '100', keyword, subdomain, value, type, line, status } = req.query as Record<string, string>;
+  const { keyword, subdomain, value, type, line, status } = req.query as Record<string, string>;
+  // 分页统一口径：默认 20、上限 100（历史实现默认 100 且不设上限，会把整域记录一次性拉给适配器）
+  const { page, pageSize } = parsePagination(req.query, { defaultPageSize: 20, maxPageSize: 100 });
   try {
-    log.info('Fetching records', { domainId: access.domain.id, page, pageSize, keyword, subdomain, value, type, line, status });
+    log.debug('Fetching records', { domainId: access.domain.id, page, pageSize, keyword, subdomain, value, type, line, status });
     const dnsAdapter = await getAdapterForDomain(access.domain);
-    log.info('Got adapter, calling getDomainRecords');
+    log.debug('Got adapter, calling getDomainRecords');
     const result = await dnsAdapter.getDomainRecords(
-      parseInt(page), parseInt(pageSize), keyword, subdomain, value, type, line,
+      page, pageSize, keyword, subdomain, value, type, line,
       status !== undefined ? parseInt(status) : undefined
     );
-    log.info('Got records result', { total: result.total, count: result.list.length });
-    await updateDomainRecordCount(access.domain.id, result.total);
+    log.debug('Got records result', { total: result.total, count: result.list.length });
+    // 适配器读失败会折叠成 { total: 0, list: [] }，与"真的 0 条"同形；
+    // 只在拿到非空结果时回写计数，避免一次上游抖动把 record_count 永久写成 0。
+    if (result.total > 0) {
+      await updateDomainRecordCount(access.domain.id, result.total);
+    }
     sendSuccess(res, { total: result.total, list: result.list.map(toApiRecord) });
   } catch (e) {
     log.error('Error fetching records', { error: e instanceof Error ? e.message : String(e), stack: e instanceof Error ? e.stack : undefined });
@@ -215,11 +223,11 @@ router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response,
  *     security:
  *       - bearerAuth: []
  */
-router.get('/export/zone', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+router.get('/export/zone', authMiddleware, requireTokenDomainPermission('domainId'), asyncHandler(async (req: Request, res: Response) => {
   const domainId = parseInteger(req.params.domainId) ?? 0;
   const access = await getDomainAccess(domainId, req.user!.userId, normalizeRole(req.user!.role));
   if (!access.domain || !access.canRead) {
-    sendError(res, 'Domain not found');
+    sendError(res, 'Domain not found', 404);
     return;
   }
 
@@ -398,7 +406,7 @@ router.get('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
   const recordId = req.params.recordId;
   const access = await getDomainAccess(domainId, req.user!.userId, normalizeRole(req.user!.role));
   if (!access.domain || !access.canRead) {
-    sendError(res, 'Domain not found');
+    sendError(res, 'Domain not found', 404);
     return;
   }
   try {
@@ -427,19 +435,53 @@ router.get('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
  *     security:
  *       - bearerAuth: []
  */
+
+/**
+ * 单条记录的服务端校验（此前完全没有，64 字符标签 / name=" " / ttl=-1 / mx=99999 都会被发往上游）。
+ * 返回错误文案；null 表示通过。
+ */
+export function validateRecordInput(input: {
+  name?: string; type?: string; value?: string;
+  ttl?: number; mx?: number; weight?: number;
+}): string | null {
+  const name = (input.name ?? '').trim();
+  if (!name) return '记录名不能为空';
+  if (name.includes('..')) return '记录名不能包含连续的点';
+  if (name !== '@' && name !== '*') {
+    // 单标签按 Punycode 计长（63 字符限制）：中文标签 UTF-16 长度会低估
+    const labels = normalizeDomain(name).split('.');
+    for (const label of labels) {
+      if (label.length === 0) return '记录名包含空标签';
+      if (label.length > 63) return '记录名单个标签超过 63 个字符';
+      if (!/^[a-z0-9_*\-]+$/i.test(label)) return '记录名包含非法字符: ' + label;
+      if (label.startsWith('-') || label.endsWith('-')) return '记录名标签不能以 - 开头或结尾';
+    }
+    if (normalizeDomain(name).length > 253) return '记录名超过 253 个字符';
+  }
+  if (input.ttl !== undefined && input.ttl !== null) {
+    if (!Number.isInteger(input.ttl) || input.ttl < 1) return 'TTL 必须是正整数';
+    if (input.ttl > 2147483647) return 'TTL 超出范围';
+  }
+  for (const [field, value] of [['mx', input.mx], ['weight', input.weight]] as const) {
+    if (value === undefined || value === null) continue;
+    if (!Number.isInteger(value) || value < 0 || value > 65535) return field.toUpperCase() + ' 必须是 0-65535 的整数';
+  }
+  return null;
+}
+
 router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), asyncHandler(async (req: Request, res: Response) => {
   const domainId = parseInteger(req.params.domainId) ?? 0;
   const access = await getDomainAccess(domainId, req.user!.userId, normalizeRole(req.user!.role));
   if (!access.domain || !access.canRead) {
-    sendError(res, 'Domain not found');
+    sendError(res, 'Domain not found', 404);
     return;
   }
   if (!access.canWrite) {
-    sendError(res, 'Permission denied');
+    sendError(res, 'Permission denied', 403);
     return;
   }
-  const { name, type, value, line, ttl, mx, weight, remark, cloudflare, aliyunesa } = req.body as {
-    name: string; type: string; value: string; line?: string;
+  const { name, type, value, line, proxied, ttl, mx, weight, remark, cloudflare, aliyunesa } = req.body as {
+    name: string; type: string; value: string; line?: string; proxied?: boolean;
     ttl?: number; mx?: number; weight?: number; remark?: string;
     cloudflare?: { proxied?: boolean };
     aliyunesa?: { proxied?: boolean };
@@ -448,30 +490,32 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
     sendError(res, 'name, type, and value are required');
     return;
   }
+  const inputError = validateRecordInput({ name, type, value, ttl, mx, weight });
+  if (inputError) {
+    sendError(res, inputError);
+    return;
+  }
   if (!canWriteSubdomain(access.writeSubs, name, access.domain.name)) {
-    sendError(res, 'Permission denied for subdomain');
+    sendError(res, 'Permission denied for subdomain', 403);
     return;
   }
   {
     const err = isValidRecordValue(type, value);
     if (err !== true) { sendError(res, err); return; }
   }
-  {
-    const account = await DnsAccountOperations.getById(access.domain.account_id) as DnsAccount | undefined;
-    if (account && !isTypeSupportedByProvider(account.type, type)) {
-      sendError(res, `Record type "${type}" is not supported by provider "${account.type}"`);
-      return;
-    }
+  const account = await DnsAccountOperations.getById(access.domain.account_id) as DnsAccount | undefined;
+  if (account && !isTypeSupportedByProvider(account.type, type)) {
+    sendError(res, `Record type "${type}" is not supported by provider "${account.type}"`);
+    return;
   }
   try {
     const dnsAdapter = await getAdapterForDomain(access.domain);
-    // 对于 Cloudflare/ESA，使用 cloudflare.proxied 或 aliyunesa.proxied 决定 line 值
-    // 默认使用 '0' (仅DNS)，避免意外开启代理
-    const effectiveLine = cloudflare?.proxied !== undefined
-      ? (cloudflare.proxied ? '1' : '0')
-      : aliyunesa?.proxied !== undefined
-        ? (aliyunesa.proxied ? '1' : '0')
-        : (line ?? '0');
+    // line 语义收敛：line 只表示线路；CF/ESA 的代理开关走 proxied（兼容旧 cloudflare/aliyunesa.proxied 与 line:'0'/'1'）
+    const { line: effectiveLine } = resolveLineInput(normalizeProviderType(account?.type ?? ''), {
+      line,
+      proxied,
+      legacyProxied: cloudflare?.proxied ?? aliyunesa?.proxied,
+    });
     const recordId = await dnsAdapter.addDomainRecord(name, type, value, effectiveLine, ttl, mx, weight, remark);
     if (!recordId) {
       sendError(res, 'Failed to add record');
@@ -583,31 +627,61 @@ emailTemplatesRouter.get('/:templateId/preview', authMiddleware, asyncHandler(as
   sendSuccess(res, { preview });
 }));
 
+/** 单次批量导入的条数上限（docs/api.md 同步） */
+export const MAX_BATCH_RECORDS = 100;
+
+/**
+ * 批量条数校验：返回错误文案（null = 通过）。
+ * 抽成纯函数是为了能直接测边界（0 / 1 / 100 / 101），不必起 DB 与鉴权链路。
+ */
+export function assertBatchSize(count: number): string | null {
+  if (count === 0) return 'records array is required';
+  if (count > MAX_BATCH_RECORDS) return 'At most ' + MAX_BATCH_RECORDS + ' records per batch';
+  return null;
+}
+
 router.post('/batch', authMiddleware, requireTokenDomainPermission('domainId'), asyncHandler(async (req: Request, res: Response) => {
   const domainId = parseInteger(req.params.domainId) ?? 0;
   const access = await getDomainAccess(domainId, req.user!.userId, normalizeRole(req.user!.role));
   if (!access.domain || !access.canRead) {
-    sendError(res, 'Domain not found');
+    sendError(res, 'Domain not found', 404);
     return;
   }
   if (!access.canWrite) {
-    sendError(res, 'Permission denied');
+    sendError(res, 'Permission denied', 403);
     return;
   }
 
   const records = req.body.records as Array<{
-    name: string; type: string; value: string; line?: string;
+    name: string; type: string; value: string; line?: string; proxied?: boolean;
     ttl?: number; mx?: number; weight?: number; remark?: string;
   }>;
 
-  if (!Array.isArray(records) || records.length === 0) {
+  if (!Array.isArray(records)) {
     sendError(res, 'records array is required');
     return;
   }
 
+  // 上限：单次批量最多 100 条（与 docs/api.md 一致）。无上限时一次请求可以打爆
+  // 上游提供商的配额，也会让超时/部分失败的处理失去意义。
+  const batchError = assertBatchSize(records.length);
+  if (batchError) {
+    sendError(res, batchError, records.length > MAX_BATCH_RECORDS ? 422 : 400);
+    return;
+  }
+
   for (const r of records) {
+    if (!r || typeof r !== 'object') {
+      sendError(res, 'records 里的每一项都必须是对象', 400);
+      return;
+    }
     if (!r.name || !r.type || !r.value) {
       sendError(res, 'name, type, and value are required for all records');
+      return;
+    }
+    const batchInputError = validateRecordInput({ name: r.name, type: r.type, value: r.value, ttl: r.ttl, mx: r.mx, weight: r.weight });
+    if (batchInputError) {
+      sendError(res, batchInputError + '（' + (r.name || '?') + '）');
       return;
     }
     if (!canWriteSubdomain(access.writeSubs, r.name, access.domain.name)) {
@@ -620,27 +694,33 @@ router.post('/batch', authMiddleware, requireTokenDomainPermission('domainId'), 
     }
   }
 
-  {
-    const account = await DnsAccountOperations.getById(access.domain.account_id) as DnsAccount | undefined;
-    if (account) {
-      const unsupported = records.filter(r => !isTypeSupportedByProvider(account.type, r.type));
-      if (unsupported.length > 0) {
-        const types = [...new Set(unsupported.map(r => r.type))].join(', ');
-        sendError(res, `Record types not supported by provider "${account.type}": ${types}`);
-        return;
-      }
+  const account = await DnsAccountOperations.getById(access.domain.account_id) as DnsAccount | undefined;
+  if (account) {
+    const unsupported = records.filter(r => !isTypeSupportedByProvider(account.type, r.type));
+    if (unsupported.length > 0) {
+      const types = [...new Set(unsupported.map(r => r.type))].join(', ');
+      sendError(res, `Record types not supported by provider "${account.type}": ${types}`);
+      return;
     }
   }
 
   const dnsAdapter = await getAdapterForDomain(access.domain);
   const addedIds: string[] = [];
   const errors: string[] = [];
+  // 逐条结果：下标与请求里的 records 一一对应，客户端据此标出哪一行失败
+  const results: Array<{ line: number; ok: boolean; recordId?: string; error?: string }> = [];
 
-  for (const r of records) {
+  for (const [index, r] of records.entries()) {
     try {
-      const recordId = await dnsAdapter.addDomainRecord(r.name, r.type, r.value, r.line, r.ttl, r.mx, r.weight, r.remark);
+      // 与单条创建共用同一个归一化点：line 只表示线路，代理开关走 proxied
+      const { line: effectiveLine } = resolveLineInput(normalizeProviderType(account?.type ?? ''), {
+        line: r.line,
+        proxied: r.proxied,
+      });
+      const recordId = await dnsAdapter.addDomainRecord(r.name, r.type, r.value, effectiveLine, r.ttl, r.mx, r.weight, r.remark);
       if (recordId) {
         addedIds.push(recordId);
+        results.push({ line: index + 1, ok: true, recordId });
         publishRecordEvent({
           action: 'created',
           domain: { id: domainId, name: access.domain.name },
@@ -648,10 +728,14 @@ router.post('/batch', authMiddleware, requireTokenDomainPermission('domainId'), 
           actor: { userId: req.user!.userId, source: 'ui' },
         });
       } else {
-        errors.push(`Failed to add ${r.type} ${r.name}`);
+        const message = 'Failed to add ' + r.type + ' ' + r.name;
+        errors.push(message);
+        results.push({ line: index + 1, ok: false, error: message });
       }
     } catch (e) {
-      errors.push(`Error adding ${r.type} ${r.name}: ${e instanceof Error ? e.message : String(e)}`);
+      const message = r.type + ' ' + r.name + '：' + (e instanceof Error ? e.message : String(e));
+      errors.push(message);
+      results.push({ line: index + 1, ok: false, error: message });
     }
   }
 
@@ -659,11 +743,10 @@ router.post('/batch', authMiddleware, requireTokenDomainPermission('domainId'), 
     await logAuditOperation(req.user!.userId, 'add_records_batch', access.domain.name, { count: addedIds.length }, req);
   }
 
-  if (errors.length > 0) {
-    sendError(res, errors.join('; '), 200, { addedIds });
-  } else {
-    sendSuccess(res, { addedIds });
-  }
+  // 批量导入是**部分成功**语义：失败的行不撤销已成功的行。
+  // 因此这里统一返回 200 信封，把「哪几行成了、哪几行失败、为什么」逐行给到客户端——
+  // 否则前端拿到错误就整批重试，会把已写入的记录再写一遍。
+  sendSuccess(res, { total: records.length, addedIds, results, errors });
 }));
 
 /**
@@ -680,15 +763,15 @@ router.put('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
   const recordId = req.params.recordId;
   const access = await getDomainAccess(domainId, req.user!.userId, normalizeRole(req.user!.role));
   if (!access.domain || !access.canRead) {
-    sendError(res, 'Domain not found');
+    sendError(res, 'Domain not found', 404);
     return;
   }
   if (!access.canWrite) {
-    sendError(res, 'Permission denied');
+    sendError(res, 'Permission denied', 403);
     return;
   }
-  const { name, type, value, line, ttl, mx, weight, remark, status, cloudflare, aliyunesa } = req.body as {
-    name?: string; type?: string; value?: string; line?: string;
+  const { name, type, value, line, proxied, ttl, mx, weight, remark, status, cloudflare, aliyunesa } = req.body as {
+    name?: string; type?: string; value?: string; line?: string; proxied?: boolean;
     ttl?: number; mx?: number; weight?: number; remark?: string; status?: number;
     cloudflare?: { proxied?: boolean };
     aliyunesa?: { proxied?: boolean };
@@ -698,29 +781,26 @@ router.put('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
     return;
   }
   if (!canWriteSubdomain(access.writeSubs, name, access.domain.name)) {
-    sendError(res, 'Permission denied for subdomain');
+    sendError(res, 'Permission denied for subdomain', 403);
     return;
   }
   {
     const err = isValidRecordValue(type, value);
     if (err !== true) { sendError(res, err); return; }
   }
-  {
-    const account = await DnsAccountOperations.getById(access.domain.account_id) as DnsAccount | undefined;
-    if (account && !isTypeSupportedByProvider(account.type, type)) {
-      sendError(res, `Record type "${type}" is not supported by provider "${account.type}"`);
-      return;
-    }
+  const account = await DnsAccountOperations.getById(access.domain.account_id) as DnsAccount | undefined;
+  if (account && !isTypeSupportedByProvider(account.type, type)) {
+    sendError(res, `Record type "${type}" is not supported by provider "${account.type}"`);
+    return;
   }
   try {
     const dnsAdapter = await getAdapterForDomain(access.domain);
-    // 对于 Cloudflare/ESA，使用 cloudflare.proxied 或 aliyunesa.proxied 决定 line 值
-    // 默认使用 '0' (仅DNS)，避免意外开启代理
-    const effectiveLine = cloudflare?.proxied !== undefined
-      ? (cloudflare.proxied ? '1' : '0')
-      : aliyunesa?.proxied !== undefined
-        ? (aliyunesa.proxied ? '1' : '0')
-        : (line ?? '0');
+    // line 语义收敛：line 只表示线路；CF/ESA 的代理开关走 proxied（兼容旧 cloudflare/aliyunesa.proxied 与 line:'0'/'1'）
+    const { line: effectiveLine } = resolveLineInput(normalizeProviderType(account?.type ?? ''), {
+      line,
+      proxied,
+      legacyProxied: cloudflare?.proxied ?? aliyunesa?.proxied,
+    });
     // 仅在存在工作流订阅者时才回查旧值，避免给热路径增加固定开销
     const previousRecord = hasWorkflowSubscribers()
       ? await dnsAdapter.getDomainRecordInfo(recordId).catch(() => null)
@@ -768,11 +848,11 @@ router.delete('/:recordId', authMiddleware, requireTokenDomainPermission('domain
   const recordId = req.params.recordId;
   const access = await getDomainAccess(domainId, req.user!.userId, normalizeRole(req.user!.role));
   if (!access.domain || !access.canRead) {
-    sendError(res, 'Domain not found');
+    sendError(res, 'Domain not found', 404);
     return;
   }
   if (!access.canWrite) {
-    sendError(res, 'Permission denied');
+    sendError(res, 'Permission denied', 403);
     return;
   }
   try {
@@ -786,7 +866,7 @@ router.delete('/:recordId', authMiddleware, requireTokenDomainPermission('domain
         return;
       }
       if (!canWriteSubdomain(access.writeSubs, targetRecord.Name, access.domain.name)) {
-        sendError(res, 'Permission denied for subdomain');
+        sendError(res, 'Permission denied for subdomain', 403);
         return;
       }
     }
@@ -844,11 +924,11 @@ router.put('/:recordId/status', authMiddleware, requireTokenDomainPermission('do
   const recordId = req.params.recordId;
   const access = await getDomainAccess(domainId, req.user!.userId, normalizeRole(req.user!.role));
   if (!access.domain || !access.canRead) {
-    sendError(res, 'Domain not found');
+    sendError(res, 'Domain not found', 404);
     return;
   }
   if (!access.canWrite) {
-    sendError(res, 'Permission denied');
+    sendError(res, 'Permission denied', 403);
     return;
   }
   const { status } = req.body as { status: number };

@@ -49,6 +49,8 @@ vi.mock('../db/bal/business-adapter', () => ({
   DnsAccountOperations: {
     getById: vi.fn(async () => ({ id: 5, type: 'cloudflare', config: '{}', created_by: 100, enabled: 1 })),
     getCreatedBy: vi.fn(async () => 100),
+    // 续期端点的归属校验用（role<3 时按可管理账号过滤）
+    getAccessibleByUserId: vi.fn(async () => [{ id: 5 }]),
   },
   DomainPermissionOperations: {
     hasRules: vi.fn(async () => false),
@@ -56,7 +58,11 @@ vi.mock('../db/bal/business-adapter', () => ({
     getByDomainAndUser: vi.fn(async () => []),
     getByDomainAndTeamMember: vi.fn(async () => []),
   },
-  TeamOperations: { getMembers: vi.fn(async () => []), isMember: vi.fn(async () => false) },
+  TeamOperations: {
+    getMembers: vi.fn(async () => []),
+    isMember: vi.fn(async () => false),
+    getTeamIdsByUserId: vi.fn(async () => []),
+  },
   UserOperations: {
     getAll: vi.fn(async () => [
       { id: 1, role_level: 3, status: 1 },
@@ -216,8 +222,9 @@ describe('域名事件的推送范围', () => {
     mocks.user = { userId: 300, role: 1 };
 
     const res = await call('POST', '/api/domains/3/renew');
-    // sendError 默认 HTTP 200 + code -1（见 utils/http.sendError）
-    expect(((await res.json()) as { code: number }).code).toBe(-1);
+    // 契约：`code` 与 HTTP 状态码一致，权限拒绝为 403（历史实现是 200 + code:-1）
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { code: number }).code).toBe(403);
 
     expect(mocks.broadcastToUsers).not.toHaveBeenCalled();
     expect(mocks.broadcast).not.toHaveBeenCalled();

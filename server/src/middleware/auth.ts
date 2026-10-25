@@ -4,6 +4,7 @@ import { JwtPayload } from '../types';
 import { isAdmin, normalizeRole } from '../utils/roles';
 import { verifyToken, hasServicePermission, hasDomainPermission } from '../service/token';
 import { TokenPayload } from '../types/token';
+import { sendError } from '../utils/http';
 import { getJwtSecret, signToken } from '../service/jwt';
 import { createLogger } from '../lib/logger';
 
@@ -21,7 +22,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   }
 
   if (!token) {
-    res.status(401).json({ code: -1, msg: 'Unauthorized' });
+    sendError(res, 'Unauthorized', 401);
     return;
   }
 
@@ -51,7 +52,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     return;
   }
 
-  res.status(401).json({ code: -1, msg: 'Invalid or expired token' });
+  sendError(res, 'Invalid or expired token', 401);
 }
 
 // Middleware to check token service permission
@@ -66,7 +67,7 @@ export function requireServicePermission(service: string) {
     }
 
     if (!hasServicePermission(tokenPayload, service)) {
-      res.status(403).json({ code: -1, msg: `Token does not have permission for ${service}` });
+      sendError(res, 'Token does not have permission for ' + service, 403);
       return;
     }
 
@@ -87,7 +88,7 @@ export function requireDomainPermission(getDomainId: (req: Request) => number | 
 
     const domainId = getDomainId(req);
     if (domainId !== null && !(await hasDomainPermission(tokenPayload, domainId))) {
-      res.status(403).json({ code: -1, msg: 'Token does not have permission for this domain' });
+      sendError(res, 'Token does not have permission for this domain', 403);
       return;
     }
 
@@ -97,7 +98,7 @@ export function requireDomainPermission(getDomainId: (req: Request) => number | 
 
 export function adminOnly(req: Request, res: Response, next: NextFunction): void {
   if (!isAdmin(req.user?.role)) {
-    res.status(403).json({ code: -1, msg: 'Admin access required' });
+    sendError(res, 'Admin access required', 403);
     return;
   }
   next();
@@ -119,10 +120,7 @@ function isTokenAuth(req: Request): boolean {
 export function noTokenAuth(routeName: string = 'this resource') {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (isTokenAuth(req)) {
-      res.status(403).json({
-        code: -1,
-        msg: `API token is not allowed to access ${routeName}. Please use JWT authentication.`
-      });
+      sendError(res, 'API token is not allowed to access ' + routeName + '. Please use JWT authentication.', 403);
       return;
     }
     next();
@@ -156,8 +154,11 @@ export function requireTokenDomainPermission(paramName: string = 'id') {
       return;
     }
 
-    // 如果 allowed_domains 为 null/undefined，表示允许所有域名（向后兼容）
-    // 如果为空数组 []，表示不允许任何域名（白名单机制）
+    // allowedDomains 语义（唯一口径，与 service/token.ts 的 hasDomainPermission 一致）：
+    //   null/undefined → 不限制（历史令牌）
+    //   []            → **不限制**（向后兼容 ddns-go 等只填令牌、不填域名的外部工具）
+    //   [1,2,3]       → 白名单，只能访问列出的域名
+    // 曾经这里写着「[] 表示不允许任何域名（白名单机制）」，与实现相反，容易误判安全边界。
     if (tokenPayload.allowedDomains === null || tokenPayload.allowedDomains === undefined) {
       next();
       return;
@@ -178,19 +179,13 @@ export function requireTokenDomainPermission(paramName: string = 'id') {
     const domainId = req.params[paramName] ? parseInt(req.params[paramName], 10) : req.body.domain_id;
 
     if (!domainId || isNaN(domainId)) {
-      res.status(403).json({
-        code: -1,
-        msg: 'Domain ID is required for API token access'
-      });
+      sendError(res, 'Domain ID is required for API token access', 403);
       return;
     }
 
     // 检查域名是否在允许的列表中
     if (!tokenPayload.allowedDomains.includes(domainId)) {
-      res.status(403).json({
-        code: -1,
-        msg: 'API token does not have permission to access this domain'
-      });
+      sendError(res, 'API token does not have permission to access this domain', 403);
       return;
     }
 

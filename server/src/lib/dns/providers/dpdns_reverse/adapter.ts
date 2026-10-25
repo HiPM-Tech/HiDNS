@@ -1,4 +1,4 @@
-import { createLogger } from '../../../logger';
+import { createProviderAdapterLogger } from '../internal';
 import {
   BaseAdapter,
   DnsRecord,
@@ -8,7 +8,7 @@ import {
 import { validateCredentials } from './auth';
 import { listAllDomains, parseDpdnsDate } from './renewal';
 
-const log = createLogger('DNS').sub('Provider').sub('DPDNS');
+const log = createProviderAdapterLogger('DPDNS');
 
 /**
  * ⚠️ DigitalPlat Domains 适配器 — 逆向实现

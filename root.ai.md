@@ -293,12 +293,13 @@
 4. 通用工具函数
     - `common.ts` 提供：`safeString()`、`asArray()`、`toNumber()`、`toRecordStatus()`、`normalizeRrName()`、`uuid()`、`isSrv()`、`parseSrvValue()`、`buildSrvValue()`、`resolveDomainIdHelper()` 等。
     - `http.ts` 提供：HTTP 请求工具函数（`requestJson`、`requestXml`、`buildCanonicalQuery`、`hmacSignSha1` 等）。
-5. 当前支持的DNS提供商（共22个）
+5. 当前支持的DNS提供商（共26个，以 `registry.ts` 的 `PROVIDERS` 数组为准）
     - 阿里云（aliyun）、阿里云ESA（aliyunesa）、百度云（baidu）、宝塔（bt）、彩虹DNS聚合（caihongdns）
     - Cloudflare（cloudflare）、DNSHE（dnshe）、DNS.LA（dnsla）、腾讯云-DNSPod（dnspod）、Gcore（gcore）
-    - HiDNS（hidns）、华为云（huawei）、火山引擎（huoshan）、京东云（jdcloud）、NameSilo（namesilo）
-    - PowerDNS（powerdns）、青云（qingcloud）、雨云（rainyun）、Spaceship（spaceship）、腾讯EdgeOne（tencenteo）
-    - VPS8（vps8）、西部数码（west）
+    - HiDNS（hidns）、HiDNS v2（hidns_v2）、华为云（huawei）、火山引擎（huoshan）、京东云（jdcloud）
+    - NameSilo（namesilo）、PowerDNS（powerdns）、青云（qingcloud）、雨云（rainyun）、Spaceship（spaceship）
+    - 腾讯EdgeOne（tencenteo）、VPS8（vps8）、西部数码（west）、DNS Neko（dnsneko）、DigitalPlat 反向（dpdns_reverse）
+    - `virtual`：开发/测试用的虚拟提供商，`NODE_ENV=production` 下强制不注册，**不计入可用提供商**。
 6. 提供商能力模型
     - 能力分**两层**，不得混写：
         - `DnsCapabilities`（`registry.ts`）：DNS 解析能力位，包含 `remark`（备注）、`status`（启用/禁用）、`redirect`（重定向）、`weight`（权重）、`proxiable`（可代理）、`cnameFlattening`（CNAME 展平）、`recordTypes`（支持的记录类型数组）。
@@ -358,14 +359,16 @@
 
 ### 路由
 1. 路由架构
-    - 路由文件集中在 `server/src/routes/` 目录下。
-    - 所有路由以 `/api/` 为前缀注册在 `app.ts` 中。
-    - 路由通过 `initCheckMiddleware` 检查系统初始化状态：**未初始化时除显式豁免路由外，一律返回 503**。
-    - 该中间件必须采用「默认拒绝 + 显式豁免」实现，注册在所有 `/api` 业务路由之前；豁免清单仅含 `/api/init` 与明确公开的路由（如 `/api/rdap`）。**禁止**逐个枚举受保护前缀（历史实现遗漏了 10 个前缀）。
-    - 初始化状态的判定口径见 §应用初始化与生命周期 2/3/4；禁止在路由内自行判断。
+    - 业务路由器实现集中在 `server/src/routes/`；**注册集中在 `server/src/api/index.ts`（唯一注册点）**。
+    - 每个 API 模块声明 `id / prefix / router / middlewares? / exemptFromInitGate? / closedStateProbes? / description`，由 `api/registry.ts` 校验：`id` 与 `prefix` 唯一（同前缀二次挂载会让后者被永久遮蔽）、前缀格式、探测路径必须归属自身前缀。
+    - **禁止在 `app.ts` 直接 `app.use` 业务路由**；新增端点只能向模块清单添加条目。`app.ts` 只保留：门禁、`/api/docs`、`apiLayer.mount(app)`。
+    - 初始化门禁由 `api/init-gate.ts` 实现**三态**：`initialized` 全放行；`uninitialized` 只放行声明了 `exemptFromInitGate` 的模块（当前仅 `/api/init`、`/api/rdap`）；`unreachable`（数据库不可达）**初始化面一并关闭**，只放行模块声明的 `closedStateProbes` 只读探测（当前为 `/api/init/status`、`/api/init/db-config`）。
+    - 门禁路径比较**必须不区分大小写**：Express 路由本身大小写不敏感，历史实现用 `startsWith('/api/')` 做敏感比较，`GET /API/mcp/status` 可绕过 503。
+    - 初始化状态判定口径见 §应用初始化与生命周期 2/3/4；禁止在路由内自行判断。
 2. 路由列表
     - `/api/init`：系统初始化。不参与 `initCheckMiddleware` 的统一拦截（见上条豁免清单），但**端点自身必须承担守卫责任**：系统一旦完成初始化，`/database`、`/admin` 等状态变更端点必须永久关闭（403）。开放边界详见 §应用初始化与生命周期 4，并须配置 rateLimit。
-    - `/api/auth`：用户认证（登录、注册、密码重置、WebAuthn）。
+    - `/api/auth`：用户认证（登录、注册、密码重置）。
+    - `/api/auth/webauthn`：WebAuthn 通行密钥（**独立前缀，先于父路由匹配**）。
     - `/api/users`：用户管理。
     - `/api/teams`：团队管理。
     - `/api/accounts`：DNS 账户管理。
@@ -375,16 +378,16 @@
     - `/api/system`：系统设置。
     - `/api/settings`：用户设置。
     - `/api/security`：安全设置（安全策略、2FA）。
-    - `/api/audit`：审计日志。
+    - `/api/audit`：审计日志查询与导出（`/export/csv`、`/export/json`）。
     - `/api/tokens`：API 令牌管理。
-    - `/api/email-templates`：邮件模板。
-    - `/api/tunnels`：Cloudflare Tunnel 管理。
+    - `/api/domains/email-templates`：邮件模板（**必须先于 `/api/domains` 挂载**，否则被父路由遮蔽；见 `server/src/api/index.ts`）。
     - `/api/ns-monitor`：NS 监控。
      - `/api/network`：网络工具。
      - `/api/rdap`：RDAP 查询。
      - `/api/logs`：操作日志（管理员）。
      - `/api/workflows`：自动化工作流（JWT + 管理员；写操作与手动运行禁止 API Token；**不在初始化豁免清单内**）。
      - `/api/servicemonitor`：服务监控管理。
+    - `/api/resource-monitor`：资源监控面板。
      - `/api/mcp`：MCP 协议（含 /config、/status、/api-keys、/oauth、/audit-logs、/audit-stats、Streamable HTTP、SSE）。
 3. Swagger 文档
     - API 文档地址：`/api/docs`。
@@ -397,7 +400,7 @@
     - 禁止在路由中直接操作数据库，所有数据库操作必须通过服务层或业务适配器。
 2. 定时任务服务
      - `domainSyncJob.ts`：域名同步定时任务。
-     - `whoisJob.ts`：WHOIS 查询定时任务。
+     - `whois/scheduler.ts`：WHOIS 查询定时任务（模块内调度，见 §5）。
      - `serviceMonitorJob.ts`：服务监控定时任务（支持 ssl_certificate / endpoint / dns_failover 三种类型）。
      - `nsMonitorJob.ts`：NS 监控定时任务。
      - `domainRenewalJob.ts`：域名续期检测定时任务。
@@ -405,9 +408,9 @@
      - `mcpOAuthCleanupJob.ts`：MCP OAuth 临时客户端清理（每5分钟）。
 3. 后台调度器
     - `renewalScheduler.ts` + `renewalInit.ts`：域名续期调度器。
-    - `whoisScheduler.ts` + `whoisInit.ts`：WHOIS 查询调度器。
+    - `whois/index.ts`：WHOIS 子模块的统一入口（注册调度器、暴露查询接口）。
     - `taskManager.ts`：任务管理器。
-    - `whois/whoisScheduleManager.ts`：WHOIS 调度管理器。
+    - `whois/scheduler.ts`：WHOIS 调度与广播（原 `whoisScheduleManager` 已并入该文件）。
     - **任务管理器语义（强制约束）**：
       - 同 ID 任务已在运行时，**严禁**在 `processQueue` 的循环内把该任务同步塞回队首——那会让 `while` 反复取出同一任务并同步自旋，彻底阻塞事件循环（曾导致约 3.2k 行/秒的日志洪水与全站无响应）。
       - 冲突任务必须改为**异步延后重排**（`setTimeout` + 指数退避），并设置重排次数上限，超限后以明确错误结束该任务的 Promise，不得无限等待。
@@ -426,9 +429,8 @@
      - `cnameFlattening.ts`：CNAME 展平服务。
      - `multiLine.ts`：多线路支持。
      - `userPreferences.ts`：用户偏好服务。
-     - `whoisService.ts`：WHOIS 主服务。
-     - `whoisProvider.ts`：WHOIS 提供商管理。
-     - `dnsUpdateService.ts`：DNS 更新服务。
+     - `whois/`：WHOIS 子模块（`lookup.ts` 查询、`checker.ts` 校验、`cache.ts` 缓存、`notifier.ts` 通知、`registry.ts` 注册）。
+     - `dns-provider-service.ts`：DNS 提供商服务（原 `dnsUpdateService`，勿重复登记）。
      - `dns-provider-service.ts`：DNS 提供商服务。
      - `mcp-permission.ts`：MCP 权限验证服务。
 5. WHOIS 服务子模块
@@ -506,273 +508,99 @@
     - `validation.ts`：参数验证工具。
 
 ### 客户端架构
+
+> 本节描述的是**重构后**的前端；旧实现（TDesign、i18next、`pages/`、`contexts/`、`api/` 旧封装）已于 2026-10 全部删除，仓库内不再保留。
+
 1. 技术栈
-    - React 18+ + TypeScript。
-    - Vite 构建工具。
-    - React Router 前端路由。
-    - React Query (@tanstack/react-query) 数据获取和缓存管理。
-    - Context API 状态管理（AuthContext、ThemeContext、I18nContext、UiScaleContext）。
-    - i18next + react-i18next 国际化。
-2. **前端模块化架构（强制约束）**
-    - **核心原则**：前端代码必须遵循模块化设计，禁止重复代码和自由发挥。
-    - **目录结构约束**：
-      ```
-      client/src/
-      ├── api/              # API 请求封装（按模块分组）
-      │   ├── accounts.ts   # DNS 账户相关 API
-      │   ├── auth.ts       # 认证相关 API
-      │   ├── client.ts     # API 客户端基础配置
-      │   ├── domains.ts    # 域名相关 API
-      │   ├── init.ts       # 初始化相关 API
-       │   ├── logs.ts       # 日志相关 API
-       │   ├── mcp.ts        # MCP API
-       │   ├── network.ts    # 网络工具 API
-       │   ├── ns-monitor.ts # NS 监控 API
-      │   ├── ns-monitor.ts # NS 监控 API
-      │   ├── records.ts    # DNS 记录 API
-      │   ├── settings.ts   # 设置相关 API
-      │   ├── teams.ts      # 团队管理 API
-      │   ├── tokens.ts     # API 令牌 API
-      │   ├── types.ts      # 请求类型定义
-      │   ├── users.ts      # 用户管理 API
-      │   └── index.ts      # 统一导出
-       ├── components/       # 通用组件（可复用）
-       │   ├── AuditLogList.tsx
-       │   ├── Avatar.tsx / Avatar.css
-       │   ├── ConfirmDialog.tsx
-       │   ├── ErrorBoundary.tsx
-       │   ├── Header.tsx / Header.css
-       │   ├── Layout.tsx / Layout.css
-       │   ├── Modal.tsx
-       │   ├── NotificationChannels.tsx
-       │   ├── PageTransition.tsx
-       │   ├── PaginatedSelect.tsx
-       │   ├── ProviderIcon.tsx
-       │   ├── ProtectedRoute.tsx
-       │   ├── RecordForm.tsx / RecordForm.css
-       │   ├── Sidebar.tsx / Sidebar.css
-       │   ├── Table.tsx
-       │   ├── ToastContainer.tsx / ToastContainer.css
-       │   └── TunnelList.tsx
-       ├── hooks/            # 自定义 Hooks（业务逻辑抽象）
-       │   ├── useDialogAutoHideScrollbar.ts
-       │   ├── useFormSync.ts    # 通用表单同步 Hook（P0+ 优先级强制使用）
-       │   ├── useLocalStorage.ts
-       │   ├── useQueryConfig.ts
-       │   ├── useRealtimeData.ts
-       │   ├── useRecords.ts
-       │   ├── useRenewableDomains.ts
-       │   ├── useTeams.ts
-       │   ├── useToast.ts
-       │   └── useWebSocket.ts
-       ├── utils/            # 工具函数（纯函数，无副作用）
-       │   ├── auditLogs.ts
-       │   ├── domain.ts
-       │   ├── domain-utils.ts
-       │   ├── formHelpers.ts    # 表单辅助函数（toString/toBoolean/toNumber 等）
-       │   ├── gravatar.ts
-       │   ├── md5.ts
-       │   ├── roles.ts
-       │   ├── rsaEncrypt.ts
-       │   └── typeConverters.ts
-       ├── config/           # 配置文件
-       │   └── gravatar.ts
-      ├── contexts/         # React Context（全局状态）
-      │   ├── AuthContext.tsx
-      │   ├── I18nContext.tsx
-      │   ├── ThemeContext.tsx
-      │   └── UiScaleContext.tsx
-      ├── pages/            # 页面组件（路由级别）
-      │   ├── About.tsx
-      │   ├── Accounts.tsx
-      │   ├── Audit.tsx
-      │   ├── Dashboard.tsx / Dashboard.css
-      │   ├── Domains.tsx
-      │   ├── Landing.tsx / Landing.css
-      │   ├── Login.tsx / Login.css
-       │   ├── MailSetupModal.tsx
-       │   ├── McpManagement.tsx
-       │   ├── McpOAuthConsent.tsx
-       │   ├── OAuthCallback.tsx
-      │   ├── Records.tsx
-      │   ├── Security.tsx
-      │   ├── Settings.tsx
-      │   ├── Setup.tsx / Setup.css
-      │   ├── System.tsx
-      │   ├── Teams.tsx
-      │   ├── Tokens.tsx
-      │   ├── Tunnels.tsx
-      │   ├── Users.tsx
-      │   ├── domains/          # 域名相关子页面
-       │   │   ├── DomainListTab.tsx
-       │   │   ├── DomainRenewalTab.tsx
-       │   │   ├── NSMonitorTab.tsx
-       │   │   └── ServiceMonitorTab.tsx
-      │   └── system/           # 系统相关子页面
-      │       ├── AccessTab.tsx
-      │       ├── DatabaseTab.tsx
-      │       ├── NetworkTab.tsx
-      │       ├── OverviewTab.tsx
-      │       └── SecurityTab.tsx
-      ├── i18n/             # 国际化
-      │   ├── index.ts
-      │   ├── types.ts
-      │   └── locales/      # 支持 11 种语言
-      │       ├── ar.json       # 阿拉伯语
-      │       ├── de.json       # 德语
-      │       ├── en.json       # 英语
-      │       ├── es.json       # 西班牙语
-      │       ├── fr.json       # 法语
-      │       ├── ja.json       # 日语
-      │       ├── ko.json       # 韩语
-      │       ├── pt.json       # 葡萄牙语
-      │       ├── ru.json       # 俄语
-      │       ├── zh-CN.json    # 简体中文
-      │       └── zh-CN-Mesugaki.json # 简体中文（萌娘体）
-      ├── styles/           # 全局样式
-      │   ├── globals.css
-      │   └── theme.ts
-      ├── types/            # TypeScript 类型定义
-      ├── config/           # 配置文件
-      └── assets/           # 静态资源
-           └── providers/    # 提供商图标（22个提供商图标）
-      ```
-    - **模块职责划分**：
-      - `hooks/`：所有业务逻辑抽象必须放在这里，禁止在组件中直接编写复杂逻辑
-      - `utils/`：所有纯工具函数必须放在这里，禁止在组件中定义工具函数
-      - `components/`：所有可复用组件必须放在这里，禁止在页面中定义可复用组件
-      - `api/`：所有 API 调用必须封装在这里，禁止在组件中直接使用 fetch/axios
-    - **DRY 原则（Don't Repeat Yourself）**：
-      - 相同逻辑出现 2 次以上必须提取为公共模块
-      - 表单处理必须使用 `useFormSync` Hook，禁止手动编写 useEffect 同步逻辑
-      - API 调用必须使用统一的 API 封装，禁止直接使用 fetch
-      - 工具函数必须使用 `utils/` 中的函数，禁止重复实现
-    - **代码审查要求**：
-      - 新代码提交前必须检查是否有重复逻辑
-      - 发现重复代码必须立即重构
-      - 违反模块化约束的代码不得合并到主分支
-3. **表单处理规范（P0+ 优先级）**
-    - **强制使用 useFormSync Hook**：
-      ```typescript
-      // ❌ 禁止：手动编写 useEffect 同步逻辑
-      const [name, setName] = useState('');
-      useEffect(() => {
-        if (initial) setName(initial.name);
-      }, [initial?.id]);
-      
-      // ✅ 正确：使用 useFormSync
-      const { formState, updateField } = useFormSync(
-        initial,
-        { name: '' },
-        { fields: ['name'] }
-      );
-      ```
-    - **表单辅助函数**：
-      - 类型转换必须使用 `formHelpers.ts` 中的函数（toString, toBoolean, toNumber）
-      - 禁止在组件中重复实现类型转换逻辑
-    - **表单验证**：
-      - 简单验证使用 HTML5 原生验证
-      - 复杂验证使用 `utils/validators.ts` 中的验证函数
-4. **API 调用规范**
-    > **API 文档是第一权威**：所有 API 的端点、参数、返回值、鉴权方式以 `docs/api.md` 为准。新增或修改 API 时**必须同步更新 `docs/api.md`**，否则视为未完成。
-    - **统一 API 封装**：
-      ```typescript
-      // ❌ 禁止：直接使用 fetch
-      fetch('/api/domains').then(res => res.json());
-      
-      // ✅ 正确：使用 API 封装
-      import { domainsApi } from '../api/domains';
-      const { data } = useQuery({
-        queryKey: ['domains'],
-        queryFn: () => domainsApi.getList(),
-      });
-      ```
-    - **React Query 使用规范**：
-      - 所有数据获取必须使用 useQuery
-      - 所有数据修改必须使用 useMutation
-      - 合理配置 staleTime 和 cacheTime
-      - 避免在 queryFn 中直接设置状态
-    - **错误处理**：
-      - 统一使用 try-catch 或 React Query 的 onError
-      - 错误信息必须通过 toast 显示给用户
-      - 禁止静默失败
-5. **组件设计规范**
-    - **组件分类**：
-      - 页面组件（pages/）：负责路由级别的页面布局和数据获取
-      - 通用组件（components/）：负责可复用的 UI 元素
-      - 表单组件（components/）：负责表单逻辑和验证
-    - **组件职责**：
-      - 页面组件：数据获取、状态管理、业务逻辑
-      - 通用组件：UI 展示、事件回调
-      - 表单组件：表单同步、验证、提交
-    - **Props 设计**：
-      - 使用 TypeScript 接口定义 Props
-      - 提供默认值
-      - 避免过多的 Props（超过 5 个考虑拆分组件）
-    - **状态管理**：
-      - 局部状态使用 useState
-      - 跨组件状态使用 Context
-      - 服务端状态使用 React Query
-      - 禁止滥用 Redux/Zustand 等全局状态库
-6. **国际化规范**
-    - **强制使用 i18n**：
-      ```typescript
-      // ❌ 禁止：硬编码文本
-      <Button>保存</Button>
-      
-      // ✅ 正确：使用 i18n
-      import { useI18n } from '../contexts/I18nContext';
-      const { t } = useI18n();
-      <Button>{t('common.save')}</Button>
-      ```
-    - **翻译文件管理**：
-      - 所有文本必须在 `i18n/locales/` 中定义
-      - 按模块组织翻译键（auth.*, domains.*, settings.* 等）
-      - 新增文本必须同时添加所有语言的翻译
-     - **翻译完整性检查**：
-       - 提交前运行 `check_i18n_simple.js`（项目根目录）检查翻译完整性
-       - 缺失翻译不得合并到主分支
-7. **样式规范**
-    - **Tailwind CSS**：
-      - 优先使用 Tailwind 实用类
-      - 避免自定义 CSS
-      - 复杂样式使用 @apply 提取为组件类
-    - **响应式设计**：
-      - 所有页面必须支持移动端
-      - 使用 Tailwind 的响应式类
-      - 测试不同屏幕尺寸
-8. **性能优化规范**
-    - **组件渲染优化**：
-      - 使用 React.memo 优化纯展示组件
-      - 使用 useMemo 优化计算密集型逻辑
-      - 使用 useCallback 优化事件处理器
-    - **数据获取优化**：
-      - 合理使用 React Query 缓存
-      - 避免不必要的重新获取
-      - 使用 optimistic updates 提升用户体验
-    - **代码分割**：
-      - 使用 React.lazy 进行路由级别代码分割
-      - 大型组件使用动态导入
-      - 避免一次性加载所有代码
-9. **页面路由**
-    - `/`：登陆页
-    - `/setup`：系统初始化
-    - `/dashboard`：仪表盘
-    - `/accounts`：DNS 账户管理
-    - `/domains`：域名管理
-    - `/domains/:id/records`：DNS 记录管理
-    - `/settings`：设置
-    - `/system`：系统管理（包含 概述/数据库/网络/安全/访问 选项卡）
-    - `/security`：安全设置
-    - `/audit`：审计日志
-    - `/tokens`：API 令牌管理
-     - `/tunnels`：Cloudflare Tunnel 管理
-     - `/teams`：团队管理
-     - `/users`：用户管理
-     - `/mcp`：MCP 管理
-     - `/workflows`：自动化工作流（仅管理员可见）
-     - `/mcp/oauth/consent`：MCP OAuth 授权页
-     - `/about`：关于
+    - React 19 + TypeScript（Vite 8 构建，路由级代码拆分）。
+    - React Router 7（`BrowserRouter` + 嵌套 `<Route element>` 守卫）。
+    - TanStack Query v5：所有服务端状态走 query/mutation，`queryKey` 由 feature 自己定义。
+    - Tailwind CSS 3.4 + shadcn 风格 `ui/` 原语（Radix + CVA + tailwind-merge）。
+    - 表单：React Hook Form + zod（登录页等复杂表单）；简单表单用受控组件。
+    - 图标：lucide-react。**不再使用任何 UI 组件库的图标集。**
+    - 语言：单一简体中文，文案集中在 `copy/zh-CN.ts` 与各 feature 内部；**不再有 i18n 框架**。
+
+2. 目录结构（`client/src/`）
+    ```
+    client/src/
+    ├── app/                 # 应用外壳与横切能力
+    │   ├── app-shell.tsx        # 侧边栏 + 顶栏 + 主题切换 + 背景偏好注入
+    │   ├── protected-shell.tsx  # /dash/* 守卫（会话校验 → 外壳 → 子路由）
+    │   ├── require-admin.tsx    # 管理页守卫（useSession + isAdminUser 唯一口径）
+    │   ├── realtime.tsx         # 全局单连接 WebSocket：事件 → queryKey 失效表
+    │   └── nav.ts               # 导航分组与图标
+    ├── ui/                  # 设计系统原语（Button/Input/Card/Dialog/Table/Select/Alert…）+ tokens.css
+    ├── lib/                 # http.ts（类型化 fetch + ensureOk/expectData/requestRaw）、theme.tsx、format.ts
+    ├── copy/                # 中文文案（单一 zh-CN）
+    ├── features/<domain>/   # 业务模块（唯一允许放页面代码的地方）
+    │   ├── api.ts               # 该模块的端点封装（统一 lib/http）
+    │   ├── use-<domain>.ts      # 该模块的 query/mutation hooks（多数模块已有；纯展示页可无）
+    │   ├── <domain>-page.tsx    # 页面
+    │   └── __tests__/           # 该模块用例（不是每个模块都有，覆盖率按页面补）
+    ├── components/          # 仅剩 ErrorBoundary（全局 Toast 通道已移除，页面统一用内联提示）
+    ├── types/               # 全局类型声明（仅剩极少量 ambient 类型）
+    ├── utils/               # 无业务语义的纯函数（如 rsaEncrypt，必须走 lib/http）
+    ├── styles/              # 仅 globals.css（Tailwind 入口 + 历史 CSS；设计 token 在 ui/tokens.css）
+    └── test/                # 测试环境 setup（jsdom 补丁、全局 mock）
+    ```
+
+3. 模块化约束（强制）
+    - **页面代码只能写在 `features/<domain>/`**，禁止新增 `pages/`、`contexts/`、`api/` 目录。
+    - 跨模块复用只允许通过**显式导出**（例如 records 页复用 `useDomainAccounts`）；禁止深路径相互 import 内部实现。
+    - 每个 feature 自持 `api.ts` + `use-*.ts` + 页面 + 用例，四件套齐全才算完成。
+    - 路由在 `App.tsx` 一处集中声明：`/dash/*` 全部在 `ProtectedShell` 内，管理页再套 `RequireAdmin`。
+
+4. 权限与按钮可见性（强制）
+    - **能隐藏就不要让用户点出 403**：后端已能判定的权限，必须在响应里透出，前端据此隐藏按钮，而不是依赖错误提示。
+    - 域名域：`GET /api/domains`、`GET /api/domains/:id` 返回 **`can_write`**（口径 = `resolveDomainAccess().canWrite`，含团队规则与子域白名单）。前端在 `can_write === false` 时隐藏「启用/禁用、编辑备注、删除」并显示「只读」徽标；「记录」入口是只读，保留。
+    - 账号域：`POST /api/accounts` 是管理员动作（后端 `isAdmin` 判定），前端用 `isAdminUser(user)` 隐藏「新建账户」；同理「新增域名」要求对账号有管理权，普通用户不显示入口。
+    - 站点管理页（用户/审计/工作流/系统设置/MCP 配置）统一在 `RequireAdmin` 下，个人资源页（令牌、个人密钥、2FA）不套。
+    - 新增需要权限的端点时：先在后端判定，再把判定结果透出（`can_*` 字段），最后前端按字段隐藏——三步缺一不可。
+
+5. 域名虚拟分组
+    - 列表支持 `grouped=true`：后端按**可注册域**（`getRootDomain`）聚合，在返回的 `list` 里插入 `{ _type: 'group_header', id: -父域id, groupName, childIds }`，子域行带 `_groupParentId`。
+    - 可注册域用**公共后缀表**计算，不能取最后两段：`cc.cd`、`dpdns.org`、`us.kg` 等是多段公共后缀（`foo.cc.cd` 的可注册域就是自身）。
+    - 后缀集合的**真值在 DB 表 `public_suffixes`**：`service/publicSuffixJob.ts` 启动时载入内存快照，并异步从 `PUBLIC_SUFFIX_LIST_URL`（默认 publicsuffix.org 的 DAT）下拉，之后每 `PUBLIC_SUFFIX_REFRESH_DAYS`（默认 7 天）刷新；下载失败/响应异常**不入库**、继续用现有集合（域名分组不能因一次网络抖动而崩）。
+    - **内嵌快照** `server/src/data/public-suffix-list.dat`（publicsuffix.org 的 DAT，含 ICANN/PRIVATE 两段，MPL-2.0，见 docs/THIRD_PARTY_NOTICES.md）：全新实例或内网首次启动没有网络时也能算对根域。
+    - 代码里的内置清单（常见二级后缀 + WHOIS 注册表 suffix）只用于**首次播种**与快照缺失时的兜底，不是运行时真值；新增 TLD 不必发版。
+    - **IDN**：PSL 里 `公司.cn` 这类 Unicode 后缀在解析时转 Punycode；域名比较统一用 `xn--` 形式，返回给前端才转 Unicode。
+    - PSL 的 `*.ck` 通配按「任意 `x.ck` 都是公共后缀」处理；`!` 例外规则跳过（宁可少切碎可注册域）。
+    - 分组模式由**用户开关**决定（`virtual_groups`）：
+        - `virtual_groups=true`（界面默认「总是分组」）：无条件按可注册域造组，父域未添加也虚拟出组头；组头 id 由组名哈希派生（`-(1000000+hash)`），与 `-父域id` 不冲突。
+        - `virtual_groups=false`（界面「仅父域存在」）：只有父域在列表里才成组；父域不在时子域各自独立。
+    - 只有一个域名命中某个可注册域、且它就是该域本身（没有子域）时不成组，保持独立行。
+    - 前端默认开启分组：组头可折叠，展开才渲染子域行；`grouped=true` 时 `pageSize` 按「块（组或单域）」计数。
+    - 虚拟组（父域未添加）在组头显示 **「父域未添加」** 徽标（`parentPresent=false`），提示父域自身的到期/WHOIS 信息不可用。
+
+6. 域名列表的两套响应契约（强制，不得混用）
+    - **UI**（浏览器会话）：`{ list, total, page, pageSize, totalPages }`，域名返回 **Unicode**，行带 `can_write`；分组时附 `_type/groupName/parentPresent/_groupParentId`。
+    - **API**（API Token 或 `format=array`）：**裸数组**，域名保持 **Punycode** 并附 `display_name`，供 ddns-go / certd 等外部适配器。
+    - 判定集中在 `routes/domains.ts` 的 `resolveDomainListShape()`（有单测）；新增查询参数不得改变这个分支。
+    - **DDNS-Go 兼容不抛弃**：认证 Bearer Token、列表裸数组、`allowed_domains` 空数组不限制、记录写接口均已覆盖；真要弃用须先给 `X-HiDNS-Compat` 弃用期并在 api.md/CHANGELOG 双处公告（见 docs/development/domain-list-api-format.md）。
+    - 新增依赖前先看 `ui/` 与 `lib/` 是否已覆盖；**禁止再引入整包 UI 框架或 i18n 框架**。
+
+4. 数据层约定
+    - 统一信封 `{ code, data, msg }`，`code === 0` 表示成功；`lib/http.ts` 对缺失 `code` 的响应直接抛错。
+    - 写操作用 `ensureOk(envelope)` 判 `code`，避免「失败却提示成功」。
+    - 少数按协议返回裸 JSON 的端点（如 `/mcp/oauth/authorize`）走 `requestRaw`，由调用方判 `ok`。
+    - 实时更新：`app/realtime.tsx` 维护「事件 → queryKey 前缀」映射表，新增后端事件时必须同步补表。
+
+5. 主题与背景
+    - `lib/theme.tsx` 的 `ThemeProvider` 是唯一来源，包裹整个应用（含 `/login`、`/setup`、`/oauth/*`）。
+    - 存储键 `theme`，取值 `light` / `dark` / `auto`（`auto` = 跟随系统）；`index.html` 内联脚本在首屏前应用，避免深色用户白闪。
+    - 背景图默认取第三方随机图源（`t.alcy.cc/moez`）：控制台经 `html[data-surface='console']` 加强蒙层当底纹，公开页按黄金分割分栏展示。
+    - **自托管/内网**：构建期设 `VITE_DEFAULT_BACKGROUND=none` 即可完全不请求第三方图源（`lib/theme.tsx` 与落地页共用同一开关）；运行期用户可在「设置 → 偏好 → 背景图地址」填 `none` 关闭或填自定义 http(s) 地址覆盖（服务端只存字符串，前端做协议白名单 + 转义，防 CSS 注入）。
+
+6. 门禁（客户端与服务端，两者都必须跑）
+    ```bash
+    # 客户端（子 shell，避免连续 cd 出错）
+    (cd client && npx tsc -b && npx vitest run && npx vite build && npx eslint .)
+    # 服务端
+    (cd server && npx tsc --noEmit && npx vitest run && npx eslint . --max-warnings=0)
+    ```
+    - 客户端 `tsconfig.json` 为 solution 式，`tsc --noEmit` **不会检查任何文件**，必须用 `tsc -b`。
+    - 历史上的 4 个腐化集成用例（`tests/{db-migration,proxy-config,ns-monitor,domain-filter}.test.ts`）已于 2026-10-23 **删除**（引用了已删除的 `src/db/init-dsm`、`/src/db/business-adapter`，fixture 绑定旧 schema），`exclude` 里不再有它们；替代覆盖为 `tests/db-bootstrap.test.ts`（新库建表 + `users.password_hash`）与 `src/utils/domain-classify.test.ts`（顶域/子域分类）。写新的集成用例请用 `tests/helpers/test-db.ts`（临时 sqlite + DSM 建表 + 自动清理）。
+    - `*.test.node.ts` 用 `node:test` 编写，由 `pnpm --filter dnsmgr-server run test:node` 执行，不进 vitest。
 
 ### 外部应用集成 API
 
@@ -849,7 +677,7 @@ func updateDDNS(apiToken, baseURL, domain, subDomain, ip string) error {
     - JWT Token（用户登录，有效期7天），签名密钥为 `JWT_SECRET + runtime_secret`。
     - API Token（程序化访问，支持域名/服务/时间范围限制）。
     - WebAuthn 无密码认证（通过 @simplewebauthn/server）。
-    - TOTP 双因素认证（通过 speakeasy）。
+    - TOTP 双因素认证（通过 `otplib`，见 `server/src/service/totp.ts`）。
     - OAuth2/OIDC 单点登录。
 2. 权限模型
     - 三种角色：普通用户、管理员、超级管理员。

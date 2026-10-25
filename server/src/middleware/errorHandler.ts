@@ -1,20 +1,16 @@
 import { Request, Response, NextFunction } from 'express';
 import { createLogger } from '../lib/logger';
 import { getRequestIP } from './clientIP';
+import { sendError } from '../utils/http';
 
 const log = createLogger('HTTP').sub('Middleware').sub('ErrorHandler');
-/**
- * Standard API error response format
- */
-export interface ApiError {
-  code: number;
-  message: string;
-  details?: Record<string, unknown>;
-  timestamp?: string;
-}
 
 /**
- * Custom error class for API errors
+ * 自定义 API 错误：携带 HTTP 状态码与可选的结构化细节。
+ *
+ * 响应形状统一由 sendError 决定（{code,data,msg} 且 code === HTTP 状态），
+ * 不再使用历史上的 {code,message,details,timestamp}——前端只读 msg，
+ * 旧形状会让未捕获错误在界面上退化成「HTTP 500」。
  */
 export class AppError extends Error {
   constructor(
@@ -27,10 +23,7 @@ export class AppError extends Error {
   }
 }
 
-/**
- * Global error handler middleware
- * Catches all errors and returns standardized error responses
- */
+/** 全局错误处理：把任意异常收敛成统一信封 */
 export function errorHandler(
   err: Error | AppError,
   req: Request,
@@ -47,52 +40,33 @@ export function errorHandler(
   });
 
   if (err instanceof AppError) {
-    res.status(err.code).json({
-      code: err.code,
-      message: err.message,
-      details: err.details,
-      timestamp: new Date().toISOString(),
-    } as ApiError);
+    sendError(res, err.message, err.code, err.details ?? null);
     return;
   }
 
-  // Handle validation errors
+  // body-parser 的超限错误：默认会走 500，前端只看到「Internal server error」
+  if ((err as Error & { type?: string }).type === 'entity.too.large') {
+    sendError(res, 'Request body too large', 413);
+    return;
+  }
+
   if (err.name === 'ValidationError') {
-    res.status(400).json({
-      code: 400,
-      message: 'Validation failed',
-      details: { error: err.message },
-      timestamp: new Date().toISOString(),
-    } as ApiError);
+    sendError(res, 'Validation failed', 400, { error: err.message });
     return;
   }
 
-  // Handle JWT errors
   if (err.name === 'JsonWebTokenError') {
-    res.status(401).json({
-      code: 401,
-      message: 'Invalid token',
-      timestamp: new Date().toISOString(),
-    } as ApiError);
+    sendError(res, 'Invalid token', 401);
     return;
   }
 
   if (err.name === 'TokenExpiredError') {
-    res.status(401).json({
-      code: 401,
-      message: 'Token expired',
-      timestamp: new Date().toISOString(),
-    } as ApiError);
+    sendError(res, 'Token expired', 401);
     return;
   }
 
-  // Default error response
-  res.status(500).json({
-    code: 500,
-    message: 'Internal server error',
-    details: process.env.NODE_ENV === 'development' ? { error: err.message } : undefined,
-    timestamp: new Date().toISOString(),
-  } as ApiError);
+  // 兜底：生产不回显内部错误文本，开发环境透出便于定位
+  sendError(res, process.env.NODE_ENV === 'development' ? err.message : 'Internal server error', 500);
 }
 
 /**
@@ -104,32 +78,3 @@ export function asyncHandler(fn: (req: Request, res: Response, next: NextFunctio
     Promise.resolve(fn(req, res, next)).catch(next);
   };
 }
-
-/**
- * Common error factory functions
- */
-export const errors = {
-  badRequest: (message: string, details?: Record<string, unknown>) =>
-    new AppError(400, message, details),
-
-  unauthorized: (message = 'Unauthorized') =>
-    new AppError(401, message),
-
-  forbidden: (message = 'Forbidden') =>
-    new AppError(403, message),
-
-  notFound: (resource: string) =>
-    new AppError(404, `${resource} not found`),
-
-  conflict: (message: string, details?: Record<string, unknown>) =>
-    new AppError(409, message, details),
-
-  unprocessable: (message: string, details?: Record<string, unknown>) =>
-    new AppError(422, message, details),
-
-  tooManyRequests: (message = 'Too many requests') =>
-    new AppError(429, message),
-
-  internalError: (message = 'Internal server error', details?: Record<string, unknown>) =>
-    new AppError(500, message, details),
-};

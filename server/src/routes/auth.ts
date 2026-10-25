@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, noTokenAuth } from '../middleware/auth';
 import { signToken } from '../service/jwt';
 import { User } from '../types';
 import { checkLoginAllowed, recordFailedAttempt, clearLoginAttempts } from '../service/loginLimit';
@@ -17,7 +17,7 @@ import { requires2FA, has2FAEnabled, validatePassword, getSecurityPolicy, Securi
 import { verifyTrustedDevice, addTrustedDevice, DeviceInfo } from '../service/deviceTrust';
 import { getRequestIP } from '../middleware/clientIP';
 import db from '../db/bal/business-adapter';
-import { sendError } from '../utils/http';
+import { sendError, sendSuccess } from '../utils/http';
 
 const log = createLogger('HTTP').sub('Route').sub('Auth');
 /**
@@ -282,7 +282,8 @@ async function exchangeOauthCode(config: OAuthConfig, code: string): Promise<{ a
     client_secret: config.clientSecret,
     redirect_uri: config.redirectUri,
   });
-  log.debug('Token request', { endpoint: config.tokenEndpoint, body: body.toString() });
+  // 卫生：不打印 body 原文（含 client_secret / code），只打印字段名摘要
+  log.debug('Token request', { endpoint: config.tokenEndpoint, bodyKeys: [...new URLSearchParams(body.toString()).keys()] });
   try {
     const response = await fetch(config.tokenEndpoint, {
       method: 'POST',
@@ -291,7 +292,13 @@ async function exchangeOauthCode(config: OAuthConfig, code: string): Promise<{ a
     });
     log.debug('Token response', { status: response.status });
     const tokenPayload = await response.json() as { access_token?: string; id_token?: string; error?: string; error_description?: string };
-    log.debug('Token response payload', { payload: tokenPayload });
+    // 卫生：token 响应含 access_token / id_token，只记录是否拿到与键名
+    log.debug('Token response payload', {
+      keys: Object.keys(tokenPayload),
+      hasAccessToken: Boolean(tokenPayload.access_token),
+      hasIdToken: Boolean(tokenPayload.id_token),
+      error: tokenPayload.error,
+    });
     if (!response.ok) {
       throw new Error(`OAuth token exchange failed: HTTP ${response.status}${tokenPayload.error_description ? ' - ' + tokenPayload.error_description : ''}`);
     }
@@ -387,8 +394,9 @@ async function verifyIdToken(idToken: string, config: OAuthConfig): Promise<OAut
   const header = JSON.parse(decodeBase64Url(parts[0]).toString('utf8')) as { alg?: string; kid?: string };
   const payload = JSON.parse(decodeBase64Url(parts[1]).toString('utf8')) as Record<string, unknown>;
 
-  log.debug('id_token header', { header });
-  log.debug('id_token payload', { payload });
+  // 卫生：header 只露 alg/kid/typ；payload 只露键名（含 sub/email 等个人信息）
+  log.debug('id_token header', { alg: header.alg, kid: header.kid });
+  log.debug('id_token payload', { keys: Object.keys(payload), issuer: payload.iss, audience: payload.aud });
   log.debug('Expected issuer', { issuer: config.issuer });
   log.debug('Expected clientId', { clientId: config.clientId });
   log.debug('JWKS URI', { jwksUri: config.jwksUri });
@@ -534,7 +542,9 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
     let loginIdentifier = username.toLowerCase();
 
     // Check login limit
-    const ipAddress = getRequestIP(req);
+    // 账号锁/限流必须用真实 TCP 对端地址：TRUST_PROXY=true 时 req.ip 可被 X-Forwarded-For 伪造，
+    // 伪造头即可无限重试（第四轮 P2）。
+    const ipAddress = req.socket?.remoteAddress ?? getRequestIP(req);
     const limitCheck = await checkLoginAllowed(loginIdentifier, ipAddress);
     if (!limitCheck.allowed) {
       sendError(res, limitCheck.message || 'Account is temporarily locked', 429);
@@ -576,6 +586,8 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
     }
 
     const securityPolicy = await getSecurityPolicy();
+    // 全局策略只决定「是否强制所有人必须开」，不决定「已开启的人是否要校验」：
+    // 用户自己开了 TOTP/Passkey，登录就必须验第二因子，否则 2FA 形同虚设。
     const twoFAValidationEnabled = Boolean(securityPolicy.require2FAGlobal);
 
     // Check 2FA
@@ -598,7 +610,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
       return;
     }
 
-    if (twoFAValidationEnabled && has2FA) {
+    if (has2FA) {
       if (backupCode) {
         const isValid = await verifyBackupCode(authenticatedUser.id, backupCode);
         if (!isValid) {
@@ -663,7 +675,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
     }
 
     // Clear login attempts on successful login
-    await clearLoginAttempts(loginIdentifier);
+    await clearLoginAttempts(loginIdentifier, ipAddress);
 
     // 如果用户选择信任设备，添加设备信任
     let deviceId: string | undefined;
@@ -828,7 +840,8 @@ router.post('/oauth/start', async (req: Request, res: Response) => {
  */
 router.post('/oauth/start-bind', authMiddleware, async (req: Request, res: Response) => {
   // 最早期日志，确认请求到达
-  log.debug('>>> /oauth/start-bind ENTRY', { userId: req.user?.userId, body: req.body });
+  // 卫生：只记字段名，避免将来 body 里加了敏感字段就被整包落盘
+  log.debug('>>> /oauth/start-bind ENTRY', { userId: req.user?.userId, bodyKeys: Object.keys(req.body ?? {}) });
   try {
     const desired = (req.body?.provider as 'custom' | 'logto' | undefined) || 'custom';
     log.debug('Start bind request received', { provider: desired, userId: req.user!.userId });
@@ -1217,10 +1230,11 @@ router.put('/password', authMiddleware, async (req: Request, res: Response) => {
  *       200:
  *         description: Profile updated
  */
-router.put('/profile', authMiddleware, async (req: Request, res: Response) => {
+// 账号级写（改名/改邮箱→可触发密码重置）必须 JWT：令牌不应能改账号资料
+router.put('/profile', authMiddleware, noTokenAuth('account profile'), async (req: Request, res: Response) => {
   const { nickname, email, emailCode } = req.body as { nickname?: string; email?: string; emailCode?: string };
   if (nickname === undefined && email === undefined) {
-    res.json({ code: -1, msg: 'Nothing to update' });
+    sendSuccess(res, null, 'Nothing to update');
     return;
   }
 
@@ -1228,7 +1242,7 @@ router.put('/profile', authMiddleware, async (req: Request, res: Response) => {
     const user = await UserOperations.getById(req.user!.userId);
 
     if (!user) {
-      res.json({ code: -1, msg: 'User not found' });
+      sendError(res, 'User not found', 404);
       return;
     }
 

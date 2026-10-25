@@ -223,8 +223,12 @@ export async function getActionTimeDistribution(userId: number, days: number = 7
 /**
  * 转义 CSV 字段
  */
-function escapeCSV(field: unknown): string {
-  const str = String(field || '');
+export function escapeCSV(field: unknown): string {
+  let str = String(field ?? '');
+  // 公式注入：以 = + - @ 或制表符开头的**每一行**都会被表格软件当公式执行
+  // （多行字段里换行后的内容在按行解析时同样是行首）。
+  if (/^[=+\-@\t]/.test(str)) str = "'" + str;
+  str = str.replace(/\n([=+\-@\t])/g, "\n'$1");
   if (str.includes(',') || str.includes('"') || str.includes('\n')) {
     return `"${str.replace(/"/g, '""')}"`;
   }

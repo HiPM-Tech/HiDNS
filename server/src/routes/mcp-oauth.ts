@@ -500,6 +500,15 @@ router.post('/authorize', authMiddleware, async (req: Request, res: Response) =>
  */
 router.post('/register', async (req: Request, res: Response) => {
   try {
+    // 动态注册（RFC 7591）默认关闭：开放注册 + 任意 redirect_uri 等于让任何人
+    // 拿 HiDNS 当授权服务器用（钓鱼/开放重定向）。
+    // 需要时用 MCP_OAUTH_ALLOW_REGISTRATION=true 打开，且回地址只允许回环。
+    if (String(process.env.MCP_OAUTH_ALLOW_REGISTRATION ?? '') !== 'true') {
+      return res.status(403).json({
+        error: 'registration_not_supported',
+        error_description: 'Dynamic client registration is disabled. Ask an administrator to create a client.',
+      });
+    }
     const { client_name, redirect_uris, scope, token_endpoint_auth_method } = req.body;
 
     if (!client_name || typeof client_name !== 'string') {
@@ -513,6 +522,22 @@ router.post('/register', async (req: Request, res: Response) => {
       return res.status(400).json({
         error: 'invalid_client_metadata',
         error_description: 'redirect_uris is required and must be a non-empty array',
+      });
+    }
+    // 只允许回环地址：避免把 HiDNS 变成开放重定向跳板
+    const invalidUri = redirect_uris.find((uri: unknown) => {
+      try {
+        const parsed = new URL(String(uri));
+        return !['http:', 'https:'].includes(parsed.protocol)
+          || !['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
+      } catch {
+        return true;
+      }
+    });
+    if (invalidUri) {
+      return res.status(400).json({
+        error: 'invalid_redirect_uri',
+        error_description: 'Only loopback redirect URIs (localhost/127.0.0.1/::1) are allowed',
       });
     }
 
@@ -620,11 +645,11 @@ router.post('/token', async (req: Request, res: Response) => {
 
     switch (grant_type) {
       case 'client_credentials':
-        return handleClientCredentials(req, res);
+        return await handleClientCredentials(req, res);
       case 'authorization_code':
-        return handleAuthorizationCode(req, res);
+        return await handleAuthorizationCode(req, res);
       case 'refresh_token':
-        return handleRefreshToken(req, res);
+        return await handleRefreshToken(req, res);
       default:
         return res.status(400).json({
           error: 'unsupported_grant_type',

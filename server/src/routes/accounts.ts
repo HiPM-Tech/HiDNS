@@ -8,6 +8,7 @@ import { normalizeProviderType } from '../lib/dns/providerAlias';
 import { isAdmin, isSuper, normalizeRole, ROLE_ADMIN } from '../utils/roles';
 import { parseInteger, sendError, sendSuccess, sendServerError } from '../utils/http';
 import { accountEventData } from '../utils/accountEvent';
+import { mergeMaskedConfig, parseConfigRecord } from '../service/account-config';
 import { wsService } from '../service/websocket';
 import { getAccountAudienceUserIds } from './audience';
 import { logAuditOperation } from '../service/audit';
@@ -31,8 +32,10 @@ function canManageAccount(account: DnsAccount, userId: number, role: number): bo
   return role >= ROLE_ADMIN && account.created_by === userId;
 }
 
+
+
 // account_* 事件的收件人（超管 / 创建者 / 团队成员）统一由 routes/audience.ts 提供，
-// 口径与本文件 canReadAccount() 一致，隧道事件（tunnels.ts）复用同一份判定。
+// 口径与本文件 canReadAccount() 一致，供 audience 判定复用。
 
 /**
  * @swagger
@@ -185,7 +188,7 @@ router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response)
  */
 router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
   if (!isAdmin(req.user?.role)) {
-    sendError(res, 'Permission denied');
+    sendError(res, 'Permission denied', 403);
     return;
   }
   const { type, name, config, remark = '', team_id } = req.body as {
@@ -287,7 +290,7 @@ router.get('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
   const account = await DnsAccountOperations.getById(id) as DnsAccount | undefined;
   const userRole = normalizeRole(req.user?.role);
   if (!account || !(await canReadAccount(account, req.user!.userId, userRole))) {
-    sendError(res, 'Account not found');
+    sendError(res, 'Account not found', 404);
     return;
   }
 
@@ -355,12 +358,17 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
   const id = parseInteger(req.params.id) ?? 0;
   const account = await DnsAccountOperations.getById(id) as DnsAccount | undefined;
   if (!account || !canManageAccount(account, req.user!.userId, normalizeRole(req.user?.role))) {
-    sendError(res, 'Account not found');
+    sendError(res, 'Account not found', 404);
     return;
   }
   const { type, name, config, remark, team_id } = req.body as {
     type?: string; name?: string; config?: Record<string, string>; remark?: string; team_id?: number | null;
   };
+  // 掩码回传兼容：GET 把 config 的每个值掩成 '***'，前端原样回传时必须视为「未修改」——
+  // 否则 check() 会拿 '***' 验凭据（必然失败），或在校验宽松的 provider 上把凭据写成 '***'。
+  const existingConfig = parseConfigRecord(account.config);
+  const effectiveConfig = config ? mergeMaskedConfig(existingConfig, config) : undefined;
+
   const normalizedType = type !== undefined ? normalizeProviderType(type) : undefined;
   if (normalizedType !== undefined) {
     if (!getProvider(normalizedType)) {
@@ -372,9 +380,12 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
       return;
     }
   }
-  if (config) {
+  if (effectiveConfig) {
     try {
-      const dnsAdapter = createAdapter(normalizedType ?? normalizeProviderType(account.type), config);
+      const dnsAdapter = createAdapter(
+        normalizedType ?? normalizeProviderType(account.type),
+        effectiveConfig as Record<string, string>,
+      );
       const ok = await dnsAdapter.check();
       if (!ok) {
         sendError(res, `Credential check failed: ${dnsAdapter.getError()}`);
@@ -406,7 +417,7 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
   const updates: Record<string, unknown> = {};
   if (normalizedType !== undefined) updates.type = normalizedType;
   if (name !== undefined) updates.name = name;
-  if (config !== undefined) updates.config = JSON.stringify(config);
+  if (effectiveConfig !== undefined) updates.config = JSON.stringify(effectiveConfig);
   if (remark !== undefined) updates.remark = remark;
   if (team_id !== undefined) updates.team_id = team_id;
 
@@ -466,7 +477,7 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req: Request, res: Res
   const id = parseInteger(req.params.id) ?? 0;
   const account = await DnsAccountOperations.getById(id) as DnsAccount | undefined;
   if (!account || !canManageAccount(account, req.user!.userId, normalizeRole(req.user?.role))) {
-    sendError(res, 'Account not found');
+    sendError(res, 'Account not found', 404);
     return;
   }
   // 收件人先算再删：账号行删除后就查不到 created_by / team_id 了
@@ -500,7 +511,7 @@ router.patch('/:id/toggle-enabled', authMiddleware, asyncHandler(async (req: Req
   const id = parseInteger(req.params.id) ?? 0;
   const account = await DnsAccountOperations.getById(id) as DnsAccount | undefined;
   if (!account || !canManageAccount(account, req.user!.userId, normalizeRole(req.user?.role))) {
-    sendError(res, 'Account not found');
+    sendError(res, 'Account not found', 404);
     return;
   }
 

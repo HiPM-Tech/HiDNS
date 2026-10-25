@@ -12,7 +12,7 @@ import punycode from 'punycode.js';
 export function toPunycode(domain: string): string {
   try {
     // Use punycode.js library for reliable IDN encoding
-    return punycode.toASCII(domain.trim());
+    return punycode.toASCII(domain.trim().normalize('NFKC'));
   } catch {
     // If encoding fails, return the original domain
     return domain.trim().toLowerCase();
@@ -53,7 +53,15 @@ export function isPunycodeDomain(domain: string): boolean {
  * 3. Convert Unicode to Punycode for storage and API calls
  */
 export function normalizeDomain(domain: string): string {
-  const trimmed = domain.trim().toLowerCase();
+  // 末尾点是合法的 FQDN 写法（example.com.），但留着会让 getRootDomain 取到 "com."
+  // 这类错误结果，也会让按域名比较/查库的地方匹配不到——统一在这里去掉一个末点。
+  //
+  // Unicode 归一化：同一个域名可能有 NFC / NFD 两种写法（café vs cafe + 组合重音），
+  // 不先归一化会产生两个不同的 Punycode（xn--caf-dma / xn--cafe-yvc），
+  // 从而绕过"同域判重"、域名白名单与分组（同一域名分成两组）。
+  // NFKC：把全角字符、兼容字符（如 ｅｘａｍｐｌｅ.com、①.com）折叠成标准形式，
+  // 只做 NFC 会让它们在库里成为「看起来一样、实际不同」的域名。
+  const trimmed = domain.trim().normalize('NFKC').toLowerCase().replace(/\.$/, '');
   
   // If contains Unicode, convert to Punycode
   if (isUnicodeDomain(trimmed)) {

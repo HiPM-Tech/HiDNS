@@ -67,7 +67,6 @@ const READ_ONLY_SERVICES: AvailableService[] = [
   'records.read',
   'domains.read',
   'accounts.read',
-  'tunnels.read',
   'system.read',
   'network.fetch',
   'notify.send',

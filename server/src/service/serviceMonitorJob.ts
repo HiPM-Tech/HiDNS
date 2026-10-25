@@ -1,7 +1,7 @@
 import { ServiceMonitorOperations, getDbType } from '../db/bal/business-adapter';
 import { getAllEnabled, runCheckAndUpdate, ServiceMonitorMonitor } from './serviceMonitor';
 import { taskManager } from './taskManager';
-import { connect } from '../db/dal/connection';
+import { reconnectDatabase } from '../db/lifecycle';
 import { createLogger } from '../lib/logger';
 import { wsService } from './websocket';
 import { getSuperAdminUserIds } from './realtime-audience';
@@ -63,7 +63,7 @@ export function startServiceMonitorJob() {
       if (e instanceof Error && e.message.includes('Database connection not initialized')) {
         log.warn('Database connection lost, attempting to reconnect...');
         try {
-          await connect();
+          await reconnectDatabase();
           log.info('Database reconnected successfully');
         } catch (reconnectError) {
           log.error('Failed to reconnect to database', { error: reconnectError });

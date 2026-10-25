@@ -1,8 +1,11 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
+import { getRequestIP } from '../middleware/clientIP';
+import { sendError, sendSuccess } from '../utils/http';
 import { authMiddleware, adminOnly, noTokenAuth } from '../middleware/auth';
 import { SecurityPolicyOperations, TrustedDeviceOperations, getDbType, UserOperations } from '../db/bal/business-adapter';
 import { getSecurityPolicy, updateSecurityPolicy, checkPasswordStrength, validatePassword, requires2FA, has2FAEnabled } from '../service/securityPolicy';
 import { generateTOTPSecret, enableTOTP, disableTOTP, getTOTPStatus, verifyTOTPToken, verifyTOTPTokenForUser, verifyBackupCode } from '../service/totp';
+import { verifyTrustedDevice, type DeviceInfo } from '../service/deviceTrust';
 import { createLogger } from '../lib/logger';
 import { wsService } from '../service/websocket';
 
@@ -16,7 +19,7 @@ router.get('/policy', authMiddleware, noTokenAuth('security settings'), adminOnl
     res.json({ code: 0, data: policy, msg: 'success' });
   } catch (error) {
     log.error('Failed to get security policy:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to get security policy' });
+    sendError(res, 'Failed to get security policy', 500);
   }
 });
 
@@ -25,26 +28,62 @@ router.put('/policy', authMiddleware, noTokenAuth('security settings'), adminOnl
   try {
     const policy = req.body;
     await updateSecurityPolicy(policy);
-    res.json({ code: 0, msg: 'Security policy updated' });
+    sendSuccess(res, null, 'Security policy updated');
   } catch (error) {
     log.error('Failed to update security policy:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to update security policy' });
+    sendError(res, 'Failed to update security policy', 500);
   }
 });
 
 // 检查密码强度
+/**
+ * 无鉴权端点的轻量节流：每秒 10 次。
+ *
+ * 键必须用 **真实 TCP 对端地址**（socket.remoteAddress），不能用 req.ip：
+ * 生产模式 trust proxy 默认信任私有段反代，客户端伪造 X-Forwarded-For 就能绕过
+ * （第三轮实测：并发 30 每条换 XFF → 200=30 / 429=0）。
+ * 另外做一次惰性清理，避免 Map 无限增长。
+ */
+const strengthBuckets = new Map<string, { count: number; resetAt: number }>();
+function allowPasswordStrengthCall(req: Request): boolean {
+  const ip = req.socket?.remoteAddress ?? 'unknown';
+  const now = Date.now();
+  if (strengthBuckets.size > 5000) {
+    for (const [key, bucket] of strengthBuckets) {
+      if (bucket.resetAt <= now) strengthBuckets.delete(key);
+    }
+  }
+  const bucket = strengthBuckets.get(ip);
+  if (!bucket || bucket.resetAt <= now) {
+    strengthBuckets.set(ip, { count: 1, resetAt: now + 1000 });
+    return true;
+  }
+  bucket.count += 1;
+  return bucket.count <= 10;
+}
+
 router.post('/password-strength', async (req, res) => {
   try {
     const { password } = req.body;
     if (!password) {
-      return res.status(400).json({ code: 1, msg: 'Password is required' });
+      return sendError(res, 'Password is required', 400);
+    }
+    // 该端点无鉴权且会跑 zxcvbn：长度上限必须是「真实密码量级」。
+    // 256 字符单次约 2.9s，4 并发即可把事件循环堵到 3.5s（第二轮实测）；
+    // 72 是 bcrypt 的输入上限，超过部分本来也不参与校验。
+    if (typeof password !== 'string' || password.length > 72) {
+      return sendError(res, 'Password too long (max 72)', 400);
+    }
+    // 简单令牌桶：同一 IP 每秒最多 10 次，防止并发刷爆 CPU
+    if (!allowPasswordStrengthCall(req)) {
+      return sendError(res, 'Too many requests', 429);
     }
 
     const result = checkPasswordStrength(password);
     res.json({ code: 0, data: result, msg: 'success' });
   } catch (error) {
     log.error('Failed to check password strength:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to check password strength' });
+    sendError(res, 'Failed to check password strength', 500);
   }
 });
 
@@ -53,14 +92,14 @@ router.post('/validate-password', async (req, res) => {
   try {
     const { password } = req.body;
     if (!password) {
-      return res.status(400).json({ code: 1, msg: 'Password is required' });
+      return sendError(res, 'Password is required', 400);
     }
 
     const result = await validatePassword(password);
     res.json({ code: 0, data: result, msg: 'success' });
   } catch (error) {
     log.error('Failed to validate password:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to validate password' });
+    sendError(res, 'Failed to validate password', 500);
   }
 });
 
@@ -72,7 +111,7 @@ router.get('/requires-2fa', authMiddleware, async (req, res) => {
     res.json({ code: 0, data: { required }, msg: 'success' });
   } catch (error) {
     log.error('Failed to check 2FA requirement:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to check 2FA requirement' });
+    sendError(res, 'Failed to check 2FA requirement', 500);
   }
 });
 
@@ -95,7 +134,7 @@ router.get('/2fa-status', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     log.error('Failed to check 2FA status:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to check 2FA status' });
+    sendError(res, 'Failed to check 2FA status', 500);
   }
 });
 
@@ -104,7 +143,7 @@ router.get('/users/:userId/require-2fa', authMiddleware, noTokenAuth('security s
   try {
     const userId = Number(req.params.userId);
     if (!Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ code: 1, msg: 'Invalid userId' });
+      return sendError(res, 'Invalid userId', 400);
     }
 
     const policy = await getSecurityPolicy();
@@ -123,7 +162,7 @@ router.get('/users/:userId/require-2fa', authMiddleware, noTokenAuth('security s
     });
   } catch (error) {
     log.error('Failed to get user 2FA requirement:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to get user 2FA requirement' });
+    sendError(res, 'Failed to get user 2FA requirement', 500);
   }
 });
 
@@ -132,12 +171,12 @@ router.put('/users/:userId/require-2fa', authMiddleware, noTokenAuth('security s
   try {
     const userId = Number(req.params.userId);
     if (!Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ code: 1, msg: 'Invalid userId' });
+      return sendError(res, 'Invalid userId', 400);
     }
 
     const { require2FA } = req.body;
     if (require2FA === undefined) {
-      return res.status(400).json({ code: 1, msg: 'require2FA is required' });
+      return sendError(res, 'require2FA is required', 400);
     }
 
     await SecurityPolicyOperations.updateUser2FARequirement(userId, Boolean(require2FA));
@@ -155,7 +194,7 @@ router.put('/users/:userId/require-2fa', authMiddleware, noTokenAuth('security s
     });
   } catch (error) {
     log.error('Failed to update user 2FA requirement:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to update user 2FA requirement' });
+    sendError(res, 'Failed to update user 2FA requirement', 500);
   }
 });
 
@@ -166,7 +205,7 @@ router.post('/2fa/setup', authMiddleware, async (req, res) => {
     const user = await UserOperations.getById(userId);
 
     if (!user) {
-      return res.status(404).json({ code: 1, msg: 'User not found' });
+      return sendError(res, 'User not found', 404);
     }
 
     const email = (user as { email?: string }).email;
@@ -175,7 +214,7 @@ router.post('/2fa/setup', authMiddleware, async (req, res) => {
     res.json({ code: 0, data: setup, msg: 'success' });
   } catch (error) {
     log.error('Failed to setup 2FA:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to setup 2FA' });
+    sendError(res, 'Failed to setup 2FA', 500);
   }
 });
 
@@ -186,12 +225,12 @@ router.post('/2fa/enable', authMiddleware, async (req, res) => {
     const { secret, token, backupCodes } = req.body;
 
     if (!secret || !token || !backupCodes) {
-      return res.status(400).json({ code: 1, msg: 'secret, token, and backupCodes are required' });
+      return sendError(res, 'secret, token, and backupCodes are required', 400);
     }
 
     // 验证 TOTP 令牌
     if (!verifyTOTPToken(secret, token)) {
-      return res.status(400).json({ code: 1, msg: 'Invalid verification code' });
+      return sendError(res, 'Invalid verification code', 400);
     }
 
     await enableTOTP(userId, secret, backupCodes);
@@ -209,10 +248,10 @@ router.post('/2fa/enable', authMiddleware, async (req, res) => {
       log.error('Failed to send 2fa_enabled event', { error });
     }
 
-    res.json({ code: 0, msg: '2FA enabled successfully' });
+    sendSuccess(res, null, '2FA enabled successfully');
   } catch (error) {
     log.error('Failed to enable 2FA:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to enable 2FA' });
+    sendError(res, 'Failed to enable 2FA', 500);
   }
 });
 
@@ -224,14 +263,14 @@ router.post('/2fa/disable', authMiddleware, async (req, res) => {
 
     const status = await getTOTPStatus(userId);
     if (!status.enabled) {
-      return res.status(400).json({ code: 1, msg: '2FA is not enabled' });
+      return sendError(res, '2FA is not enabled', 400);
     }
 
     // 必须校验当前 TOTP 令牌或备用码，否则会话一旦被窃取即可直接关闭 2FA
     const totpOk = await verifyTOTPTokenForUser(userId, token);
     const backupOk = totpOk ? false : await verifyBackupCode(userId, String(token || ''));
     if (!totpOk && !backupOk) {
-      return res.status(400).json({ code: 1, msg: 'Invalid verification code' });
+      return sendError(res, 'Invalid verification code', 400);
     }
 
     await disableTOTP(userId);
@@ -249,10 +288,10 @@ router.post('/2fa/disable', authMiddleware, async (req, res) => {
       log.error('Failed to send 2fa_disabled event', { error });
     }
 
-    res.json({ code: 0, msg: '2FA disabled successfully' });
+    sendSuccess(res, null, '2FA disabled successfully');
   } catch (error) {
     log.error('Failed to disable 2FA:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to disable 2FA' });
+    sendError(res, 'Failed to disable 2FA', 500);
   }
 });
 
@@ -264,12 +303,12 @@ router.get('/trusted-devices', authMiddleware, async (req, res) => {
     res.json({ code: 0, data: devices, msg: 'success' });
   } catch (error) {
     log.error('Failed to get trusted devices:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to get trusted devices' });
+    sendError(res, 'Failed to get trusted devices', 500);
   }
 });
 
 // 删除受信任设备
-router.delete('/trusted-devices/:deviceId', authMiddleware, async (req, res) => {
+router.delete('/trusted-devices/:deviceId', authMiddleware, noTokenAuth('trusted devices'), async (req, res) => {
   try {
     const userId = (req as any).user.userId;
     const { deviceId } = req.params;
@@ -290,25 +329,26 @@ router.delete('/trusted-devices/:deviceId', authMiddleware, async (req, res) => 
         log.error('Failed to send trusted_device_removed event', { error });
       }
 
-      res.json({ code: 0, msg: 'Device removed' });
+      sendSuccess(res, null, 'Device removed');
     } else {
-      res.status(404).json({ code: 1, msg: 'Device not found' });
+      sendError(res, 'Device not found', 404);
     }
   } catch (error) {
     log.error('Failed to remove trusted device:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to remove trusted device' });
+    sendError(res, 'Failed to remove trusted device', 500);
   }
 });
 
 // 删除所有受信任设备
-router.delete('/trusted-devices', authMiddleware, async (req, res) => {
+// 可信设备是账号级安全设置：令牌不得操作
+router.delete('/trusted-devices', authMiddleware, noTokenAuth('trusted devices'), async (req, res) => {
   try {
     const userId = (req as any).user.userId;
     await TrustedDeviceOperations.deleteByUser(userId);
-    res.json({ code: 0, msg: 'All devices removed' });
+    sendSuccess(res, null, 'All devices removed');
   } catch (error) {
     log.error('Failed to remove all trusted devices:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to remove all trusted devices' });
+    sendError(res, 'Failed to remove all trusted devices', 500);
   }
 });
 
@@ -317,14 +357,49 @@ router.post('/user-require-2fa', authMiddleware, noTokenAuth('security settings'
   try {
     const { userId, require2FA } = req.body;
     if (userId === undefined || require2FA === undefined) {
-      return res.status(400).json({ code: 1, msg: 'userId and require2FA are required' });
+      return sendError(res, 'userId and require2FA are required', 400);
     }
 
     await SecurityPolicyOperations.updateUser2FARequirement(userId, require2FA);
-    res.json({ code: 0, msg: 'User 2FA requirement updated' });
+    sendSuccess(res, null, 'User 2FA requirement updated');
   } catch (error) {
     log.error('Failed to update user 2FA requirement:', { error });
-    res.status(500).json({ code: 1, msg: 'Failed to update user 2FA requirement' });
+    sendError(res, 'Failed to update user 2FA requirement', 500);
+  }
+});
+
+// 当前用户的 2FA 要求状态（原 routes/securityPolicy.ts 的独占端点，备用路由删除时迁移至此）
+router.get('/2fa/requirement', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const policy = await getSecurityPolicy();
+    const validationEnabled = Boolean(policy.require2FAGlobal);
+    const forceRequired = validationEnabled && (await requires2FA(userId));
+    const enabled = validationEnabled && (await has2FAEnabled(userId));
+
+    res.json({
+      code: 0,
+      data: { enabled, forceRequired, validationEnabled, canSkip: !forceRequired },
+      msg: 'success',
+    });
+  } catch (error) {
+    log.error('Failed to get 2FA requirement', { error });
+    res.status(500).json({ code: 500, msg: 'Failed to get 2FA requirement' });
+  }
+});
+
+// 当前设备是否受信任（同上，迁移自 securityPolicy.ts）
+router.post('/check-device', authMiddleware, async (req, res) => {
+  try {
+    const deviceInfo: DeviceInfo = {
+      userAgent: req.headers['user-agent'] || '',
+      ipAddress: getRequestIP(req),
+    };
+    const result = await verifyTrustedDevice(req.user!.userId, deviceInfo);
+    res.json({ code: 0, data: result, msg: 'success' });
+  } catch (error) {
+    log.error('Failed to verify trusted device', { error });
+    res.status(500).json({ code: 500, msg: 'Failed to verify trusted device' });
   }
 });
 

@@ -147,7 +147,16 @@ describe('dns.record.* 动作', () => {
   it('TTL 非法时回退默认值，不把 NaN 传给适配器', async () => {
     const ctx = await ctxFor('dns.record.create');
     await dnsRecordHandlers['dns.record.create'](ctx, { domain: 'ok.com', name: 'x', type: 'A', value: '2.2.2.2', ttl: 'abc' });
-    expect(adapter.addDomainRecord).toHaveBeenCalledWith('x', 'A', '2.2.2.2', '0', 600);
+    // 线路不指定（undefined）→ 由适配器决定默认线路；历史上硬编码 '0' 会让真实线路 ID 的提供商失败
+    expect(adapter.addDomainRecord).toHaveBeenCalledWith('x', 'A', '2.2.2.2', undefined, 600);
+  });
+
+  it('update 保留原记录的线路与 TTL，只改值', async () => {
+    const ctx = await ctxFor('dns.record.update');
+    await dnsRecordHandlers['dns.record.update'](ctx, { domain: 'ok.com', recordId: 'r1', value: '9.9.9.9' });
+    expect(adapter.updateDomainRecord).toHaveBeenCalledWith(
+      'r1', 'www', 'A', '9.9.9.9', '0', 600, undefined, undefined, undefined,
+    );
   });
 
   it('delete 在删除前读取元数据并发布 deleted 事件', async () => {

@@ -2,6 +2,13 @@ import rateLimit from 'express-rate-limit';
 import { Request, Response } from 'express';
 import { getRequestIP } from './clientIP';
 
+/** 统一限流响应：必须是信封 + JSON，否则前端只看到一段 HTML 文本 */
+function rateLimitHandler(message: string) {
+  return (req: Request, res: Response) => {
+    res.status(429).json({ code: 429, data: null, msg: message });
+  };
+}
+
 /**
  * 登录速率限制 - 防止暴力破解
  * 默认：15 分钟内最多 5 个失败尝试
@@ -9,13 +16,14 @@ import { getRequestIP } from './clientIP';
 export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 分钟
   max: 5, // 限制登录尝试次数
-  message: 'Too many login attempts, please try again later.',
+  handler: rateLimitHandler('Too many login attempts, please try again later.'),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request) => {
     // 使用 username/IP 组合作为 key，防止用户名枚举绕过
     const identifier = req.body?.username || req.body?.email || 'unknown';
-    const ip = getRequestIP(req) || 'unknown';
+    // 用真实 TCP 对端地址：TRUST_PROXY=true 时 req.ip / XFF 可伪造，等于限流可绕过
+    const ip = req.socket?.remoteAddress || getRequestIP(req) || 'unknown';
     return `${identifier.toLowerCase()}:${ip}`;
   },
 });
@@ -27,7 +35,7 @@ export const loginLimiter = rateLimit({
 export const emailLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 小时
   max: 5, // 限制邮件发送次数
-  message: 'Too many emails sent, please try again later.',
+  handler: rateLimitHandler('Too many emails sent, please try again later.'),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request) => {
@@ -43,7 +51,7 @@ export const emailLimiter = rateLimit({
 export const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 分钟
   max: 120, // 限制请求数
-  message: 'Too many requests to this endpoint, please try again later.',
+  handler: rateLimitHandler('Too many requests to this endpoint, please try again later.'),
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -55,7 +63,7 @@ export const apiLimiter = rateLimit({
 export const strictApiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 分钟
   max: 30, // 限制请求数（更严格）
-  message: 'Too many requests to this endpoint, please try again later.',
+  handler: rateLimitHandler('Too many requests to this endpoint, please try again later.'),
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -74,7 +82,7 @@ export function createLimiter(
   return rateLimit({
     windowMs,
     max,
-    message,
+    handler: rateLimitHandler(message),
     standardHeaders: true,
     legacyHeaders: false,
   });
@@ -88,7 +96,7 @@ export function createLimiter(
 export const rdapLimiter = rateLimit({
   windowMs: 1000,
   max: 2,
-  message: 'Too many RDAP queries, please try again later.',
+  handler: rateLimitHandler('Too many RDAP queries, please try again later.'),
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req: Request) => {
@@ -107,7 +115,7 @@ export function createUserLimiter(windowMs: number, max: number) {
   return rateLimit({
     windowMs,
     max,
-    message: 'Too many requests, please try again later.',
+    handler: rateLimitHandler('Too many requests, please try again later.'),
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req: Request) => {

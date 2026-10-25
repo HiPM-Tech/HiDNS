@@ -5,6 +5,7 @@
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { TeamOperations, UserOperations } from '../db/bal/business-adapter';
 import { z } from 'zod';
 import { validateToolPermission, logMcpAction, getModuleByToolName } from '../service/mcp-permission';
 import { McpOperations, DomainOperations, RenewableDomainOperations, ServiceMonitorOperations, NSMonitorOperations, RecordOperations, UserPreferencesOperations, AuditExportOperations } from '../db/bal/business-adapter';
@@ -17,6 +18,35 @@ import { AppError } from '../middleware/errorHandler';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('MCP').sub('Tools');
+
+/**
+ * MCP 工具的可见性边界。
+ *
+ * 这三个工具此前直接用 getAllForSuperAdmin / getById / getAllEnabled，等于任何持 Key 的普通用户
+ * 都能读全租户（第三轮实测 member 读到超管私有域名与全部续期记录）。
+ * 统一走 /domains 的可见性口径。
+ */
+/**
+ * 断言当前用户对该域名有访问权；没有则以「不存在」返回，避免泄露存在性。
+ * MCP 的 domainId 工具此前只校验工具权限、不校验数据归属（第四轮 N-1）。
+ */
+async function assertDomainVisible(userId: number, domainId: number): Promise<boolean> {
+  const scope = await getAccessibleScope(userId);
+  return scope.isSuper || scope.domainIds.has(Number(domainId));
+}
+
+async function getAccessibleScope(userId: number): Promise<{ isSuper: boolean; domainIds: Set<number>; accountIds: Set<number> }> {
+  const user = await UserOperations.getById(userId) as { role_level?: number } | undefined;
+  const isSuper = Number(user?.role_level ?? 1) >= 3;
+  const teamIds = await TeamOperations.getTeamIdsByUserId(userId);
+  const domains = await DomainOperations.getAccessibleDomains({ userId, teamIds, isSuper }) as unknown as Array<{ id: number; account_id: number }>;
+  return {
+    isSuper,
+    domainIds: new Set(domains.map((d) => Number(d.id))),
+    accountIds: new Set(domains.map((d) => Number(d.account_id))),
+  };
+}
+
 /**
  * 认证请求 - 验证 API Key 或 OAuth2 Token
  */
@@ -234,12 +264,26 @@ export function registerTools(server: McpServer): void {
         const pageSizeNum = pageSize || 50;
 
         // 使用 DomainOperations 获取域名列表
+        const scope = await getAccessibleScope(auth.userId);
         const domains = await DomainOperations.getAllForSuperAdminWithPagination({
           keyword,
           domainStatus: 'all',
           page: pageNum,
           pageSize: pageSizeNum,
         });
+        // 非超管只保留自己可见的域名
+        if (!scope.isSuper) {
+          const visible = (domains.list as Array<{ id: number }>).filter((d) => scope.domainIds.has(Number(d.id)));
+          const resultVisible = {
+            domains: visible,
+            total: visible.length,
+            page: pageNum,
+            pageSize: pageSizeNum,
+            totalPages: Math.max(1, Math.ceil(visible.length / pageSizeNum)),
+          };
+          await validateToolPermission(auth.userId, 'list_domains', 'read');
+          return { content: [{ type: 'text', text: JSON.stringify(resultVisible, null, 2) }] };
+        }
 
         const result = {
           domains: domains.list,
@@ -297,6 +341,10 @@ export function registerTools(server: McpServer): void {
 
         // 调用实际的域名信息查询
         const domain = await DomainOperations.getById(domainId);
+        const infoScope = await getAccessibleScope(auth.userId);
+        if (domain && !infoScope.isSuper && !infoScope.domainIds.has(Number((domain as { id: number }).id))) {
+          return { content: [{ type: 'text', text: `Domain with ID ${domainId} not found` }], isError: true };
+        }
 
         if (!domain) {
           return {
@@ -359,8 +407,12 @@ export function registerTools(server: McpServer): void {
 
         await validateToolPermission(auth.userId, 'get_renewable_domains', 'read');
 
-        // 获取所有启用的续期域名
-        const renewableDomains = await RenewableDomainOperations.getAllEnabled();
+        // 获取所有启用的续期域名（非超管按可管理账号过滤）
+        const renewableScope = await getAccessibleScope(auth.userId);
+        let renewableDomains = await RenewableDomainOperations.getAllEnabled();
+        if (!renewableScope.isSuper) {
+          renewableDomains = (renewableDomains as Array<{ account_id: number }>).filter((d) => renewableScope.accountIds.has(Number(d.account_id)));
+        }
 
         const daysThreshold = daysBeforeExpiry || 30;
         const now = new Date();
@@ -859,6 +911,20 @@ export function registerTools(server: McpServer): void {
         }
 
         await validateToolPermission(auth.userId, 'create_servicemonitor', 'write', auth.authType, auth.scope);
+        // dns_failover 会绑定域名：必须校验该域名对当前用户可见（第六轮 6-2）
+        // MCP 侧不允许开启内网探测（管理员开关只在 REST 管理面提供）
+        try {
+          const parsedConfig = JSON.parse(String(config ?? '{}')) as Record<string, unknown>;
+          if ('allowPrivate' in parsedConfig) delete parsedConfig.allowPrivate;
+          config = JSON.stringify(parsedConfig);
+        } catch { /* 配置不是合法 JSON 时交给下游校验 */ }
+
+        if (String(type ?? '') === 'dns_failover' && typeof domainId === 'number') {
+          if (!(await assertDomainVisible(auth.userId, domainId))) {
+            return { content: [{ type: 'text', text: `Domain with ID ${domainId} not found` }], isError: true };
+          }
+        }
+
 
         // 创建监控
         const { createMonitor } = await import('../service/serviceMonitor');
@@ -1143,6 +1209,9 @@ export function registerTools(server: McpServer): void {
         }
 
         await validateToolPermission(auth.userId, 'update_domain_status', 'write', auth.authType, auth.scope);
+        if (!(await assertDomainVisible(auth.userId, domainId))) {
+          return { content: [{ type: 'text', text: `Domain with ID ${domainId} not found` }], isError: true };
+        }
 
         // 调用业务适配器更新域名状态
         await DomainOperations.setEnabled(domainId, enabled ? 1 : 0);
@@ -1215,6 +1284,9 @@ export function registerTools(server: McpServer): void {
         }
 
         await validateToolPermission(auth.userId, 'list_domain_records', 'read');
+        if (!(await assertDomainVisible(auth.userId, domainId))) {
+          return { content: [{ type: 'text', text: `Domain with ID ${domainId} not found` }], isError: true };
+        }
 
         // 调用 DNS 提供商 API 获取记录（支持线路过滤）
         const result = await DnsProviderService.getRecords(domainId, {
@@ -1268,6 +1340,9 @@ export function registerTools(server: McpServer): void {
         }
 
         await validateToolPermission(auth.userId, 'get_dns_lines', 'read');
+        if (!(await assertDomainVisible(auth.userId, domainId))) {
+          return { content: [{ type: 'text', text: `Domain with ID ${domainId} not found` }], isError: true };
+        }
 
         // 调用 DNS 提供商 API 获取线路列表
         const lines = await DnsProviderService.getLines(domainId);
@@ -1324,6 +1399,9 @@ export function registerTools(server: McpServer): void {
         }
 
         await validateToolPermission(auth.userId, 'create_dns_record', 'write', auth.authType, auth.scope);
+        if (!(await assertDomainVisible(auth.userId, domainId))) {
+          return { content: [{ type: 'text', text: `Domain with ID ${domainId} not found` }], isError: true };
+        }
 
         // 核验记录类型和值合法性
         const err = validateRecordValue(type, content);
@@ -1396,6 +1474,9 @@ export function registerTools(server: McpServer): void {
         }
 
         await validateToolPermission(auth.userId, 'update_dns_record', 'write', auth.authType, auth.scope);
+        if (!(await assertDomainVisible(auth.userId, domainId))) {
+          return { content: [{ type: 'text', text: `Domain with ID ${domainId} not found` }], isError: true };
+        }
 
         // 先获取当前记录信息
         const currentRecord = await DnsProviderService.getRecordInfo(recordId, domainId);
@@ -1479,6 +1560,9 @@ export function registerTools(server: McpServer): void {
         }
 
         await validateToolPermission(auth.userId, 'delete_dns_record', 'write', auth.authType, auth.scope);
+        if (!(await assertDomainVisible(auth.userId, domainId))) {
+          return { content: [{ type: 'text', text: `Domain with ID ${domainId} not found` }], isError: true };
+        }
 
         // 调用 DNS 提供商 API 删除记录
         const success = await DnsProviderService.deleteRecord(recordId, domainId);
@@ -1536,6 +1620,9 @@ export function registerTools(server: McpServer): void {
         }
 
         await validateToolPermission(auth.userId, 'get_domain_remark', 'read');
+        if (!(await assertDomainVisible(auth.userId, domainId))) {
+          return { content: [{ type: 'text', text: `Domain with ID ${domainId} not found` }], isError: true };
+        }
 
         // 获取域名信息
         const domain = await DomainOperations.getById(domainId);
@@ -1670,8 +1757,12 @@ export function registerTools(server: McpServer): void {
           pageSize: pageSizeNum,
         });
 
-        // 如果需要，可以进一步过滤禁用的域名
-        let filteredList = domains.list;
+        // 非超管按可见性过滤（此前直接回超管分页结果 → member 读全租户）
+        const filteredScope = await getAccessibleScope(auth.userId);
+        let filteredList = domains.list as Array<{ id: number }>;
+        if (!filteredScope.isSuper) {
+          filteredList = filteredList.filter((d) => filteredScope.domainIds.has(Number(d.id)));
+        }
         if (accountEnabled === false) {
           // 显示所有域名（包括禁用账号的）
           // 注意：getAllForSuperAdminWithPagination 已经过滤了禁用账号
@@ -1680,7 +1771,7 @@ export function registerTools(server: McpServer): void {
 
         const result = {
           domains: filteredList,
-          total: domains.total,
+          total: filteredScope.isSuper ? domains.total : filteredList.length,
           page: pageNum,
           pageSize: pageSizeNum,
           totalPages: Math.ceil(domains.total / pageSizeNum),

@@ -15,7 +15,22 @@ function getCwd(): string {
 // 2. .env (root directory)
 // 3. process.env (lowest priority)
 
+let loaded = false;
+
+/**
+ * 加载环境变量（幂等）。
+ *
+ * 注意：本模块在**求值期**就会自动调用一次（见文件末尾）。
+ * 原因：`app.ts` 里显式 `loadEnv()` 是在所有 import 求值之后才执行的，
+ * 而 `service/jwt.ts` 的模块级 IIFE 会先读 `process.env.JWT_SECRET`——
+ * 结果 `data/.env` 里的密钥永远读不到，每次启动随机生成，重启后所有 JWT 失效。
+ */
+/** 进程启动时真实存在的环境变量：文件配置不得覆盖它们 */
+const initialProcessEnv = { ...process.env };
+
 export function loadEnv(): void {
+  if (loaded) return;
+  loaded = true;
   const cwd = getCwd();
   const dataDir = path.join(cwd, 'data');
 
@@ -39,14 +54,22 @@ export function loadEnv(): void {
     log.info('Root .env not found');
   }
 
-  // Load data/.env second (highest priority, overrides root .env)
+  // Load data/.env second（文件优先级高于 root .env，但**不得覆盖真实进程环境**）
   if (fs.existsSync(dataEnvPath)) {
     log.info('Loading data/.env');
-    const result = dotenv.config({ path: dataEnvPath, override: true });
-    if (result.error) {
-      log.error('Error loading data/.env', { error: result.error });
-    } else {
-      log.info('data/.env loaded successfully');
+    try {
+      const parsed = dotenv.parse(fs.readFileSync(dataEnvPath));
+      const overridden: string[] = [];
+      for (const [key, value] of Object.entries(parsed)) {
+        if (key in initialProcessEnv) { overridden.push(key); continue; }
+        process.env[key] = value;
+      }
+      if (overridden.length > 0) {
+        // 显式传入的环境变量（Docker -e / systemd Environment=）优先，避免部署配置被安装向导写的文件悄悄改掉
+        log.info('Process environment takes precedence over data/.env', { keys: overridden });
+      }
+    } catch (error) {
+      log.error('Error loading data/.env', { error });
     }
   } else {
     log.info('data/.env not found');
@@ -170,4 +193,10 @@ export function getDbConfig(): {
       ssl: process.env.DB_SSL === 'true',
     },
   };
+}
+
+// 求值期自动加载：保证任何依赖 env 的模块（jwt / smtp / 初始化）都能先拿到配置。
+// 允许用 HIDNS_SKIP_AUTO_ENV=1 关闭（测试里按需手动控制）。
+if (process.env.HIDNS_SKIP_AUTO_ENV !== '1') {
+  loadEnv();
 }

@@ -132,7 +132,7 @@ router.post('/', authMiddleware, noTokenAuth('user management'), adminOnly, asyn
 
     sendSuccess(res, { id });
   } catch {
-    sendError(res, 'Username already exists');
+    sendError(res, 'Username already exists', 409);
   }
 }));
 
@@ -175,7 +175,7 @@ router.put('/:id', authMiddleware, noTokenAuth('user management'), adminOnly, as
   const id = parseInteger(req.params.id, { min: 1 }) ?? 0;
   const user = await UserOperations.getById(id) as User | undefined;
   if (!user) {
-    sendError(res, 'User not found');
+    sendError(res, 'User not found', 404);
     return;
   }
   const { nickname, email, role, status, password } = req.body as {
@@ -269,7 +269,7 @@ router.delete('/:id', authMiddleware, noTokenAuth('user management'), adminOnly,
   }
   const target = await UserOperations.getById(id) as User | undefined;
   if (!target) {
-    sendError(res, 'User not found');
+    sendError(res, 'User not found', 404);
     return;
   }
   const callerRole = normalizeRole(req.user?.role);

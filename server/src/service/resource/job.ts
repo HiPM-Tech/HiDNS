@@ -17,6 +17,9 @@ export function startResourceMonitorJob(): void {
   log.info('Starting resource monitor job (collect every 10s, flush every 60s)');
 
   collectInterval = setInterval(async () => {
+    // 前端目前没有资源面板（没有消费方），无人连接时连采集都跳过；
+    // 持久化由下面的 flushInterval 独立完成，不受影响。
+    if (wsService.clientCount === 0) return;
     try {
       const snapshot = await collectSnapshot();
       wsService.broadcast({ type: 'resource:snapshot', data: snapshot });

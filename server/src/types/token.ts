@@ -54,8 +54,6 @@ export const AVAILABLE_SERVICES = [
   'records.write',
   'accounts.read',
   'accounts.write',
-  'tunnels.read',
-  'tunnels.write',
   'system.read',
   'network.fetch',
   'notify.send',

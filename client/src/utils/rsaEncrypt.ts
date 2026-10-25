@@ -3,6 +3,18 @@
  * Uses Web Crypto API for client-side encryption
  */
 
+import { expectData, request } from '../lib/http';
+
+/**
+ * 公钥接口走统一的 `lib/http`：
+ * 历史实现直接 `fetch('/api/auth/public-key')`，绕过了 apiBaseUrl()（`VITE_API_URL` 部署下会打错域）、
+ * 401 处理与超时约定。取公钥失败会让登录/改密/重置全链路失效，不能各写一份。
+ */
+async function fetchPublicKey(): Promise<string> {
+  const data = await expectData(request<{ publicKey: string }>('/auth/public-key'));
+  return data.publicKey;
+}
+
 let publicKey: string | null = null;
 let cryptoKey: CryptoKey | null = null;
 
@@ -14,20 +26,8 @@ export async function getPublicKey(): Promise<string> {
     return publicKey;
   }
 
-  try {
-    const response = await fetch('/api/auth/public-key');
-    const data = await response.json();
-    
-    if (data.code !== 0) {
-      throw new Error(data.msg || 'Failed to get public key');
-    }
-    
-    publicKey = data.data.publicKey as string;
-    return publicKey;
-  } catch (error) {
-    console.error('Failed to fetch public key:', error);
-    throw error;
-  }
+  publicKey = await fetchPublicKey();
+  return publicKey;
 }
 
 /**

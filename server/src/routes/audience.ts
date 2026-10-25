@@ -60,7 +60,7 @@ export async function getAdminAudienceUserIds(): Promise<number[]> {
  *
  * 口径来源（两处等价）：
  *   - routes/accounts.ts 的 canReadAccount()：超管 / created_by / 团队成员
- *   - routes/tunnels.ts 的 getAccessibleCloudflareAccounts()：super 取全部，
+ *   - （历史）routes/tunnels.ts 的 getAccessibleCloudflareAccounts()：该路由已移除，
  *     否则取 created_by 或所属团队名下的账号
  * 账号类与隧道类事件都带账号归属，收件人一律按这一份实现算，避免各写一份漂移。
  *

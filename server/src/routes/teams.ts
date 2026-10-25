@@ -157,7 +157,11 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
   const userId = req.user!.userId;
 
   if (!name || name.trim().length === 0) {
-    sendError(res, 'Team name is required');
+    sendError(res, '请填写团队名称');
+    return;
+  }
+  if (name.trim().length > 50) {
+    sendError(res, '团队名称最多 50 个字符');
     return;
   }
 
@@ -167,8 +171,18 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
     created_by: userId,
   });
 
-  // Add creator as admin
-  await TeamOperations.addMember(id, userId, 'admin');
+  // Add creator as admin。两步不在同一事务里（BAL 操作各自拿连接），
+  // 因此失败时做补偿删除，避免留下「没有任何成员的孤儿团队」。
+  try {
+    await TeamOperations.addMember(id, userId, 'admin');
+  } catch (error) {
+    log.error('Failed to add creator as team admin, rolling back team', { teamId: id, error });
+    try { await TeamOperations.delete(id); } catch (rollbackError) {
+      log.error('Rollback of team creation failed; orphan team left behind', { teamId: id, rollbackError });
+    }
+    sendError(res, 'Failed to create team', 500);
+    return;
+  }
 
   await logAuditOperation(userId, 'create_team', name.trim(), { teamId: id }, req as any);
 
@@ -275,7 +289,13 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
   }
 
   const updates: { name?: string; description?: string } = {};
-  if (name !== undefined) updates.name = name.trim();
+  if (name !== undefined) {
+    if (!name.trim() || name.trim().length > 50) {
+      sendError(res, '团队名称需为 1–50 个字符');
+      return;
+    }
+    updates.name = name.trim();
+  }
   if (description !== undefined) updates.description = description.trim();
 
   await TeamOperations.update(teamId, updates);
@@ -446,14 +466,14 @@ router.post('/:id/members', authMiddleware, asyncHandler(async (req: Request, re
   // Check if user exists
   const targetUser = await UserOperations.getById(targetUserId);
   if (!targetUser) {
-    sendError(res, 'User not found');
+    sendError(res, 'User not found', 404);
     return;
   }
 
   // Check if already member
   const isAlreadyMember = await TeamOperations.isMember(teamId, targetUserId);
   if (isAlreadyMember) {
-    sendError(res, 'User is already a member of this team');
+    sendError(res, 'User is already a member of this team', 409);
     return;
   }
 
@@ -718,7 +738,7 @@ router.post('/:id/domain-permissions', authMiddleware, asyncHandler(async (req: 
   // Check if already exists
   const existing = await DomainPermissionOperations.getByTeamDomainAndSub(teamId, domain_id, sub || '');
   if (existing) {
-    sendError(res, 'Permission already exists for this domain');
+    sendError(res, 'Permission already exists for this domain', 409);
     return;
   }
 
@@ -992,7 +1012,7 @@ router.post('/:id/members/:userId/domain-permissions', authMiddleware, asyncHand
   // Check if already exists
   const existing = await DomainPermissionOperations.getByUserDomainAndSub(targetUserId, domain_id, sub || '');
   if (existing) {
-    sendError(res, 'Permission already exists for this domain');
+    sendError(res, 'Permission already exists for this domain', 409);
     return;
   }
 

@@ -2134,14 +2134,18 @@ export const SystemOperations = {
     let hasUsers = false;
     try {
       const tables = testDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[];
-      if (tables.length > 0) {
-        hasData = true;
-        // Check if users table exists and has data
-        const usersTable = tables.find(t => t.name === 'users');
-        if (usersTable) {
-          const userCount = testDb.prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number };
-          hasUsers = userCount?.cnt > 0;
-        }
+      const names = new Set(tables.map((t) => t.name));
+      // 「有表」不等于「有数据」：服务启动时 DSM 会自动建表，
+      // 全新库若按表存在判定，安装向导会误报「检测到已有数据」并给出「重置并初始化」危险入口。
+      if (names.has('users')) {
+        const userCount = testDb.prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number };
+        hasUsers = Number(userCount?.cnt ?? 0) > 0;
+      }
+      if (names.has('domains')) {
+        const domainCount = testDb.prepare('SELECT COUNT(*) as cnt FROM domains').get() as { cnt: number };
+        hasData = hasUsers || Number(domainCount?.cnt ?? 0) > 0;
+      } else {
+        hasData = hasUsers;
       }
     } catch {
       // No tables yet
@@ -2177,14 +2181,17 @@ export const SystemOperations = {
     let hasUsers = false;
     try {
       const [tables] = await pool.execute('SHOW TABLES') as [any[], any];
-      if (tables && tables.length > 0) {
-        hasData = true;
-        // Check if users table exists and has data
-        const usersTableExists = tables.some(t => Object.values(t)[0] === 'users');
-        if (usersTableExists) {
-          const [userCountResult] = await pool.execute('SELECT COUNT(*) as cnt FROM users') as [any[], any];
-          hasUsers = userCountResult[0]?.cnt > 0;
-        }
+      const names = new Set((tables ?? []).map((t: Record<string, unknown>) => String(Object.values(t)[0])));
+      // 同 SQLite：有表不算有数据，看 users/domains 是否有行
+      if (names.has('users')) {
+        const [userCountResult] = await pool.execute('SELECT COUNT(*) as cnt FROM users') as [any[], any];
+        hasUsers = Number(userCountResult[0]?.cnt ?? 0) > 0;
+      }
+      if (names.has('domains')) {
+        const [domainCountResult] = await pool.execute('SELECT COUNT(*) as cnt FROM domains') as [any[], any];
+        hasData = hasUsers || Number(domainCountResult[0]?.cnt ?? 0) > 0;
+      } else {
+        hasData = hasUsers;
       }
     } catch {
       // No tables yet
@@ -2223,15 +2230,17 @@ export const SystemOperations = {
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
       `);
-      const tables = tablesResult.rows as { table_name: string }[];
-      if (tables && tables.length > 0) {
-        hasData = true;
-        // Check if users table exists and has data
-        const usersTableExists = tables.some(t => t.table_name === 'users');
-        if (usersTableExists) {
-          const userCountResult = await pool.query('SELECT COUNT(*) as cnt FROM users');
-          hasUsers = userCountResult.rows[0]?.cnt > 0;
-        }
+      const names = new Set((tablesResult.rows as { table_name: string }[]).map((t) => t.table_name));
+      // 同 SQLite：有表不算有数据
+      if (names.has('users')) {
+        const userCountResult = await pool.query('SELECT COUNT(*) as cnt FROM users');
+        hasUsers = Number(userCountResult.rows[0]?.cnt ?? 0) > 0;
+      }
+      if (names.has('domains')) {
+        const domainCountResult = await pool.query('SELECT COUNT(*) as cnt FROM domains');
+        hasData = hasUsers || Number(domainCountResult.rows[0]?.cnt ?? 0) > 0;
+      } else {
+        hasData = hasUsers;
       }
     } catch {
       // No tables yet
@@ -3028,14 +3037,20 @@ export const ServiceMonitorOperations = {
   },
 
   /** 分页获取用户监控列表（可按类型过滤） */
-  async getByUserWithPagination(userId: number, page: number, pageSize: number, type?: string): Promise<{ list: QueryResult[]; total: number }> {
+  async getByUserWithPagination(userId: number, page: number, pageSize: number, type?: string, keyword?: string): Promise<{ list: QueryResult[]; total: number }> {
     const offset = (page - 1) * pageSize;
+    // 搜索词里的 % _ \ 必须转义，否则用户输入 "%" 会变成「匹配全部」的通配查询
+    const like = keyword ? `%${keyword.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%` : undefined;
 
     let countSql = 'SELECT COUNT(*) as count FROM servicemonitor_monitors WHERE user_id = ?';
     const countParams: any[] = [userId];
     if (type) {
       countSql += ' AND type = ?';
       countParams.push(type);
+    }
+    if (like) {
+      countSql += " AND (name LIKE ? ESCAPE '\\' OR target LIKE ? ESCAPE '\\')";
+      countParams.push(like, like);
     }
     const countResult = await getInternal<{ count: number }>(
       countSql,
@@ -3049,6 +3064,10 @@ export const ServiceMonitorOperations = {
     if (type) {
       listSql += ' AND type = ?';
       listParams.push(type);
+    }
+    if (like) {
+      listSql += " AND (name LIKE ? ESCAPE '\\' OR target LIKE ? ESCAPE '\\')";
+      listParams.push(like, like);
     }
     listSql += ` ORDER BY created_at DESC LIMIT ${Math.floor(pageSize)} OFFSET ${Math.floor(offset)}`;
 
@@ -4105,6 +4124,33 @@ export const NSMonitorOperations = {
   // ========== 域名监测列表 ==========
 
   /** 获取用户所有的域名监测配置 */
+  /**
+   * 按域名删除**所有用户**的监测配置。
+   * 域名被删除后，任何用户（包括超管与其他团队成员）的同名监控都会变成永远失败的孤儿，
+   * 之前的实现只清理操作者自己的，导致他人监控继续跑并持续告警。
+   */
+  /**
+   * 清理历史孤儿监控：域名已从系统里删除（或从未同步成功）但仍留在 ns_monitor_domains。
+   * 这些行会永远失败并持续累加 alert_count，启动时做一次回收。
+   */
+  async deleteOrphans(): Promise<number> {
+    const result = await executeInternal(
+      'DELETE FROM ns_monitor_domains WHERE domain_name NOT IN (SELECT name FROM domains)',
+      [],
+      { operation: 'NSMonitor.deleteOrphans', table: 'ns_monitor_domains' }
+    );
+    return Number((result as { changes?: number } | undefined)?.changes ?? 0);
+  },
+
+  async deleteByDomainName(domainName: string): Promise<number> {
+    const result = await executeInternal(
+      'DELETE FROM ns_monitor_domains WHERE domain_name = ?',
+      [domainName],
+      { operation: 'NSMonitor.deleteByDomainName', table: 'ns_monitor_domains' }
+    );
+    return Number((result as { changes?: number } | undefined)?.changes ?? 0);
+  },
+
   async getUserMonitors(userId: number): Promise<QueryResult[]> {
     return queryInternal(
       `SELECT * FROM ns_monitor_domains
@@ -4433,6 +4479,16 @@ export const GroupedDomainsCacheOperations = {
     );
     if (!row) return null;
     return { version: row.version, cacheData: row.cache_data };
+  },
+
+  /** 清空全部用户的分组缓存（定时刷新用：清空后由请求按需重建） */
+  async clearAll(): Promise<number> {
+    const result = await executeInternal(
+      'DELETE FROM grouped_domains_cache',
+      [],
+      { operation: 'GroupedDomainsCache.clearAll', table: 'grouped_domains_cache' }
+    );
+    return Number((result as { changes?: number } | undefined)?.changes ?? 0);
   },
 
   async set(userId: number, cacheType: 'domain' | 'account', version: number, cacheData: string, expiresAt?: Date): Promise<void> {
@@ -4983,6 +5039,17 @@ export const McpOperations = {
     redirect_uri: string;
     scope: string | null;
   } | null> {
+    // 原子领取：用条件更新一次完成「未使用 + 未过期」判定，
+    // 避免 SELECT→UPDATE 之间的并发窗口（多实例下同一码可能被兑换两次）。
+    // 必须用 runInternal（返回 {changes}）：executeInternal 返回 void，
+    // 用它判断影响行数会恒为 0 → 所有授权码都被判无效（且已被置 used，无法重试）。
+    const claim = await runInternal(
+      'UPDATE mcp_oauth_auth_codes SET used = true WHERE code = ? AND used = false AND expires_at > CURRENT_TIMESTAMP',
+      [code],
+      { operation: 'Mcp.consumeAuthCode.claim', table: 'mcp_oauth_auth_codes' }
+    );
+    if (Number(claim?.changes ?? 0) === 0) return null;
+
     const row = await getInternal<{
       id: number;
       client_id: string;
@@ -4998,15 +5065,9 @@ export const McpOperations = {
     );
 
     if (!row) return null;
-    if (row.used) return null;
+    // 注意：不要在这里再判 row.used —— 上面的原子领取已经把它置为 1，
+    // 再判一次会让「首次兑换」也返回 null（第四/五轮连续踩到的 P0）。
     if (new Date(row.expires_at) < new Date()) return null;
-
-    // 标记为已使用
-    await executeInternal(
-      'UPDATE mcp_oauth_auth_codes SET used = true WHERE id = ?',
-      [row.id],
-      { operation: 'Mcp.consumeAuthCode.markUsed', table: 'mcp_oauth_auth_codes' }
-    );
 
     return {
       client_id: row.client_id,

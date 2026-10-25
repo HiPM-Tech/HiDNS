@@ -1,0 +1,172 @@
+/**
+ * 设计 tokens（shadcn 约定）。
+ *
+ * 两套值：语义颜色（对比度按 WCAG AA 校准）与黄金比例几何（8 × φ^(n/2) 阶梯）。
+ * 所有 px 值都是「设计稿 1:1」——页面不再有任何 zoom 缩放。
+ */
+@layer base {
+  :root {
+    /* ── 语义颜色（浅色） ── */
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    /* 40% 亮度：白底 6.13:1、bg-muted 上 5.60:1（原 47% 在弱底上只有 4.29） */
+    --muted-foreground: 215 20% 40%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+    /* 35% 亮度：白字对比 5.03:1（原 48% 只有 2.86:1，连 3:1 都过不去） */
+    --primary: 199 89% 35%;
+    --primary-foreground: 0 0% 100%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+    /* 边框分两级：--border 是装饰性分隔线，--input 是**表单控件边界**。
+       SC 1.4.11 要求 UI 组件边界 ≥3:1，原来的 91%/88% 只有 1.24/1.34:1，
+       输入框在白底上几乎看不出边界（键盘用户尤其受影响）。 */
+    --border: 215 22% 84%;
+    --input: 215 20% 58%;
+    --ring: 199 89% 35%;
+    --radius: 0.5rem;
+
+    /* ── 黄金比例几何（8 × φ^(n/2)） ── */
+    --phi: 1.618034;
+    --u-1: 5px;   /* 8/φ    */
+    --u-2: 6px;   /* 8/√φ   */
+    --u-3: 8px;
+    --u-4: 10px;
+    --u-5: 13px;
+    --u-6: 16px;
+    --u-7: 21px;
+    --u-8: 27px;
+    --u-9: 34px;
+    --u-10: 43px;
+    --u-11: 55px;
+    --u-12: 70px;
+
+    --h-header: 55px;
+    --w-sidebar: 232px;
+    --w-sidebar-collapsed: 89px;
+    --w-auth-card: 376px;
+    --w-content-narrow: 984px;
+    --w-content: 1252px;
+    --w-content-wide: 1592px;
+
+    --pad-card: 27px;
+    --gap-card: 16px;
+    --gap-section: 43px;
+    --pad-page-x: 34px;
+    --pad-page-y: 27px;
+    --h-control-sm: 27px;
+    --h-control: 34px;
+    --h-control-lg: 43px;
+
+    --shell-h: 100dvh;
+
+    /* ── 背景图分层（L1 图 / L2 蒙层 / L3 结构面 / L4 内容面） ── */
+    --app-bg-image: url('https://t.alcy.cc/moez');
+    --scrim-rgb: 255 255 255;
+    /* 0.72：背景图是彩色的实拍/插画，0.56 时正文区仍会被图案抢注意力（实测截图） */
+    --scrim-alpha: 0.72;
+    /* 面板必须接近实色：半透明面板叠在图上时，卡片与背景对比度会掉到 1.0，
+       且同页两张卡会因底图颜色不同而一张偏白一张偏粉（二次评审实测） */
+    --panel-alpha: 1;
+    --panel-blur: 0px;
+    /* 顶栏承载 13px 标题，必须接近实色；0.72 时图会从顶栏透出来 */
+    --chrome-alpha: 0.92;
+    --chrome-blur: 18px;
+  }
+
+  .dark {
+    --background: 222 45% 7%;
+    --foreground: 210 40% 96%;
+    /* 卡片必须比背景明显亮：原 11% 与 8% 只差 1.06:1，整屏糊成一块黑板 */
+    --card: 222 38% 14%;
+    --card-foreground: 210 40% 96%;
+    --popover: 222 38% 14%;
+    --popover-foreground: 210 40% 96%;
+    --muted: 222 30% 18%;
+    --muted-foreground: 215 20% 70%;
+    --accent: 222 30% 18%;
+    --accent-foreground: 210 40% 96%;
+    --primary: 199 89% 55%;
+    --primary-foreground: 222 45% 7%;
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 217 28% 26%;
+    --input: 215 25% 46%;
+    --ring: 199 89% 55%;
+
+    --scrim-rgb: 8 13 24;
+    --scrim-alpha: 0.76;
+    --panel-alpha: 0.98;
+    --panel-blur: 0px;
+    --chrome-alpha: 0.92;
+    --chrome-blur: 18px;
+  }
+
+  /* 控制台：内容区留白少、信息密度高，背景图必须退成「底纹」而不是「壁纸」。
+     登录/授权等公开页仍用较弱蒙层（那里正文在实色面板里）。 */
+  html[data-surface='console'] body {
+    /* 0.80：既让图案在留白处看得见，又不至于抢正文（对比度由实色面板与内容区薄纱兜底） */
+    --scrim-alpha: 0.8;
+  }
+  html[data-surface='console'].dark body {
+    /* 0.93：0.86 时随机背景图会把页面提到 #1e232d，比卡片 #161d30 还亮，
+       形成「卡片凹陷」的观感（暗色审计实测 1.05:1）。加深蒙层让页面始终暗于卡片。 */
+    --scrim-alpha: 0.93;
+  }
+  /* 用户关闭背景图：回到纯色，面板必须变成实色，否则「半透明但没东西可透」会发浑 */
+  html[data-bg='off'] {
+    --panel-alpha: 1;
+    --chrome-alpha: 1;
+  }
+  html[data-bg='off'] body {
+    background-image: none;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    /* L1 图 + L2 蒙层：一条多重 background-image 搞定，无需额外 DOM */
+    background-image:
+      linear-gradient(rgb(var(--scrim-rgb) / var(--scrim-alpha)), rgb(var(--scrim-rgb) / var(--scrim-alpha))),
+      var(--app-bg-image);
+    background-size: cover;
+    background-position: center 32%;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    /* 背景图每次刷新会换一张（图源随机），用底色过渡把「闪变」变成「淡入」 */
+    transition: background-color 600ms ease;
+  }
+
+  /* 内容区薄纱：页面标题直接压在图上，需要一层保证正文/副标题 >= 4.5:1 */
+  .surface-page {
+    background-color: hsl(var(--background) / 0.35);
+  }
+
+  /* 结构面（侧栏/顶栏）：容错高，可以透一点 */
+  .surface-chrome {
+    background-color: hsl(var(--card) / var(--chrome-alpha));
+    backdrop-filter: blur(var(--chrome-blur)) saturate(1.1);
+  }
+
+  /* 内容面（卡片）：承载正文，必须接近实色 */
+  .surface-panel {
+    background-color: hsl(var(--card) / var(--panel-alpha));
+    backdrop-filter: blur(var(--panel-blur)) saturate(1.05);
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+}
