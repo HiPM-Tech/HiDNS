@@ -8,7 +8,9 @@ import {
   SelectValue, Skeleton, Switch, Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow,
 } from '../../ui';
 import { formatDate, formatRelative } from '../../lib/format';
-import { useAccounts } from '../accounts/use-accounts';
+import { useAccounts, useProviders } from '../accounts/use-accounts';
+import { filterAccountsByProviderCapability } from '../accounts/provider-capabilities';
+import { providerLabel } from '../accounts/provider-labels';
 import { daysLeft, isRenewableEnabled, type RenewableDomainRow, type RenewableQuery } from './renewal-api';
 import { useAddRenewable, useDeleteRenewable, useProviderDomains, useRenewDomain, useRenewableDomains, useToggleRenewable } from './use-renewal';
 
@@ -40,6 +42,7 @@ export function DomainRenewalTab() {
   };
 
   const accounts = useAccounts({});
+  const providers = useProviders();
   const domains = useRenewableDomains(query);
   const toggle = useToggleRenewable();
   const remove = useDeleteRenewable();
@@ -49,7 +52,9 @@ export function DomainRenewalTab() {
   const total = domains.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  const accountOptions = (accounts.data ?? EMPTY_ACCOUNTS) as Array<{ id: number; name: string }>;
+  const allAccounts = (accounts.data ?? EMPTY_ACCOUNTS) as Array<{ id: number; name: string; type: string }>;
+  // 续期页只展示「支持续期」的提供商账户（DNS 解析账户不一定能续期）
+  const accountOptions = filterAccountsByProviderCapability(allAccounts, providers.data, 'renewal');
 
   const handleRenew = async (row: RenewableDomainRow) => {
     setError(null); setNotice(null);
@@ -108,7 +113,11 @@ export function DomainRenewalTab() {
             <SelectTrigger className="w-44" aria-label="按账户筛选"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部账户</SelectItem>
-              {accountOptions.map((account) => <SelectItem key={account.id} value={String(account.id)}>{account.name}</SelectItem>)}
+              {accountOptions.map((account) => (
+                <SelectItem key={account.id} value={String(account.id)}>
+                  {account.name} · {providerLabel(account.type)}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={(value) => { setStatus(value as typeof status); setPage(1); }}>

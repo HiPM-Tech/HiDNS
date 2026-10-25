@@ -20,7 +20,14 @@ vi.mock('../renewal-api', async (importOriginal) => {
   };
 });
 vi.mock('../../accounts/use-accounts', () => ({
-  useAccounts: () => ({ data: [{ id: 1, name: '阿里云', type: 'aliyun' }], isLoading: false }),
+  useAccounts: () => ({ data: [{ id: 1, name: '阿里云', type: 'aliyun' }, { id: 2, name: 'NameSilo', type: 'namesilo' }], isLoading: false }),
+  useProviders: () => ({
+    data: [
+      { type: 'aliyun', capabilities: { dns: { recordTypes: [] }, log: true, renewal: false } },
+      { type: 'namesilo', capabilities: { dns: { recordTypes: [] }, log: true, renewal: true } },
+    ],
+    isLoading: false,
+  }),
 }));
 
 const rows = [

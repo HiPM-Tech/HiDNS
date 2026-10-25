@@ -9,6 +9,9 @@ import {
 } from '../../ui';
 import { addDomains, listProviderDomains } from './api';
 import { useDomainAccounts } from './use-domains';
+import { useProviders } from '../accounts/use-accounts';
+import { filterAccountsByProviderCapability } from '../accounts/provider-capabilities';
+import { providerLabel } from '../accounts/provider-labels';
 
 const EMPTY_ACCOUNTS: never[] = [];
 
@@ -21,6 +24,7 @@ export interface AddDomainDialogProps {
 /** 从提供商拉取域名列表并批量托管（旧 AddDomainForm 的替代入口） */
 export function AddDomainDialog({ open, onOpenChange, onAdded }: AddDomainDialogProps) {
   const accounts = useDomainAccounts();
+  const providers = useProviders();
   const [accountId, setAccountId] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +51,9 @@ export function AddDomainDialog({ open, onOpenChange, onAdded }: AddDomainDialog
   });
 
   const options = providerDomains.data ?? [];
-  const accountOptions = (accounts.data ?? EMPTY_ACCOUNTS) as Array<{ id: number; name: string }>;
+  const allAccounts = (accounts.data ?? EMPTY_ACCOUNTS) as Array<{ id: number; name: string; type: string }>;
+  // 只展示「支持 DNS 解析」的提供商账户（edgeone 等纯 CDN 账户不能拉域名）
+  const accountOptions = filterAccountsByProviderCapability(allAccounts, providers.data, 'dns');
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -85,7 +91,9 @@ export function AddDomainDialog({ open, onOpenChange, onAdded }: AddDomainDialog
               <SelectTrigger id="add-domain-account"><SelectValue placeholder="选择账户" /></SelectTrigger>
               <SelectContent>
                 {accountOptions.map((account) => (
-                  <SelectItem key={account.id} value={String(account.id)}>{account.name}</SelectItem>
+                  <SelectItem key={account.id} value={String(account.id)}>
+                    {account.name} · {providerLabel(account.type)}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

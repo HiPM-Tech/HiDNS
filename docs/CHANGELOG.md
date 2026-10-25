@@ -2,6 +2,12 @@
 
 ## [2.3.1] - 未发布（本地）
 
+### 修复：账户下拉未标注提供商、未按能力过滤
+
+- 域名「新增域名」的账户下拉：仅保留 `capabilities.dns !== null` 的提供商账户（过 CDN 类账户不再出现），每项显示「账户名 · 提供商」。
+- 域名续期「添加域名」的账户下拉：仅保留 `capabilities.renewal === true` 的提供商账户，同样显示提供商。
+- 新增 `filterAccountsByProviderCapability()` 与 3 条单测；providers 未加载时不过滤，避免首屏闪空。
+
 ### 修复：仅启用 Logto 时登录报「OAuth login is disabled」
 
 - 后端 `/api/auth/oauth/start` 未显式传 `provider` 时不再固定 `custom`，改为回落到第一个已启用的提供商（`pickOAuthProvider`）；显式指定未启用的提供商会返回 `OAuth provider is not enabled`。
