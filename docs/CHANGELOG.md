@@ -14,9 +14,9 @@
 
 ### 华为云线路（合并上游 PR #39）
 
-- 合并 `sylingd/HiDNS#39` 的方向：线路选项改为官方 `ListSystemLines` 返回的系统线路，删除阿里云式 `0–4` 假线路；`UpdateRecordSets` 不再发送 `line`（线路创建后不可改）。
+- 合并 `sylingd/HiDNS#39`（merge commit `3d560152`，head `e17c3449`）：线路选项改为官方 `ListSystemLines` 返回的系统线路，删除阿里云式 `0–4` 假线路；`UpdateRecordSets` 不再发送 `line`（线路创建后不可改）。
 - 按官方文档补齐评审指出的问题：`default_view` 排首位（避免默认建到境外线路）、适配器内把旧哨兵 `0` 归一为 `default_view`、查询失败抛错而不是回退静态列表。
-- 新增 `docs/providers/huawei-line.md` 与 4 条回归用例（`huawei-line.test.ts`）。
+- 接口路径按官方文档修正为 `GET /v2.1/system-lines`（ListSystemLines）；新增 `docs/providers/huawei-line.md` 与 4 条回归用例（`huawei-line.test.ts`）。
 
 ### 文档
 
@@ -77,7 +77,7 @@
 - 分页与列表语义统一：分组模式 `pageSize` 从 100000 收到 1000，`docs/api.md` 新增分页口径总表（含 50/200、60/1440 的例外理由）。
 - provider 日志统一走工厂：`dnshe/auth`、`dpdns_reverse/adapter` 改用 `createProvider*Logger`，`aliyun` 的错误日志改结构化并补上 `getDomainRecords` 失败日志；列表接口逐请求日志降级（records 11→4、domains 23→14 条 info）。
 - 能力收缩：剔除 Cloudflare 隧道功能，删除云适配器的 4 个 tunnel 方法、`/api/tunnels` 模块与令牌作用域，同步 `root.ai.md` / `docs/api.md`。
-- **上游 PR #39（华为云线路支持）**：该 PR 指出的适配器遗留问题（`line` 一字段多义、线路 ID 空间不一致、能力位与实际行为不符）已在本版本通过「API 改造 + DNS 语义解构」统一解决；**PR 保持 draft、不合并**，其改动按语义重建而非直接吸收。
+- **上游 PR #39（华为云线路支持）**：该 PR 指出的适配器遗留问题（`line` 一字段多义、线路 ID 空间不一致、能力位与实际行为不符）已在本版本通过「API 改造 + DNS 语义解构」统一解决；**PR 已于 2.3.1 合并**（真实 merge commit `3d560152`），冲突按主干语义解析。
 
 **历史隐性问题（panel P0，均附单测）**
 
