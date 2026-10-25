@@ -124,10 +124,10 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     }
   };
 
-  const handleOauthLogin = async () => {
+  const handleOauthLogin = async (provider?: string) => {
     setError(null);
     try {
-      const envelope = await authApi.oauthStart();
+      const envelope = await authApi.oauthStart(provider);
       if (envelope.code !== 0 || !envelope.data?.authUrl) {
         setError(envelope.msg || copy.auth.oauthFailed);
         return;
@@ -343,20 +343,24 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
                 {/* 外部 IdP：Logto 用 LogIn、其它 OIDC 用 Network；各入口统一 outline + 前景色图标，
                     不做品牌色块，否则登录页会变成「应用商店」 */}
-                {oauth?.enabled && (
+                {(oauth?.providers?.length
+                  ? oauth.providers
+                  : oauth?.enabled ? [{ providerName: oauth.providerName }] : []
+                ).map((provider) => (
                   <Button
+                    key={provider.key ?? provider.providerName ?? 'oidc'}
                     type="button"
                     variant="outline"
                     className="w-full justify-start gap-phi-3"
-                    onClick={() => void handleOauthLogin()}
+                    onClick={() => void handleOauthLogin(provider.key)}
                   >
-                    {/logto/i.test(oauth.providerName ?? '') ? <LogIn strokeWidth={1.75} aria-hidden /> : <Network strokeWidth={1.75} aria-hidden />}
+                    {/logto/i.test(provider.providerName ?? '') ? <LogIn strokeWidth={1.75} aria-hidden /> : <Network strokeWidth={1.75} aria-hidden />}
                     <span className="truncate">
                       {copy.auth.oauthLogin}
-                      {oauth.providerName ? ` · ${oauth.providerName}` : ''}
+                      {provider.providerName ? ` · ${provider.providerName}` : ''}
                     </span>
                   </Button>
-                )}
+                ))}
 
                 <button
                   type="button"

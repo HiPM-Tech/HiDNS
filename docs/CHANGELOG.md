@@ -2,6 +2,12 @@
 
 ## [2.3.1] - 未发布（本地）
 
+### 修复：仅启用 Logto 时登录报「OAuth login is disabled」
+
+- 后端 `/api/auth/oauth/start` 未显式传 `provider` 时不再固定 `custom`，改为回落到第一个已启用的提供商（`pickOAuthProvider`）；显式指定未启用的提供商会返回 `OAuth provider is not enabled`。
+- 登录页按 `/api/auth/oauth/status` 返回的 `providers` 逐个渲染入口，点击时携带对应 `provider` 键（此前按钮始终不带参数，只开 Logto 的部署必然命中 `custom` 的 disabled 分支）。
+- 新增回归：`pickOAuthProvider` 4 条单测 + 登录页「只启用 Logto 时点击入口带 provider=logto」用例；实测 `POST /oauth/start {}` 返回 Logto authUrl。
+
 ### 审核整改（对照 2.3.0 重构目标审核）
 
 - 前端 legacy 样式清理：`globals.css` 3080 → 309 行，删除 116 个 TDesign 选择器、151 条 `--td-*` 变量声明与 244 条未引用规则；CSS 产物 87.3kB → 40.5kB（gzip 15.5 → 8.65kB），新增样式门禁测试（禁止 `.t-*`/`--td-*`/`!important`/超 600 行）。

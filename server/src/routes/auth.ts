@@ -252,6 +252,18 @@ async function getOAuthConfigByProvider(provider: 'custom' | 'logto'): Promise<O
   }
 }
 
+/** 选择本次登录使用的提供商：显式指定优先；否则第一个已启用的（只开 Logto 时不会误用 custom） */
+export function pickOAuthProvider(
+  requested: 'custom' | 'logto' | undefined,
+  enabled: Array<{ key: 'custom' | 'logto' }>,
+): 'custom' | 'logto' {
+  if (requested) {
+    if (!enabled.some((item) => item.key === requested)) throw new Error('OAuth provider is not enabled');
+    return requested;
+  }
+  return enabled[0]?.key ?? 'custom';
+}
+
 async function getEnabledOAuthProviders(): Promise<Array<{ key: 'custom' | 'logto'; providerName: string }>> {
   const providers: Array<{ key: 'custom' | 'logto'; providerName: string }> = [];
   const custom = await getOAuthConfigByProvider('custom');
@@ -792,7 +804,11 @@ router.get('/oauth/status', async (_req: Request, res: Response) => {
  */
 router.post('/oauth/start', async (req: Request, res: Response) => {
   try {
-    const desired = (req.body?.provider as 'custom' | 'logto' | undefined) || 'custom';
+    // 未显式传 provider 时，回落到「第一个已启用」的提供商；
+    // 历史实现固定 'custom'，只启用 Logto 的部署会误报 OAuth login is disabled。
+    const requested = req.body?.provider as 'custom' | 'logto' | undefined;
+    const enabled = await getEnabledOAuthProviders();
+    const desired = pickOAuthProvider(requested, enabled);
     const config = await getOAuthConfigByProvider(desired);
     assertOAuthEnabled(config);
 

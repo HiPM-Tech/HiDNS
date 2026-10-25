@@ -62,6 +62,21 @@ describe('LoginPage', () => {
     expect(await screen.findByRole('button', { name: new RegExp(copy.auth.oauthLogin) })).toBeTruthy();
   });
 
+  it('只启用 Logto 时点击入口会带上 provider=logto（不再误用 custom）', async () => {
+    const user = userEvent.setup();
+    vi.mocked(authApi.oauthStatus).mockResolvedValue({
+      code: 0, msg: 'success',
+      data: { enabled: true, providerName: 'Logto', providers: [{ key: 'logto', providerName: 'Logto' }] },
+    });
+    // authUrl 留空：只验证 provider 参数，避免 jsdom 的 location.assign 限制
+    vi.mocked(authApi.oauthStart).mockResolvedValue({ code: 0, msg: 'success', data: { authUrl: '' } });
+
+    render(<LoginPage onSuccess={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: new RegExp(copy.auth.oauthLogin) }));
+
+    await waitFor(() => expect(authApi.oauthStart).toHaveBeenCalledWith('logto'));
+  });
+
   it('空表单提交时给出校验提示，不发请求', async () => {
     const user = userEvent.setup();
     render(<LoginPage onSuccess={vi.fn()} />);
