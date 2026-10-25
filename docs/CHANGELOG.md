@@ -8,6 +8,12 @@
 - 域名续期「添加域名」的账户下拉：仅保留 `capabilities.renewal === true` 的提供商账户，同样显示提供商。
 - 新增 `filterAccountsByProviderCapability()` 与 3 条单测；providers 未加载时不过滤，避免首屏闪空。
 
+### 修复：记录弹窗「默认」与「默认线路」重复
+
+- 线路下拉归一：过滤掉与 `defaultLine` 相同的选项并按 id 去重，默认线路只保留「默认线路」一项（此前 provider 返回 `0/默认` 时会出现两个近义选项）。
+- 编辑记录时，`line` 等于默认线路 id 的展示为「默认线路」，保存按未指定处理（由适配器/路由保留默认线路）。
+- 新增 `normalizeLineOptions` / `displayLine` 与 2 条单测。
+
 ### 修复：DNSPod RecordLine 必填、PSL 刷新主键冲突
 
 - DNSPod：只传 `RecordLine`（线路名称）；registry `defaultLine` 仍为线路 ID `0`（满足「显式声明默认线路」），适配器负责把 `0`/未指定映射成名称「默认」，数字/等号 ID 通过 `convertLineIdToName` 映射成中文名称（`10=0→电信`…）。修复线上 `MissingParameter: RecordLine`。

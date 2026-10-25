@@ -9,6 +9,7 @@ import {
 import { getRecordTypeDef, validateRecordValue, PROXIABLE_RECORD_TYPES } from '../../types/record-types';
 import { useSaveRecord } from './use-records';
 import type { DnsRecordRow, RecordLine } from './api';
+import { normalizeLineOptions, displayLine } from './line-options';
 
 const EXTRA_LABELS: Record<string, string> = {
   mx: '优先级',
@@ -51,6 +52,8 @@ export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines,
   const save = useSaveRecord(domainId);
 
   // 初值在挂载时算一次：父级按「新建 / 编辑某条记录」给 key，切换即重挂载
+  const effectiveDefaultId = defaultLine ?? lines[0]?.id ?? '';
+
   const initial = useMemo(() => {
     if (record) {
       const def = getRecordTypeDef(record.type);
@@ -62,14 +65,17 @@ export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines,
       });
       return {
         name: record.name, type: record.type, value: tokens.slice(fields.length).join(' '),
-        ttl: String(record.ttl ?? 600), line: record.line ?? '', remark: record.remark ?? '',
+        ttl: String(record.ttl ?? 600),
+        // 记录线路等于提供商默认线路时按「未指定」展示，避免与「默认线路」选项重复
+        line: displayLine(record.line, effectiveDefaultId),
+        remark: record.remark ?? '',
         proxied: Boolean(record.cloudflare?.proxied), extras: nextExtras,
       };
     }
     const defaultType = recordTypes.includes('A') ? 'A' : (recordTypes[0] ?? 'A');
     const def = getRecordTypeDef(defaultType);
     return {
-      name: '@', type: defaultType, value: '', ttl: '600', line: defaultLine ?? lines[0]?.id ?? '', remark: '', proxied: false,
+      name: '@', type: defaultType, value: '', ttl: '600', line: '', remark: '', proxied: false,
       extras: Object.fromEntries((def?.extraFields ?? []).map((field) => [field.key, String(field.defaultValue ?? '')])),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只取挂载时的快照
@@ -84,6 +90,8 @@ export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines,
   const [extras, setExtras] = useState<Record<string, string>>(initial.extras);
   const [proxied, setProxied] = useState(initial.proxied);
   const [error, setError] = useState<string | null>(null);
+
+  const selectableLines = useMemo(() => normalizeLineOptions(lines, effectiveDefaultId), [lines, effectiveDefaultId]);
 
   const typeDef = useMemo(() => getRecordTypeDef(type), [type]);
   const extraFields = typeDef?.extraFields ?? [];
@@ -214,7 +222,7 @@ export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines,
               <SelectTrigger id="record-line"><SelectValue placeholder="默认线路" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__default">默认线路</SelectItem>
-                {lines.map((item) => <SelectItem key={item.id} value={item.id}>{item.name || item.id}</SelectItem>)}
+                {selectableLines.map((item) => <SelectItem key={item.id} value={item.id}>{item.name || item.id}</SelectItem>)}
               </SelectContent>
             </Select>
             {isEdit && !lineEditable && <p className="text-xs text-muted-foreground">该提供商的线路创建后不可修改</p>}
