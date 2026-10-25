@@ -100,3 +100,35 @@ P0-1（PUT 授权 + 白名单）→ P1-2（把在途的连接上限一起提交�
 | design-critic | ✅ 通过（阻塞项 274f3780 后复核） | 实测 POST/PUT type=endpoint + domain_id=999 → 200 且回读 domain_id=null |
 
 最终：**四位评审一致通过，可合入**。
+
+## 2.3.0 重构目标核对
+
+核对人：be（后端）。范围：00-PLAN §1 目标 2（API 语义收敛）、目标 3（API 子模块）、DNS 适配器语义。**基线对照法**：用 `git cat-file -e v2.3.0:<path>` 与 `git show v2.3.0:<file>` 区分「2.3.0 时点已达成」与「2.3.1 收尾后才达成」，HEAD 现状另行 grep/实跑。门禁实跑：`tsc --noEmit` = 0，`vitest run` = **638 passed**。
+
+### 目标 2 · API 语义收敛 —— **部分达成**
+
+- **2-1 [达成 · 2.3.0 时点]** 信封与 `code === HTTP`：v2.3.0 的 `routes/__tests__/error-contract.test.ts` 已含三条断言（禁 `code:-1`、`res.status(N)` 块内 code 必须等于 N、裸 `res.json({success|error|message})` 扫描）；v2.3.0 的 `middleware/auth.ts` 中 `code: -1` 计数已为 0。当前我独立复扫 `routes/ + middleware/ + api/` 共 **183 处**手写信封：`code ≠ status` **0 处**、有 code 无 msg **0 处**。非 JSON / 边角路径：未知 API 路径 JSON 404（`app.ts:504-508`）、请求体过大 413（`middleware/errorHandler.ts:48-49`）、限流 429 全 JSON（`middleware/rateLimit.ts:6-8`）、上游失败 502 共 3 处（如 `routes/workflows.ts:215`）。
+- **2-2 [未达成 · P2]** 畸形 JSON 请求体映射成 500 而非 400：`errorHandler.ts` 只处理 `entity.too.large`，无 `entity.parse.failed` / `SyntaxError` 分支，body-parser 解析错误落入兜底 500。
+- **2-3 [达成]** 分页口径：`utils/http.ts:52-67` 的 `parsePagination` + 6 个端点显式声明；`docs/api.md:17-26` 登记 4 类例外（grouped 1000 / audit+logs 50-200 / resource-monitor 60-1440）。`/api/accounts`、`/api/mcp/audit-logs` 实测 20/100 与标准一致但未登记（P3）。
+- **2-4 [未达成 · P1]** `allowed_services` 只有声明、无执行点：`service/token.ts:174-176` 的 `hasServicePermission` 唯一调用方是 `middleware/auth.ts:69` 的 `requireServicePermission`，而 `grep -rl requireServicePermission routes/` = **0**；`service/token-policy.ts` 自述「服务级门禁尚未全面接线」。与 `docs/api.md:775` 承诺的「细粒度服务权限」不符：用户按服务收窄令牌后实际不受任何限制。
+- **2-5 [部分达成 · P2]** 幂等：仅 `root.ai.md:663` 要求**外部适配器**先按 subdomain+type 查询再 upsert；服务端无 Idempotency-Key / 去重实现（`grep -rn idempot server/src` 0 命中），也无契约用例。
+- **2-6 [达成]** 域名级权限口径：`docs/api.md:17-27` 的 allowed_domains 语义表与实现一致（`middleware/auth.ts:159-175`、`service/token.ts:181-185`：null 与空数组均表示不限制，白名单需显式列 ID）；`requireTokenDomainPermission` 覆盖 records/domains 两个路由文件；`noTokenAuth` 7 个文件、`adminOnly` 10 个文件。
+
+### 目标 3 · API 注册独立成子模块 —— **达成（2.3.0 时点已达成）**
+
+- **3-1 [达成]** `server/src/api/` 在 **v2.3.0 标签**即已存在（`git cat-file -e v2.3.0:server/src/api/index.ts` 命中；模块数 23，与当前一致）；`app.ts` 只剩 `app.use('/api/docs')` 一处（v2.3.0 同为 1）；`api/registry.ts` 有 6 条 fail-fast（id/prefix 唯一、前缀格式、description、probe 归属），前缀唯一性按「小写 + 参数名折叠」归一；门禁三态与豁免**派生自模块声明**（`api/init-gate.ts:28-34` 取 `getExemptPrefixes` 与 `closedStateProbes`），`api/__tests__/api-layer.test.ts` 断言「豁免由模块派生」「大小写/参数名不影响唯一性」「三态放行矩阵」。
+- **3-2 [P3]** 26 个 `routes/*.ts` 中仅 `routes/audience.ts` 未进清单，但它是收件人工具函数（被 domains/accounts/users 引用）、不是 Router —— 建议移入 `service/` 或 `lib/`。
+
+### DNS 适配器语义 —— **2.3.0 时点未达成；HEAD 达成（redirect 空转）**
+
+- **A-1 [2.3.0 未达成 → 2.3.1 达成]** 线路模型：v2.3.0 时 `service/providerLines.ts`、`providerLinesJob.ts` 均**不存在**，`registry.ts` 的 `lineSource:` 计数为 **0**；当前有 27 条 lineSource/defaultLine，`providerLines.ts:7-9` TTL 3600s + 失败冷却 300s、:76-78 失败只返回默认线路、:107-123 只为「有启用账号」的 provider 排队；`providerLinesJob.ts:29-32` 只拉 dynamic、:37-39 走 taskManager（timeout 120s + 同 ID 去重），并在 `app.ts:610,725`（含降级重连分支）启动。
+- **A-2 [2.3.0 未达成 → 2.3.1 达成]** 2.1 语义不变量：`resolveCreatedRecordId`（`lib/dns/providers/common.ts:22`）被 powerdns:245 / vps8:208 使用；`getRecordLines` 失败抛错（dnsla:275-277）；读接口 fail-closed（`service/dns-provider-service.ts:137-139`：空结果 + getError() → 抛错）；`lib/dns/__tests__/adapter-contract.test.ts` 用源码守卫禁止用 'success' 充当 RecordId、禁止编造线路列表。
+- **A-3 [达成但空转 · P3]** 重定向能力位：26 家**全部** `redirect: false`（`grep -c 'redirect: true'` = 0），且 **0 个适配器实现 setRecordRedirect**（`grep -rln setRecordRedirect lib/dns/providers/*/adapter.ts` = 0）→ `routes/records.ts:593-595,902-904` 的 501 分支与整条 redirect 链路**不可达**；该能力也未在 `/api/providers` 暴露、前端无消费点。属预留能力，建议在 root.ai.md §2.3 注明「当前无 provider 声明 true」。
+- **A-4 [达成]** 能力位执行：`routes/records.ts:61-71` 汇总 providerCapability，proxiable(:106)、remark(:584)、weight(:586)、status(:1038)、recordTypes(:119-120) 均有执行点。
+- **A-5 [达成 · P3]** 日志工厂与 HTTP 通道：27 个 provider 文件使用 internal 工厂（dnshe/auth.ts:1、dpdns_reverse/adapter.ts:1 已改）；`lib/dns/providers/common.ts:11` 仍 createLogger('DNS')（基础设施文件、非具体 provider，建议注明豁免）；`grep 'fetch(' lib/dns/providers/` 除 fetchWithFallback 外 0 命中。
+
+### 结论（目标 2/3 + 适配器）
+
+- 目标 2：**部分达成** —— 信封/错误码/分页/域名权限在 2.3.0 时点已达成；**服务级权限（allowed_services）无执行点**、幂等仅有客户端约定、畸形 JSON 落 500。
+- 目标 3：**达成**，且 **2.3.0 时点即达成**（非 2.3.1 补丁）。
+- 适配器语义：**2.3.0 时点未达成**（2.1/2.2/2.3 全部来自 v2.3.0 之后的 03bd1c08 / 9e6d9070 / 57f2292f / 9fd03ac6）；**HEAD 达成**，唯一遗留是 redirect 能力位全仓 false + 零实现，链路空转。

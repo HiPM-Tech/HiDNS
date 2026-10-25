@@ -257,3 +257,116 @@
 | design-critic | ✅ 通过（阻塞项 274f3780 后复核） | 实测 POST/PUT type=endpoint + domain_id=999 → 200 且回读 domain_id=null |
 
 最终：**四位评审一致通过，可合入**。
+---
+
+## 2.3.0 重构目标核对
+
+- 角色：fe-arch-review（本文件范围＝**目标 1 前端整体重写** + **目标 5 前后端解耦**；目标 2/3/4 由 be-constraints / arch 线覆盖，此处不重复）
+- 权威文件：root.ai.md、docs/refactor/00-PLAN.md、docs/refactor/01-SUMMARY.md、docs/refactor/02-CLEANUP.md
+- 基线：HEAD 2.3.1 未发布（含 2.3.0 全部内容）；只读代码 + 实跑门禁，未改源码、未提交
+
+### 判定速览
+
+| 目标 | 判定 | 一句话依据 |
+| --- | --- | --- |
+| 1 前端整体重写 | **部分达成** | 技术栈/组件库/i18n/旧目录全部换掉并可验证，但**旧样式组织仍完整保留**（globals.css 3080 行、228 个顶层类、其中 109 个 TDesign 的 .t-*、226 个无任何引用），与 00-PLAN §3「禁止页面级 CSS」直接冲突 |
+| 5 前后端解耦 | **部分达成** | 代码级解耦成立（client 0 处 import server、会话单一 cookie 契约、lib/http 唯一出口），但 00-PLAN/01-SUMMARY 承诺的「**生成的类型**」完全不存在（0 处 openapi/swagger/codegen） |
+
+### 目标 1 · 前端整体重写
+
+**已达成部分（可复现证据）**
+
+1. 旧栈代码零残留：`grep -rn 'tdesign|TDesign|i18next|react-i18next|useTranslation|axios' client/src` 仅 5 处**注释**（styles/globals.css:63,1027、app/nav.ts:20、test/setup.ts:6、utils/rsaEncrypt.ts:10），无任何 import 命中；`client/src/{pages,contexts,api,i18n,hooks}` 全部不存在；`node_modules` 无 tdesign/i18next/axios 安装；client/package.json 无声明（axios 仅出现在 pnpm-lock 的 server importer）。
+2. 技术栈与 00-PLAN §3 一致：react 19.2.4 / vite 8.0.1 / @tanstack/react-query 5.80.7 / react-router-dom 7.2.0 / tailwindcss 3.4.17 / @radix-ui 6 包 / lucide-react 0.511 / RHF 7.90 + zod 4.4。
+3. 设计系统成形：`client/src/ui/` 18 个文件、`ui/index.ts` 导出 13 个原语，35 个 feature 文件 import 该出口；`ui/tokens.css` 提供语义 token + `:focus-visible` + 深色变量。
+4. 可访问性遗留已修：上一轮我报的 `--input 214 32% 88%`（1.34:1）现为 `215 20% 58%`（实算 白底 **3.24:1**，满足 SC 1.4.11 的 3:1）。
+5. 门禁实数（本机实跑，非引用）：`tsc -b` exit 0 零诊断；`vitest run` **41 文件 / 161 用例全绿**（125.55s）；`vite build` exit 0（9.07s）；`eslint .` **158 文件 0 error / 0 warning**；主包 `index-*.js 222.08 kB（gzip 69.99）`。
+
+**发现**
+
+#### F1 · P1 · 旧样式组织未清理，死 CSS 全量进入产物（目标 1 与 00-PLAN §3 冲突）
+
+- 证据（命令输出）：`wc -l client/src/styles/globals.css` = **3080 行**；`grep -c '^\.[a-zA-Z]'` = **228** 个顶层类选择器；`grep -c '^\.t-'` = **109** 个 TDesign 类选择器（t-card/t-form/t-space/t-table/t-dialog…）；`grep -c '!important'` = **38**；全文只有 **2 处 `@layer`**。
+- 死代码量化：把 globals.css 的 228 个顶层类与 `client/src/**/*.{ts,tsx}`（152 文件）的全部词元求交集 → **仅 2 个类被源码引用，226 个无引用**；抽样精确断言 `className="...about-shell|audit-log-item|dialog-form|callback-card|connectivity-grid|access-grid|about-open-source-grid|mcp-tabs..."` 全部 0 命中。
+- 产物代价：这些手写规则不经 Tailwind purge，`dist/assets/index-*.css` = **87,335 B（gzip 15.5 kB）** 全量下发；主包 CSS 与 JS 同源加载。
+- 与文档冲突：00-PLAN §3「样式：Tailwind 原子类 + tokens，**禁止页面级 CSS 文件**」、目标 1「抛弃…样式组织」、02-CLEANUP「旧栈零残留」、root.ai.md §客户端架构「旧实现…已于 2026-10 全部删除，仓库内不再保留」。globals.css:63 的注释自称「TDesign 的 --td-* 变量（仓库里已无定义）」，但同文件仍有 109 条 `.t-*` 规则。
+- 修法：① 先按名单删除 109 个 `.t-*` 块与 226 个无引用块（可脚本化：解析选择器→无引用即删→`tsc -b && vitest && build` 三绿）；② 仅剩的 2 个在用类迁进对应组件 className；③ 加一条 CSS 预算门禁（如 `dist/**/*.css` 总字节 > 40 kB 或选择器数 > 60 即失败），防止回流。
+
+#### F2 · P2 · 四件套覆盖率 12/19，与 01-SUMMARY「四件套」表述不符
+
+- 实测（逐目录）：完整四件套（api.ts + use-*.ts + *-page.tsx + __tests__）= 12 个；缺件：`about`/`marketing` 无 api.ts，`auth`/`mcp`/`oauth`/`setup`/`about`/`marketing` 无 use-*.ts，`session` 无页面与用例（横切模块），`workflows` 只有 use-workflow-meta.ts。
+- 影响：04-PLAN 目标 5 的「features/<domain>/{api,hooks,components,pages}」是描述性目标，实际 7 个 feature 不满足；不阻断功能，但文档与代码口径不一致（此前评审已两次提出，仍未在文档里分档）。
+
+#### F3 · P2 · 页面直接调用 http / requestRaw，端点契约不在 api 层
+
+- 证据：`features/oauth/oauth-callback-page.tsx:57` 直接 `http.post('/auth/oauth/callback', ...)`；`features/oauth/mcp-consent-page.tsx:40` 直接调用 `requestRaw`（同为页面组件）。组件层（*.tsx）对 `http.` 的直接调用只有这 2 处（其余 `http.` 命中均在 `__tests__` 的断言里），22 个 api 模块本身符合「单一出口」。
+- 影响：`features/<domain>/api.ts` 不再是「该模块端点的唯一封装」，契约（裸 JSON vs 信封）泄漏进页面；与目标 5 的「前端只依赖契约」相悖（页面需要自己判 ok/解析形状）。
+
+#### F4 · P2 · 死导出（代码有但无执行点，小宗）
+
+- `ui/index.ts` 导出的 `CardFooter`、`badgeVariants`、`buttonVariants` 在 ui/ 与 lib/ 之外引用数均为 **0**；`Separator` 仅 1 处。删除或真正使用，避免「导出了就以为在用」。
+
+#### F5 · P2 · 01-SUMMARY 量化表与当前实际不符（实数对照）
+
+| 指标 | 01-SUMMARY 声称 | 本机实测（HEAD 2.3.1） | 出入 |
+| --- | --- | --- | --- |
+| client 用例 | 149 | **41 文件 / 161 用例** | +12 |
+| server 用例 | 544 | **80 文件 / 638 用例** | +94 |
+| 主包体积 | 219 kB（gzip 68.7） | **222.08 kB（gzip 69.99）** | +3.08 kB |
+| 路由 chunk | 38 | `dist/assets/*.js` = **39**（含 4 个 vendor + 主包 ⇒ 路由级 ≈ 35） | 口径需说明 |
+| 页面/区块 | 29 | `grep -c 'path=' App.tsx` = **29**（一致）；但 `features/*/*-page.tsx` 只有 **20** 个文件 | 29＝路由条数，不是页面文件数 |
+
+- 结论：29 这个数字**可复现**（等于路由条数），但「页面/区块」的措辞会让人误读为 29 个页面文件；用例数/体积是 2.3.0 时点值，2.3.1 已增长，文档应标注「统计时点」。
+
+#### F6 · P2 · 无可访问性/窄屏的自动化回归证据
+
+- `ai-censorship/evidence/` 有 **549 张 PNG**（含 dash-v*-dark、w1440/w768 等），但 `ls | grep -icE 'a11y|axe|contrast|focus'` = **0**；仓库无 axe/@axe-core 依赖、无对比度断言用例，`client/e2e/` 只有 1 个 `workflows-browser.mjs`。
+- 影响：目标 1 的「审美与交互一致性达标」只能靠截图人工判断；上一轮 `--input` 1.34:1 这类问题正是缺自动化才漏到现在。建议把 SC 1.4.11/1.4.3 的对比度断言（可以纯函数对 tokens 求值）纳入 vitest。
+
+### 目标 5 · 前后端解耦
+
+**已达成部分（可复现证据）**
+
+1. 前端不依赖服务端代码：`grep -rn "from '.*server/" client/src` = **0**。
+2. 会话单一契约：client 全仓无 `Authorization` 头构造、无 token 写 localStorage（localStorage 仅 theme/侧栏折叠/置顶/分组模式/测试 locale），`lib/http.ts:75` 统一 `credentials: 'include'`；令牌（API Token）只在 tokens/mcp 页面做展示，不参与会话。
+3. HTTP 唯一出口：`lib/http.ts` 内 2 处 `fetch`（request / requestRaw）；`features/` 内 **0 处**直接 fetch。唯一的域外 fetch 是 `features/about/about-page.tsx:44`（api.github.com 第三方，与后端契约无关）。上一轮我报的 `utils/rsaEncrypt.ts` 硬编码 `/api/auth/public-key` 已改为走 `request/expectData`（rsaEncrypt.ts:8-15）。
+4. 后端有契约测试兜底：`server/src/routes/__tests__/error-contract.test.ts`、`lib/dns/__tests__/adapter-contract.test.ts`、`__tests__/docs-consistency.test.ts`（校验 root.ai.md 引用的 server/src 路径真实存在 + 不含 tdesign/pages/i18n 等废弃词）。
+
+**发现**
+
+#### F7 · P1 · 「生成的类型」不存在：目标 5 的核心承诺未落地
+
+- 证据：`grep -rn 'openapi|swagger|codegen|generated' client/src client/package.json` = **0 命中**；client 无任何类型生成脚本；14 个 `features/*/api.ts` + 8 个 `*-api.ts` 的接口类型**全部手写**（例：domains/service-monitor-api.ts:5-45、workflows/workflows-api.ts:8-88）。
+- 文档侧：00-PLAN 目标 5「前端只依赖契约**与生成的类型**」、01-SUMMARY §1「前后端解耦…只依赖契约」。`docs/api.md` 有 1082 行，但 `docs-consistency.test.ts` 只校验 root.ai.md 的**文件路径**与废弃词，**不校验 api.md 与路由声明的字段级一致**。
+- 影响：契约漂移完全靠人工。本会话已实测到同类实例：服务端 `toApiMonitor` 不返回 `enabled` 而前端按 `row.enabled` 回填（436443f9 前的 P1）、`expectedStatus/checkPort` 等字段靠逐字对齐 review；这类缺陷正是「手写类型 + 无生成」的必然产物。
+- 修法（二选一，别留虚假承诺）：① 从后端路由/校验声明生成 `client/src/types/api.d.ts`（先覆盖 12 个高频端点即可），CI 校验生成物与提交物一致；② 若暂不引入 codegen，则把 00-PLAN/01-SUMMARY 的措辞改为「手写类型 + docs-consistency 断言端点清单一致」，并在 `docs-consistency.test.ts` 增加「`server/src/api/index.ts` 注册清单 ↔ `docs/api.md` 端点表」的双向断言。
+
+#### F8 · P2 · UI 层依赖 `msg` 文本而非契约字段
+
+- `lib/error-message.ts:7-33`（PATTERNS 表 + 匹配循环）用英文片段正则把错误归类，并规定「含中文即原样展示」；而契约里 `msg` 是自由文本，唯一稳定字段是 `status/code`（http.ts:17-29 已提供 `ApiError.status/code`）。上一轮我提的匹配顺序问题仍在（映射先于中文判断）。
+- 影响：等于前端对「后端文案」形成隐性契约；后端改文案即改变前端行为。建议 UI 层按 `ApiError.status` 分类、`msg` 仅作兜底展示。
+
+#### F9 · P2 · 客户端无契约级测试（全 mock，无 fetch 层断言）
+
+- 41 个用例普遍 `vi.mock` 掉 api 模块（例：`features/domains/__tests__/service-monitor-tab.test.tsx` mock `serviceMonitorApi`、`features/records/__tests__/records-page.test.tsx` mock 数据层），没有一条断言真实 HTTP 形状（信封/字段/状态码）。对比 server 侧有 error-contract / adapter-contract。
+- 影响：这正是 01-SUMMARY §3 教训 1 点名的问题（「用例把被测 api 整体 mock 掉」），`ns-monitor-api`/`batch-api` 补了 fetch 级用例，但服务监控/续期/团队仍未补。
+
+#### F10 · P2 · `requestRaw` 与 envelope 两套返回形状并存
+
+- `lib/http.ts:161-166` 返回 `{ok,status,data}`，与 `request` 的 `{code,data,msg}` 并存；目前只有 MCP 同意页使用，且直接写在页面（见 F3）。建议收敛为 `requestRaw` 返回判别联合 `{ok:true,data} | {ok:false,error}`，并由 `features/oauth/api.ts` 封装，页面只吃结果。
+
+### 本范围「文档声称完成但代码未落地 / 代码有但无执行点」汇总
+
+| 类型 | 对象 | 证据 |
+| --- | --- | --- |
+| 文档称已完成、代码未落地 | 「禁止页面级 CSS 文件 / 抛弃样式组织」 | globals.css 3080 行、228 类、226 类零引用（F1） |
+| 文档称已完成、代码未落地 | 「前端只依赖…生成的类型」 | 0 处 codegen（F7） |
+| 文档称已完成、口径不符 | 「features 四件套」 | 12/19（F2） |
+| 代码有但无执行点 | globals.css 226 个无引用选择器（其中 109 个 `.t-*`） | F1 |
+| 代码有但无执行点 | `ui/index.ts` 的 CardFooter / badgeVariants / buttonVariants | F4 |
+
+### 结论
+
+目标 1：**部分达成** —— 框架/组件库/i18n/旧目录层面确实是重写（可 grep 验证），但「样式组织」这一半没有落地：3080 行旧 CSS（含 109 条 TDesign 规则）仍在打包下发，与 00-PLAN §3 的明文约束相反。
+目标 5：**部分达成** —— 代码与运行时层面解耦成立（0 处跨端 import、单一 cookie 会话、单一 HTTP 出口、契约测试兜底），但「生成的类型」从承诺到今天一直是空的，契约一致性仍靠人工 review（本会话已因此产生至少 2 处 P1）。
+两条目标的差距都不是「再写代码」，而是「收尾 + 立规矩」：删死 CSS、加 CSS/类型一致性门禁，即可把「部分达成」推到「达成」。

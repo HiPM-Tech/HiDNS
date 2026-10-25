@@ -559,3 +559,123 @@ Current:第六轮结构收尾+性能实测 / Result:ai-censorship/dsh-agent_revi
 | B1 域名创建留半成品 | ✅ 已修（补偿） | 记录已插入 id，异常时逆序删除后 rethrow；仍非真事务，进程崩溃窗口存在 |
 | C DSM 字段改名丢数据 | ⏳ 未修 | 需要「rename 迁移先于 reconcile」的机制；当前 schema 无 rename 条目，但改名字段仍是隐患 |
 | A1 分组 QPS | ✅ 1.15x（原 4.6x） | 跳过分组模式下的首次分页查询 |
+
+## 2.3.0 重构目标核对（HEAD 9fd03ac6 · 角色：arch-auditor，范围=目标 4 + 架构结构）
+
+> 方法：只读代码 + 2 条门禁实测（`server: tsc --noEmit`、`vitest run`）+ 1 个降级实例（DB_PATH 指向目录，无标记）+ panel 86 条清单逐层抽样。
+> 目标 1（前端重写）不在本角色范围，未核；目标 2/3/5 只写我实测到的旁证。
+
+### A. 门禁实测（00-PLAN §5）
+
+```
+$ cd server && npx tsc --noEmit -p tsconfig.json   → exit 0（无输出）
+$ cd server && npx vitest run                       → Test Files 80 passed (80) / Tests 638 passed (638), exit 0
+```
+
+与提交信息「80 文件 638 条全绿」一致。**注意**：`00-PLAN §5` 与 `01-SUMMARY §5` 对 client 仍写 `tsc --noEmit`（:76-78 已注明该命令在 solution 式工程下空转），复现门禁时容易再次踩空。
+
+### B. 目标 4 计数（86 条）
+
+| 层级 | 总数 | 抽样 | 达成 | 部分 | 未达成 |
+| --- | --- | --- | --- | --- | --- |
+| P0 | 7 | 7（100%） | **5** | **2** | 0 |
+| P1 | 58（12 主题） | 24（41%，每主题 1–3 条） | **11** | **3** | **10** |
+| P2 | 21 | 2（10%） | 1 | 0 | 1 |
+
+抽样方法：P0 全量逐条；P1 按 T1–T12 每主题抽取"最易证伪的 1–3 条"（优先安全与门禁类），条目号见下表；P2 抽 A-11 与"文档类"两条。**不外推**：58 条里只对 24 条给了判定，其余 34 条未核。
+
+### C. P0 七条逐条
+
+| P0 | 判定 | 证据 |
+| --- | --- | --- |
+| P0-1 初始化守卫 | **达成（单层）** | 门禁层已闭环：降级实例实测 `POST /api/init/database → 503`、`/api/init/admin → 503`、`/api/domains → 503`、`/api/init/status → 200`（`init-gate.ts:51-63`）。**残留**：`routes/init.ts:53` 的 `requireInitSurface` 仍只判 `isSystemInitialized()`，未用 `isInitSurfaceOpen()`——双层防护只剩门禁一层 |
+| P0-2 DSM 删表 | **达成** | `schema-reconciler.ts:17-23` 默认 `'never'`，需显式 `HIDNS_DSM_DROP_TABLES` 才删 |
+| P0-3 标记持久化 | **达成** | `systemState.ts:56` 用 `resolveDataDir()`；`:163` `markInitialized(): boolean` |
+| P0-4 错误折叠 | **部分（规避式）** | 见 F2 |
+| P0-5 RecordId | **部分** | 创建路径已回查（`bt/adapter.ts:206 → resolveCreatedRecordId`）；见 F3 的 9 处残留 |
+| P0-6 line 多义 | **达成** | `service/record-line.ts:37 resolveLineInput` 被 records.ts:573/792/879 使用；`registry.ts:56 defaultLine`+`providerLines.ts`；workflow 传 `undefined`（`dns/record.ts:115`）；redirect 独立能力位（见 F9） |
+| P0-7 凭据掩码 | **达成** | `service/account-config.ts:33 mergeMaskedConfig` + `routes/accounts.ts:370` + `__tests__/account-config.test.ts` |
+
+### D. 发现（12 条，按目标分组）
+
+#### F1（目标4 · P0-4 未真正闭合）"不写 0"是规避，不是失败通道；真 0 条从此永不刷新
+`service/recordCountCache.ts:18-24` 用 `if (result.total > 0 && ...)` 保护写库，但适配器仍把读失败折叠成 `{total:0,list:[]}`（`grep -c 'total: 0, list: \[\]' providers/**` = **92**），`DnsInterface.ts:29` 的 `PageResult` 至今没有失败通道。后果对调：一次上游失败不再把计数写成 0（旧问题），但现在**一个域名真的被删到 0 条**时，`record_count` 永远停在旧值，直到有人手动触发别的写路径。
+
+#### F2（目标4 · P0-5 残余）9 处 `toNumber(recordId, 0)` 仍在 update/delete 上：非法 ID 变成"0 号记录"
+```
+$ grep -rn 'toNumber(recordId, 0)' server/src/lib/dns/providers | wc -l → 9
+dnshe/adapter.ts:341,365  powerdns/adapter.ts:271,320,364  rainyun/adapter.ts:301,337  dnspod/adapter.ts:184,224,249
+```
+路由把 URL 里的 `recordId` 原样透传（`records.ts:846 DELETE /:recordId`），非数字 ID 在上游被当作 `0`。P0-5 只修了创建路径的返回 ID，删除/更新路径的"非法即失败"没有落地。
+
+#### F3（目标4 · T1 未闭合）92 处错误折叠 = 同一语义仍无唯一执行点
+`cloudflare/adapter.ts:160,194,203`、`aliyun`、`gcore` 等全部 `catch → { total: 0, list: [] }`；`recordCountCache` 是"消费端打补丁"，不是"上游区分失败"。panel 明确要求"以 dnspod 为模板向内收敛"，HEAD 上 dnspod 之外仍是折叠。
+
+#### F4（目标4 · T2 未闭合）`TaskOptions.concurrency` 仍是死字段；`DSM_BACKUP_REQUIRED` 两处默认仍相反
+```
+service/taskManager.ts:32   concurrency?: number;      ← 全文件仅此一处
+service/taskManager.ts:173  while (... this.runningTasks.size < this.maxConcurrentTasks)   ← 全局并发
+db/dsm/backup-manager.ts:16        this.isBackupRequired = process.env.DSM_BACKUP_REQUIRED !== 'false';   // 默认 true
+db/dsm/schema-reconciler.ts:470    const continueOnFail   = process.env.DSM_BACKUP_REQUIRED !== 'true';     // 默认 false
+```
+同一个环境变量，备份器"默认必须备份"，协调器"默认备份失败也继续"——正是 panel B-05 描述的相反默认，未修。18 处调用方仍在传 `concurrency`，仍无人读。
+
+#### F5（目标4 · T6 未闭合）超时只 reject，不阻止任务本体：同 ID 并发双跑窗口仍在
+`taskManager.ts:260-271` 用 `Promise.race([fn(), timeout])`，超时后走 catch → `finally { this.runningTasks.delete(taskId); this.processQueue(); }`（`:326-330`）。`fn()` 并没有被取消，仍在跑，而 ID 已被释放 → 下一个同 ID 任务立即可以并发执行（panel E-02 的原始形态）。
+
+#### F6（目标4 · T5 安全边界，3 项未闭合）
+```
+middleware/rateLimit.ts:102-107  skip: req.headers.authorization?.startsWith('Bearer ') → true（不校验 token 有效性，随便填个 Bearer 就免 RDAP 限流）
+routes/settings.ts:385           router.post('/smtp/test', authMiddleware, adminOnly, ...)   ← 缺 noTokenAuth，管理员 API Token 可触发发信
+routes/providers.ts:20           router.get('/:type/icon', asyncHandler(...))                ← 全局唯一未鉴权的业务 GET
+```
+同主题里 `/API/...` 大小写、`sendError` 默认 200、登录限流 XFF、`allowed_services` 硬编码 4 项已闭合（见 F7 的统计）。
+
+#### F7（目标4 · T9/T10/T11 门禁类，部分闭合）
+- 已闭合：腐化 4 用例已删除（`vitest.config.ts:26-31` 注释与 exclude 同步）；`validateEnv()` 已接线（`config/env.ts:169`）；`canSelectProxy` 已消失；两个 router 同挂 `/api/security` 已被 registry 的前缀唯一性从结构上禁止。
+- **未闭合**：`test-database.yml:86,112,127,135,159` 仍有 **5 处 `continue-on-error: true`**，`:140` 仍有 `pnpm run test:init-detect || true`；`release.yml` 仍有 **10 处 `--no-frozen-lockfile`**；`check_i18n_simple.js` 在 `scripts/`、`package.json`、`.github/` 仍**零引用**（H-11）。
+
+#### F8（目标4 · T12 未闭合）INFO/DEBUG 仍不输出 `[函数名] [L行号]`，与 root.ai.md:129-131 的格式契约冲突
+```
+$ HIDNS_LOG_LEVEL=debug tsx /tmp/logfmt.mts
+2026-10-25T10:07:24.007Z  INFO [TEST] info line                        ← 无 [func][L]
+2026-10-25T10:07:24.017Z  WARN [TEST] [<anonymous>] [L4] warn line       ← 只有 warn 有
+```
+`logger.ts:289` 的 `emit()` 确实把 `callerInfo` 传下去了，但 `log()` 只在 warn/error 分支渲染它（`logger.ts:215-240` 的 level switch）。
+
+#### F9（DNS 适配器语义）线路/能力位：**达成**，但 `proxiable` 能力位仍无消费者
+`registry.ts:56 defaultLine` + 26 家全部显式声明；`service/providerLines.ts` 支持内置/动态与降级（TTL 3600s）；`records.ts:61-97` 的 `resolveRedirectTarget` 按 `capabilities.redirect` 强制（未声明→忽略、声明→校验 URL、适配器未实现→501）。**缺口**：`proxiable` 仍只被前端"展示"，服务端代理判定仍按 `providerType` 硬编码（panel 结论表最后一行未变）。
+
+#### F10（目标2 未达成）分页口径**没有**收敛成一套（00-PLAN §3:59 明文要求，§4 P1 却标"已完成"）
+```
+routes/accounts.ts:146   const page = parseInt(req.query.page) || 0;        ← 0 基，且 page<=0 时返回裸数组
+routes/accounts.ts:147   pageSize 上限 100
+routes/audit.ts:91       parsePagination(..., maxPageSize: 200)             ← 上限 200
+routes/domains.ts:448    Math.min(1000, ...)                                ← 上限 1000（分组）
+routes/workflows.ts:308  Math.min(500, ...)                                 ← 上限 500
+```
+同一套 API 里 0 基/1 基并存、4 种上限（100/200/500/1000）、`/api/accounts` 的 `data` 随 `page` 在"数组 ↔ {list,total}"之间切换。
+
+#### F11（目标2 部分达成）信封：`code === HTTP` 已 0 违例，但 **138 处** `{code,msg}` 仍缺 `data`
+```
+$ node scan_env3.mjs server/src
+带 code 但缺 data 的信封站点: 138   完全非信封（无 code）: 56
+分布: auth.ts=45 settings.ts=21 init.ts=18 tokens.ts=15 mcp-apikeys.ts=11 mcp-oauth.ts=11 mcp-config.ts=6 …
+$ node scan_env.mjs server/src  → CODE/HTTP MISMATCH: 0
+```
+`sendError` 已改为 `data ?? null`（`utils/http.ts:84-91`），但这 138 处是手写对象，绕过了 helper。
+
+#### F12（目标3 达成 / 目标5 部分）`api/` 唯一注册点成立；模块解耦与迁移回滚仍有硬缺口
+- 目标 3：`server/src/api/{index,registry,init-gate,mount}.ts` + `modules/`，`buildApiModules()` 声明 **23** 个模块（`grep -c "id: '" api/index.ts` = 23；文档 `01-SUMMARY.md:13` 写 24，轻微漂移）；`app.ts` 里除 `:483` 的一行静态 CORS 头外**没有任何业务 `app.use`**；registry 强制 id/prefix 唯一（大小写与参数名归一化）、probe 必须属于自身前缀。**达成**。
+- 目标 5：`routes/` 对 `db/dal|dl|dsm` 的直连为 **0**（只有 service 层 `systemSetup.ts`/`systemState.ts` 触碰），`client/src` 无直连 `fetch`、features 无硬编码 `/api/`。**但**模块依赖仍是环状（`cycles2.mjs`：15 模块 SCC `lib/dns/providers ↔ service/whois`、`db/dal/types ↔ db/dl/types`、`ns-lookup ↔ resolver/index`、`dpdns_reverse/index ↔ scheduler`），与第一轮 A3 同源、HEAD 未变；`db/dsm` 无任何 rollback 实现（`grep -rn rollback db/dsm` 为空），迁移只靠备份，字段改名必丢数据（第六轮 `remark→remark_note` 已复现）。
+
+### E. 结论
+
+- **目标 4：部分达成**。P0 5/7 闭合，P1 抽样 11 达成 / 3 部分 / 10 未达成；未闭合集中在 4 个"同一形状"：错误折叠（T1）、声明未接线（T2 concurrency/DSM_BACKUP_REQUIRED）、安全边界的漏点（T5 三项）、门禁的静默容错（T9/T10/T11）。
+- **文档 vs 代码**：`00-PLAN §4` 把 P1「API 语义（分页统一）」、P2「panel P0 全部 + P1 安全类」标为"已完成"，与 F1/F2/F6/F10 冲突；`01-SUMMARY §1` "修复遗留隐性问题 已完成" 同理。
+- 五项目标逐项：1 未核（非本角色）；2 部分（F10/F11）；3 达成（F12）；4 部分（F1–F8）；5 部分（F12）。
+
+---
+
+Current:2.3.0 目标核对（目标4+架构）/ Result:本节（P0 5/7、P1 抽样 11/3/10、12 条发现）/ Next:优先 F1/F2/F5/F6 四条（错误通道、recordId 校验、任务超时取消、T5 三漏点）
+
