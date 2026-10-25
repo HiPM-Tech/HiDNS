@@ -370,3 +370,102 @@
 目标 1：**部分达成** —— 框架/组件库/i18n/旧目录层面确实是重写（可 grep 验证），但「样式组织」这一半没有落地：3080 行旧 CSS（含 109 条 TDesign 规则）仍在打包下发，与 00-PLAN §3 的明文约束相反。
 目标 5：**部分达成** —— 代码与运行时层面解耦成立（0 处跨端 import、单一 cookie 会话、单一 HTTP 出口、契约测试兜底），但「生成的类型」从承诺到今天一直是空的，契约一致性仍靠人工 review（本会话已因此产生至少 2 处 P1）。
 两条目标的差距都不是「再写代码」，而是「收尾 + 立规矩」：删死 CSS、加 CSS/类型一致性门禁，即可把「部分达成」推到「达成」。
+---
+
+## 复审 1（f1022dd4）
+
+- 复审人：fe-arch-review（目标 1 + 目标 5）；只读核验 + 实跑门禁，未改代码/未提交
+- 结论：**目标 1 = PASS**（P0/P1 清零，仅余 P2）；**目标 5 = PARTIAL**（1 条 P1：契约类型仍未生成）
+
+### 目标 1 · 前端整体重写 → PASS
+
+| 上一轮发现 | 现状 | 证据 |
+| --- | --- | --- |
+| F1 P1 旧样式组织未清理（3080 行 / 228 类 / 109 个 .t-* / 226 个零引用） | **已闭合** | globals.css **309 行**；`grep -c '^\.t-'`=**0**、`--td-`=**0**、`!important`=**0**；顶层类选择器 **6 个**；`vite build` 产出 `index-K7-2oDs-.css **40.52 kB / gzip 8.65 kB**`（原 87.3 kB） |
+| F6 P2 无样式回归门禁 | **部分闭合** | 新增 `client/src/styles/__tests__/legacy-css.test.ts`（4 断言：无 `.t-*`、无 `--td-*`、无 `!important`、<600 行）；仍未覆盖「选择器必须被源码引用」与「CSS 字节预算」 |
+| F2 P2 四件套 12/19 | **未变** | f1022dd4 未触碰 `client/src/features/`（`git show --stat` 仅 styles + docs）；about/marketing 无 api.ts，auth/mcp/oauth/setup/about/marketing 无 use-*.ts |
+
+**删除安全性的实测（本轮新增核验）**：把 HEAD~1 的 globals.css 中定义过的 **286 个类**逐一与 `client/src/**/*.tsx|ts`（排除 `__tests__`）比对——**仍被源码引用的 = 0**，因此**失去样式定义的 = 0**，删除未造成类级样式断链；`animate-zoom-in`/`animate-fade-in` 来自 `tailwind.config.js:176-186`（不在被删文件中）；`body` 基础样式已由 `ui/tokens.css` 的 `@layer base` 承担（tokens.css:129-144）。
+
+**残留（P2，不阻断）**：现存的 309 行中约 **167 行**可判定为死块——`.tab-btn.active::after`、`.team-member`、`.about-contributor`/`-s`/`img`/`span`、`html.dark .settings-image-preview__mask`、两条 `body.app-has-background …`（`app-has-background` 在源码 0 命中）、6 组 `appPopup*`/`appDialog*` keyframes（0 引用）、以及整套 `--color-*` legacy 变量（`var(--color-` 在源码 0 命中）。建议下一轮直接把「选择器/变量必须有引用」加入 `legacy-css.test.ts`。
+
+**门禁实数（本机实跑）**：`tsc -b` exit 0；`vitest run` **42 文件 / 164 用例全绿**（176.75s）；`vite build` exit 0（4.11s），主包 JS **222,081 B**、CSS **40.52 kB**；`eslint .` **159 文件 0 error / 0 warning**。与提交声称的 42/164 一致。
+
+### 目标 5 · 前后端解耦 → PARTIAL
+
+| 上一轮发现 | 现状 | 证据 |
+| --- | --- | --- |
+| F7 P1 「生成的类型」不存在 | **未闭合** | `grep -rn 'openapi|swagger|codegen|generated' client/src client/package.json` = **0**；f1022dd4 未新增任何生成脚本或 `.d.ts`；`docs/refactor/00-PLAN.md:13` 仍写「前端只依赖契约**与生成的类型**」；22 个 api 模块的类型仍全手写 |
+| F3 P2 页面直接调 http | **未闭合** | `features/oauth/oauth-callback-page.tsx:57`（`http.post('/auth/oauth/callback')`）、`features/oauth/mcp-consent-page.tsx:41`（`requestRaw`）仍在页面组件内 |
+| F9 P2 客户端无契约级测试 | **未闭合** | client 42 个用例仍整体 `vi.mock` api 模块；无 fetch 层 schema 断言 |
+
+**修法（一行级改动，二选一）**：① 把 `00-PLAN.md:13` 改为「前端只依赖契约（类型手写 + `docs-consistency` 断言端点清单）」；或 ② 从 `server/src/api/index.ts` + 路由声明生成 `client/src/types/api.d.ts` 并在 CI 校验生成物一致。在二者落地前，不能宣称「目标 5 达成」。
+
+### 是否阻断通过
+
+- **无硬阻断**：目标 1 的 P1 已闭合，剩余均为 P2（可进下一轮）。
+- **唯一的软阻断**：若验收口径要求「目标 5 达成」，则须先处理 F7（生成类型或改文档措辞），否则该条目标在文字与实现上仍不一致。
+- 附注（非我范围，供交叉核对）：`root.ai.md` 本轮补了 `ApiModule.service` 的规范（root.ai.md:383-384），与 `api/mount.ts` 的 `requireServicePermission` 接线一致，属文档跟代码同步的正确方向。
+---
+
+## 复审 2（ee1e4c1b）
+
+- 复审人：fe-arch-review（本轮只需复核**目标 5**；目标 1 已在复审 1 判 PASS，且 ee1e4c1b 未触碰任何 `client/` 文件：`git show --name-only ee1e4c1b | grep -c client/` = 0）
+- 结论：**目标 5 = PARTIAL（无阻断项）**；新口径下「手写类型」成立，「受契约测试约束」在客户端仅覆盖 **2/22** 个 api 模块
+
+### 已闭合 / 已对齐（证据）
+
+| 项 | 现状 | 证据 |
+| --- | --- | --- |
+| 目标 5 措辞与实现对齐（去「生成的类型」） | **已闭合** | `docs/refactor/00-PLAN.md:13` 现为「后端只承诺 HTTP 契约（docs/api.md + 契约测试）；前端只依赖契约，类型手写并受契约测试约束（不要求代码生成）」；`grep -rn '生成的类型' docs/ root.ai.md` 仅剩 `04-AUDIT-2.3.0.md:15,69` 的历史审计记录（见下条 P2） |
+| `docs/api.md` 两处漂移 | **已闭合** | `docs/api.md:552` `/api/providers/:type/icon` 标为 `authMiddleware`／「需登录」；`docs/api.md:567-568` RDAP 明确「未认证 2 req/s、**仅 session cookie 免限流**、Bearer 按普通限流」（对应 `server/src/middleware/rateLimit.ts` 的 skip 口径） |
+| 后端侧契约测试 | **存在** | `server/src/routes/__tests__/error-contract.test.ts`、`server/src/lib/dns/__tests__/adapter-contract.test.ts`（本轮新增空折叠/严格 RecordId 守卫）、`server/src/__tests__/docs-consistency.test.ts` |
+| 代码级解耦 | **成立** | client 0 处 `import ... server/`；`lib/http.ts` 为唯一出口（2 处 fetch，features 内 0 处）；会话仅 httpOnly cookie（无 Authorization 头、无 token localStorage） |
+
+### 仍不满足（P2，不阻断）
+
+**G1 · 「类型手写并受契约测试约束」在客户端只覆盖 2/22 个 api 模块**
+
+- 实测：`client/src` 里对 fetch 层做真实信封断言的用例只有 2 个文件——`features/domains/__tests__/ns-monitor-api.test.ts`（用 `vi.stubGlobal('fetch')` 断言 `{code,data,msg}` 信封、字段名、并拒绝裸 `{success:true}`）与 `features/records/__tests__/batch-api.test.ts`；其余 **20 个 api 模块**（accounts/domains/service-monitor/renewal/teams/tokens/users/security/settings/system/workflows/mcp/audit/dashboard/session/auth/oauth/setup/about）的类型没有任何 fetch 级断言，组件测仍是整体 `vi.mock` api 层。
+- 影响：措辞要求「类型受契约测试约束」，而实际只有 2 个模块做到了；其余模块一旦后端改字段名（本轮整改 1/2 修的 `enabled`、`record_count`、`recordId` 都是此类），客户端类型不会报错、测试也不会红。
+- 一行修法（二选一）：① 把 `ns-monitor-api.test.ts` 的 6 行模板复制到 3 个数据面模块（domains / accounts / service-monitor），覆盖从 2/22 → 5/22 且命中最易漂移的字段；② 把 `00-PLAN.md:13` 的「受契约测试约束」收敛为「关键数据面模块受 fetch 级契约测试约束」，别再让人以为全量受约束。
+
+**G2 · 历史审计记录与新口径不一致（文档层）**
+
+- `docs/refactor/04-AUDIT-2.3.0.md:15` 与 `:69` 仍把「无生成的类型」列为目标 5 的达成缺口；在 `00-PLAN.md:13` 改为「不要求代码生成」后，这两行会让人误判为未整改。建议加一行脚注「2026-10-25 已按 00-PLAN 新口径（手写类型 + 契约测试）复评」，保留原始记录但标明状态。
+
+### 是否阻断通过
+
+- **无阻断项**。目标 5 的架构实质（后端只承诺 HTTP 契约、前端只依赖契约、代码零耦合、会话单一 cookie、文档漂移已修）全部成立；剩余 G1/G2 均为测试覆盖与文档措辞的 P2，不改变「已解耦」的事实。
+- 若验收要求「目标 5 = 达成」的字面口径，只需落地 G1 的修法 ① 或 ② 任一（约 3 个测试文件，或一行文案）。
+---
+
+## 复审 3（c45b710a）
+
+- 复审人：fe-arch-review（复核目标 5；目标 1 未受本轮影响——`git show --name-only c45b710a` 中 client 侧只有 3 个测试文件，无 `src/features/**` 业务代码与样式改动，复审 1 的 PASS 继续有效）
+- 结论：**目标 5 = PASS（无阻断项）**
+
+### 验收口径已与实现对齐
+
+`docs/refactor/00-PLAN.md:13` 现为：「前端只依赖契约；类型手写，**关键数据面模块（domains/accounts/records/servicemonitor）受 fetch 级契约测试约束**（不要求代码生成）」。该口径下的三条要求逐条成立：
+
+| 要求 | 证据 |
+| --- | --- |
+| 类型手写、不要求 codegen | 22 个 api 模块类型仍手写；全文无 openapi/swagger/codegen；00-PLAN 已删去「生成的类型」 |
+| 关键数据面 4 个模块受 fetch 级契约测试约束 | `features/domains/__tests__/domains-api-contract.test.ts`、`features/accounts/__tests__/accounts-api-contract.test.ts`、`features/domains/__tests__/service-monitor-api-contract.test.ts`、`features/records/__tests__/batch-api.test.ts`（records 为既有）；另有 `ns-monitor-api.test.ts` → 共 **5/22** 模块 |
+| 测试是真契约（不是替身） | 4 个文件均 `vi.stubGlobal('fetch', ...)` 后走真实 `lib/http`：domains 断言 `{code,data:{list,total}}` → `totalPages` 派生 + 403 抛错；accounts 同时断言「裸数组」与「{list}」两种历史形状 + `lineSource/defaultLine` 字段；service-monitor 断言 `list/create` 成功与 `code:422` 失败；records 断言批量导入信封。改后端字段名或退回裸 `{success:true}` 会直接变红 |
+| 文档漂移记录已按新口径标注 | `docs/refactor/04-AUDIT-2.3.0.md:112-113` 新增脚注：「复审口径更新（2.3.1 整改后）：目标 5 的验收口径已改为『手写类型 + 关键数据面 fetch 级契约测试』…；目标 1 的 legacy CSS 缺口已闭合」 |
+
+### 门禁实数（本机实跑）
+
+- `npx tsc -b` → exit **0**，零诊断；`npx vitest run` → **45 文件 / 170 用例全绿**（134.83s），与提交声称的 45/170 一致。
+
+### 残留（P2，不影响目标 5 判定）
+
+1. 其余 17 个 api 模块仍无 fetch 级断言（组件测整体 mock api 层）——按新口径不构成缺口，但本轮整改的 `enabled`/`record_count`/`recordId` 类漂移都可能落在这些模块上，建议后续按「新写/改动模块必须带一条 fetch 级用例」增量收敛。
+2. `features/oauth/oauth-callback-page.tsx:57`（`http.post`）与 `features/oauth/mcp-consent-page.tsx:41`（`requestRaw`）仍在页面组件内直连，端点契约未全落 `api.ts`（复审 1 的 F3，未变）。
+
+### 是否阻断通过
+
+- **无阻断项。** 目标 5 在新口径下达成：后端只承诺 HTTP 契约（`docs/api.md` 两处漂移已修 + `error-contract`/`adapter-contract`/`docs-consistency` 三个后端契约测试），前端只依赖契约且关键数据面受 fetch 级契约测试约束，代码零跨端依赖、单一 HTTP 出口、会话单一 cookie。
+- 目标 1 与目标 5 至此均可判 **PASS**；剩余 P2 属增量收敛项，不构成 2.3.0 验收阻断。

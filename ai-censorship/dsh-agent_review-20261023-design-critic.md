@@ -293,3 +293,34 @@
 | design-critic | ✅ 通过（阻塞项 274f3780 后复核） | 实测 POST/PUT type=endpoint + domain_id=999 → 200 且回读 domain_id=null |
 
 最终：**四位评审一致通过，可合入**。
+
+---
+
+## 复审 1（f1022dd4）
+
+> 复核对象：HEAD `f1022dd4`；范围同前，仅目标 1 的「审美与交互一致性」。
+> 方式：只读 + 实跑（Vite dev 5173 实测、`npx vite build`、`npx vitest run src/styles/__tests__/legacy-css.test.ts`）。
+
+### 判定：**PASS**（目标 1）
+
+| 核验项 | 结果 | 证据 |
+|---|---|---|
+| legacy CSS 清理 | ✅ | `client/src/styles/globals.css` **3080 → 309 行**；`.t-*` **0**、`!important` **0**、`--td-*` 仅剩 1 处且**在注释里**（`:63`，门禁测试先剥离注释再断言）|
+| 失效变量 | ✅ | 全仓 `grep -- '--td-\|--app-scaled-vh'` 命中仅 2 处：globals.css 注释 + 测试断言字符串；运行时 `--app-scaled-vh` 已无引用（此前 3 处 `min-height` 计算值 0px 的问题消失）|
+| 门禁 | ✅ | 实跑 `legacy-css.test.ts` → **3 tests passed**（选择器/变量、!important、行数 <600）|
+| 构建体积 | ✅ | 实跑 `vite build`：`dist/assets/index-*.css` = **40,528 B（40.53 kB）**，gzip **8,576 B（8.58 kB）**，与整改说明一致 |
+| 视觉回归 · 三档布局 | ✅ 无回归 | 1440/1024/768 × 5 页，`docOverflow` 全 **0**；表格容器滚动量与整改前**逐项一致**（1024：svc 114 / records 140 / workflows 106 / audit 370；768：94/120/86/350）；无 console error |
+| 视觉回归 · 暗色 | ✅ 无回归 | 卡片仍 `rgba(22,30,49,.98)`、`--scrim-alpha 0.93`、正文 `#f1f5f9`，与整改前完全一致；截图 `evidence/recheck-dark.png` |
+| 视觉回归 · 基础样式 | ✅ | body 背景图（渐变+url，cover）、`Inter` 字体、页面色 `#0f1729`、滚动条 `8px / 4px` 圆角均保留 |
+| 间距令牌比例 | ⚪ 未变化 | `gap-phi-*` **32** : `gap-3/gap-4` **43**（本批未涉及；属目标 1 的 P2 残留）|
+
+### 仍存在的 P2（不阻断）
+
+1. `client/src/styles/globals.css` 仍有 **5 条零引用选择器**：`.tab-btn.active::after`、`.servicemonitor-tabs-wrapper`、`.app-td-dialog`、`settings-image-preview__mask`、`.app-has-background`（tsx 中命中 0 处；`.team-member` 5 处、`.about-contributors` 1 处为活规则）。
+2. 标题语义：全站唯一 `h1` 是顶栏 13px 面包屑，页面主标题为 `h2 26px`；监控三子页卡片标题仍是 `<p class="text-sm">`，无 heading。
+3. 768 下表格横向滚动无可见提示（操作列在视口外）。
+
+### 阻断项
+
+**无。** 清理未引入任何视觉或布局回归，失效引用与门禁均已落地，目标 1 由「部分达成」转为 **PASS**。
+

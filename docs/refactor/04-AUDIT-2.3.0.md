@@ -100,7 +100,7 @@
 - 架构：`ai-censorship/dsh-agent_review-20261023-arch.md` 同名章节
 - 视觉：`ai-censorship/dsh-agent_review-20261023-design-critic.md` 同名章节
 
-## 五、审核团判定（汇总）
+## 五、审核团判定（首轮）
 
 | 评审 | 覆盖目标 | 判定 |
 | --- | --- | --- |
@@ -112,3 +112,23 @@
 **主审结论**：**2.3.0 计划的重构目标未全部达成**；其中「API 子模块」达成，其余四项部分达成；**DNS 适配器语义在 2.3.0 时点未达成，在 HEAD（2.3.1 未发布）达成**。
 
 > **复审口径更新（2.3.1 整改后）**：目标 5 的验收口径已改为「手写类型 + 关键数据面 fetch 级契约测试」，不再要求代码生成；目标 1 的 legacy CSS 缺口已闭合（globals.css 309 行 / CSS 40.52kB）。
+
+## 六、复审结论（第 3 轮整改后，提交 `c45b710a`）
+
+| # | 目标 | 首轮判定 | 复审判定 | 关键闭合证据 |
+| --- | --- | --- | --- | --- |
+| 1 | 前端整体重写 | 部分 | **PASS** | legacy CSS 3080→309 行、CSS 87.3→40.52kB；设计一致性/暗色/窄屏/弹窗全部实测通过 |
+| 2 | API 语义收敛 | 部分 | **PASS** | 信封/错误码/分页口径复核通过；`allowed_services` 实测 403/200；畸形 JSON 400 |
+| 3 | API 注册独立子模块 | 达成 | **PASS** | 23 模块声明、唯一挂载点、门禁三态由声明派生 |
+| 4 | 遗留隐性问题清理 | 部分 | **PASS** | P0 **7/7**；空折叠清零、RecordId 13 处数字兜底清零、taskManager 双跑/活性兜底闭合 |
+| 5 | 前后端解耦 | 部分 | **PASS** | 关键数据面 5/22 fetch 级契约测试；client 0 处 import server；`lib/http.ts` 唯一出口 |
+| — | DNS 适配器语义 | 2.3.0 未达成 | **PASS**（HEAD） | 线路模型缓存/降级/重试、redirect 能力位、能力位执行、别名归一化 |
+
+**审核团结论：2.3.0 重构目标通过**（5/5 目标 PASS；P0 7/7；无阻断项）。
+
+三轮整改提交：
+- `f1022dd4`：legacy CSS 清理、record_count 失败通道、allowed_services 接线、JSON 400、鉴权漏点
+- `ee1e4c1b`：28 处空折叠错误通道、10 处严格 RecordId、taskManager 超时释放、文档漂移
+- `c45b710a`：powerdns 复合 ID、getDomainList 空折叠、硬超时兜底、3 个数据面契约测试
+
+**遗留 backlog（不阻断验收，已登记）**：非安全类 P1（concurrency 死字段、DSM_BACKUP_REQUIRED 默认值、CI continue-on-error、--no-frozen-lockfile、i18n 脚本零引用）；其余 17 个 api 模块的 fetch 级断言增量补齐；2 处页面直连 http；powerdns 复合 ID 的 `<=0` 报错语义。

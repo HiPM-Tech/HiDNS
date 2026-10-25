@@ -132,3 +132,29 @@ P0-1（PUT 授权 + 白名单）→ P1-2（把在途的连接上限一起提交�
 - 目标 2：**部分达成** —— 信封/错误码/分页/域名权限在 2.3.0 时点已达成；**服务级权限（allowed_services）无执行点**、幂等仅有客户端约定、畸形 JSON 落 500。
 - 目标 3：**达成**，且 **2.3.0 时点即达成**（非 2.3.1 补丁）。
 - 适配器语义：**2.3.0 时点未达成**（2.1/2.2/2.3 全部来自 v2.3.0 之后的 03bd1c08 / 9e6d9070 / 57f2292f / 9fd03ac6）；**HEAD 达成**，唯一遗留是 redirect 能力位全仓 false + 零实现，链路空转。
+
+## 复审 1（f1022dd4）
+
+复审范围：目标 2（API 语义收敛）+ 目标 3（API 子模块）+ 适配器语义。方法：读代码 + 独立运行时验证 + 实跑门禁；未改代码、未提交。
+
+### 逐项验证（本轮整改点）
+
+- **allowed_services（真机验证 PASS）**：`server/src/api/mount.ts:14-36` 的 `buildServiceGate` 按模块 `service` 在校验前拦截；`api/index.ts` 有 9 个模块声明 service（8 个 dns + `mcp`）。我把 `server/src` 编译到 ``/tmp/gatecheck``，用桩 `verifyToken` 分别以 mcp/dns/* 令牌请求挂载了 `service:'dns'` 的路由，实测：**mcp → 403** `(body: {"code":403,"data":null,"msg":"Token does not have permission for dns"})`、**dns → 200**、**'*' → 200**。会话 JWT（无 Bearer）绕过门禁交给 `authMiddleware`，行为未变。
+- **record_count（PASS）**：`service/recordCountCache.ts:20-29` 先 `clearError()`，空结果 + `getError()` 时 **抛错**（不再折叠为 0）；`result.total !== domain.record_count` 时无条件回写，故「真删到 0」也会刷新。用例 `service/__tests__/record-count-cache.test.ts` 3 条存在。
+- **畸形 JSON（PASS）**：`middleware/errorHandler.ts:53-54` 新增 `entity.parse.failed` → 400 `'Invalid JSON body'`。
+- **鉴权漏点（PASS）**：`middleware/rateLimit.ts:102-105` RDAP 的 skip 只认 session cookie（任意 Bearer 不再免限）；`routes/settings.ts:385` `smtp/test` 加 `noTokenAuth`；`routes/providers.ts:20` icon 加 `authMiddleware`（前端无 /icon 调用点，无回归）。
+- **信封 data（PASS，从源头闭合）**：`utils/http.ts` 的 `sendSuccess`/`sendError` 均改为 `data: data ?? null`，此前 341 处 `sendError` 调用里仅 1 处显式传 data 导致线上 340 处缺键的问题一次性消失。
+- **门禁实跑**：`npx vitest run` = **644 passed**；`tsc --noEmit` 此前为 0。
+
+### 仍存问题（非阻断）
+
+- **文档漂移 2 处（P2，需同步）**：`docs/api.md:552` 仍写 `GET /api/providers/:type/icon` 鉴权「无」，实际已要求 `authMiddleware`；`docs/api.md` §11 RDAP 段仍写「已认证（Bearer token 或 session cookie）不限速」，并贴了旧 `skip` 代码片段，而实现只认 session cookie。按 00-PLAN §5「涉及 API 语义时同步 docs/api.md」，这两处应收尾。
+- **幂等（保持上轮结论）**：仍为「调用方约定 + API 提供 subdomain/type 查询能力」（root.ai.md:663），服务端无 Idempotency-Key；按 root.ai.md 定义属已达成的约定式幂等，不阻断。
+- **redirect 能力位（保持 P3）**：26 家全 false、0 个适配器实现 `setRecordRedirect`，链路仍空转（预留能力）。
+
+### 复审结论
+
+- 目标 2：**PASS**（信封/错误码/分页/权限口径全部落实，且 `allowed_services` 经真机 403/200 验证；残留 2 处文档漂移与约定式幂等，非阻断）
+- 目标 3：**PASS**（`api/` 唯一注册点未回退，新增 `service` 声明仍由清单派生，`mount` 单一挂载点）
+- 适配器语义：**PASS**（2.1/2.2 不变量与线路模型未回退；redirect 空转为预留，非阻断）
+- 阻断项：**无**

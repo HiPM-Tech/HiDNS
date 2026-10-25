@@ -679,3 +679,140 @@ $ node scan_env.mjs server/src  → CODE/HTTP MISMATCH: 0
 
 Current:2.3.0 目标核对（目标4+架构）/ Result:本节（P0 5/7、P1 抽样 11/3/10、12 条发现）/ Next:优先 F1/F2/F5/F6 四条（错误通道、recordId 校验、任务超时取消、T5 三漏点）
 
+
+## 复审 1（f1022dd4 · 目标 4 + 架构）
+
+> 复审方式：只读 + 门禁实跑 + 起隔离实例（PORT=3940）做 API 级实测；提交信息不作为证据。
+> 门禁实数：server `tsc --noEmit` exit 0、`vitest run` **82 文件 / 644 条全绿**；client `vitest run` **42 / 164 全绿**、`vite build` 通过且 CSS **40.52 kB（gzip 8.65 kB）**。
+
+### 复审结论：**PARTIAL**（5 项整改：4 项 PASS，1 项 PARTIAL）
+
+| 整改项 | 判定 | 实测证据 |
+| --- | --- | --- |
+| 1 legacy CSS | **PASS** | `wc -l client/src/styles/globals.css` = **309**；`grep -c '!important'` = 0；`.t-`/`--td-` 仅剩 `:63` 注释里的历史说明（门禁测试先剥离注释再断言）；构建产物 40.52 kB / gzip 8.65 kB |
+| 2 record_count（P0-4） | **PARTIAL** | sink 与路由已改（见下）；适配器侧仍有 30/92 折叠点不写 `this.error` → 仍会把失败写成 0 |
+| 3 allowed_services | **PASS** | mcp 令牌 → `GET /api/domains/1/records` **403** `Token does not have permission for dns`；dns 令牌 → 同 URL **400**（已过门禁，400 来自 dev 未注册 virtual 提供商）；dns 令牌 → `GET /api/mcp/status` **403**；`api/__tests__/api-layer.test.ts:148-151` 断言 service 声明 |
+| 4 畸形 JSON | **PASS** | `POST /api/auth/login` body `{"username":` → **400** `{"code":400,"data":null,"msg":"Invalid JSON body"}`（`errorHandler.ts` 的 `entity.parse.failed`） |
+| 5 鉴权三漏点 | **PASS** | RDAP 并发 6 带伪造 Bearer → **2×200 + 4×429**，429 为 JSON 信封（`rateLimit.ts:96-104` 只认会话 Cookie）；`/api/settings/smtp/test` + API 令牌 → **403**（`:385` 已有 `noTokenAuth`）；无凭据 `GET /api/providers/cloudflare/icon` → **401** |
+
+### 仍未闭合（按严重度）
+
+**R1（P0-4 残余，阻断"目标 4 达成"）**：适配器侧没有统一失败通道，30/92 个 `return { total: 0, list: [] }` 落点所在函数内**没有** `this.error = ...`，于是 `recordCountCache.ts:19-21` 的 `clearError() + getError()` 判据把它们当"成功的 0 条"，照旧写 0。已逐一确证 3 例：
+
+```
+server/src/lib/dns/providers/cloudflare/adapter.ts:194   if (!zoneId) { log.warn(...); return { total: 0, list: [] }; }      ← 无 this.error
+server/src/lib/dns/providers/caihongdns/adapter.ts:174   if (res.code !== undefined && res.code !== 0) return { total: 0, list: [] }; ← 无 this.error
+server/src/lib/dns/providers/aliyunesa/adapter.ts:149    if (!domainId) return { total: 0, list: [] };                     ← 无 this.error
+```
+
+统计口径：`fold_check2.mjs`（以"最近函数起点到落点"为窗口匹配 `this.error =`）→ **30/92**；8 行窄窗为 36/92。两种口径都说明"以 sink 判据兜底"没有覆盖到桥接层。
+
+**R2（P1，不阻断）**：`taskManager` 超时仍只 `reject` 不取消本体，`taskManager.ts:327` 的 `finally { this.runningTasks.delete(taskId) }` 保持原样（本轮 stat 中 `taskManager` 命中 0 次）→ 同 ID 并发双跑窗口未变。
+
+**R3（P1，不阻断）**：P0-5 的 9 处 `toNumber(recordId, 0)`（dnshe/rainyun/dnspod/powerdns 的 update/delete 路径）未动，非法 recordId 仍会打到"0 号记录"。
+
+### P0 计数更新
+
+**仍为 5/7**（P0-1 达成·单层、P0-2/3/6/7 达成、P0-4 部分、P0-5 部分）。本轮把 P0-4 从"规避式"改成了"sink+路由双判"，方向正确，但因 R1 仍不满足"抖动不再写 0"的原始判据，不能计为闭合。
+
+### 结论一句
+
+整改质量高（4/5 项可实测 PASS，且 RDAP 429 顺带变成 JSON 信封），但目标 4 仍是 **PARTIAL**：P0-4 的失败通道卡在适配器桥接层（30 处裸折叠），taskManager 超时与 P0-5 未触及。
+
+---
+
+Current:复审 1（f1022dd4）/ Result:本节 —— 目标4 PARTIAL（4/5 整改 PASS，R1 阻断达成判定）/ Next:把 30 处裸折叠改为 `this.error = ...` 或让 `PageResult` 增加 `ok/error` 字段，再复跑 record-count-cache 用例
+
+
+## 复审 2（ee1e4c1b · 目标 4 + 架构）
+
+> 复核方式：只读 + 门禁实跑（未起服务，本轮无 API 行为变更）。门禁实数与提交声明一致：
+> `server tsc --noEmit` = 0、`vitest run` **82 文件 / 646 条全绿**；`client vitest` **42 / 164 全绿**；`eslint . --max-warnings=0` = 0。
+
+### 结论：**PARTIAL**（较上轮显著收敛，P0 从 5/7 → **6/7**）；**阻断项：无**
+
+### 逐项核验
+
+| 整改项 | 判定 | 证据 |
+| --- | --- | --- |
+| 1 空折叠补 `this.error` | **PASS（就 record_count 路径）** | `getDomainRecords` 内真实提供商的裸折叠 = **0**（唯一残留是 `_example/adapter.ts:184` 脚手架示例，未注册）；新增 `lib/dns/__tests__/adapter-contract.test.ts:139-152` 做源码扫描。**但提交信息"剩余裸折叠 = 0"不准确**：`getDomainList` 仍有 **9 处**裸折叠（见 R1） |
+| 2 严格 RecordId | **PASS（10/13）** | `providers/common.ts:52-58` `requireNumericRecordId`（`Number.isInteger` 且 `>0`，否则抛 `非法记录 ID`）；10 个调用点已替换（dnshe×2、rainyun×2、dnspod×6），`toNumber(recordId, 0)` 仅剩注释。**powerdns 的复合 ID 分支漏改**（R2） |
+| 3 taskManager 超时 | **PASS** | `taskManager.ts:260-268` `fnPromise.finally` + `timedOut` 标记，`:338-343` `finally { if (!timedOut) delete }`；超时后 ID 由 fnPromise 真正结束时释放 → 同 ID 双跑窗口关闭（`Promise.race` 已挂接 fnPromise，迟到 reject 不会成为 unhandledRejection） |
+| 4 docs 漂移 | **PASS** | `docs/api.md:552` icon 标注 `authMiddleware`；`:568` 明确 "skip 只对 session cookie 生效，Bearer 按 2 次/秒限流" |
+| 5 目标 5 验收口径 | **PASS** | `00-PLAN.md:13` 改为 "后端只承诺 HTTP 契约（docs/api.md + 契约测试）；前端只依赖契约，类型手写并受契约测试约束（不要求代码生成）" |
+
+### 残留（均不阻断）
+
+**R1（P1 · 同一"读失败折叠成空"家族，仅剩 getDomainList）**
+```
+caihongdns/adapter.ts:174   if (res.code !== undefined && res.code !== 0) return { total: 0, list: [] };  ← 只有 log 没有 this.error
+caihongdns/adapter.ts:179   if (!rows || rows.length === 0) ...                                     ← 合法的空 zone（已注明，可接受）
+dnshe/adapter.ts:147        if (!res.success || !res.subdomains) ...
+dpdns_reverse/adapter.ts:56 catch(e) { log.error(...) } → return { total: 0, list: [] }
+hidns/adapter.ts:134,153 / hidns_v2/adapter.ts:155 / rainyun/adapter.ts:112 / west/adapter.ts:157
+```
+影响面**已收窄**：`domainSyncJob.ts:153-158` 拿到空列表只是 `break`（不同步、不删本地域名），不会写 `record_count`，所以 P0-4 的原始症候（抖动写 0）已不可达。契约测试只扫 `getDomainRecords` 的函数体，结构上抓不到这一组——若要把"折叠成空"作为**整类**门禁，需要扩展扫描到 `getDomainList`。
+
+**R2（P1 · P0-5 的同族残留）powerdns 复合 ID 仍会落到 0 号**
+`powerdns/adapter.ts:272,321,365` 是 `const recId = toNumber(recordIdStr, 0)`，其中 `recordIdStr` 来自 `recordId.split('_')`；畸形输入 `"5_"` → `recId = 0` → 更新/删除第 0 条记录。**这是本轮"10 处已改完"之外的第 11–13 处**，需要同款 `requireNumericRecordId` 或对 `recId` 做 `>0` 校验。
+
+**R3（P2 · 本轮新引入的活性权衡）** 超时后 ID 不再释放，若 `fn()` 永不 settle，ID 永久占用；多个卡死任务会把 `runningTasks` 顶到 `maxConcurrentTasks` 使队列整体停摆。旧行为是"双跑"，新行为是"可能停摆"——建议加硬性兜底（超时后再等 N 秒记 zombie 并强制释放）。
+
+### P0 计数
+
+**6/7**：P0-1（达成·单层守卫）、P0-2、P0-3、P0-4（**本轮闭合**：record_count 路径的失败通道 + 契约测试）、P0-6、P0-7 达成；P0-5 **部分**（10 处已改，powerdns 3 处复合 ID 未改）。
+
+### 是否阻断通过
+
+**无**。R1 不影响 record_count 且同步只跳过不删数据；R2 需畸形 `recordId`（含 `_` 且后段非数字）才能触发，且 powerdns 属小众提供商；R3 是设计权衡。三条都建议排进下一轮，不构成合入/发布阻断。
+
+---
+
+Current:复审 2（ee1e4c1b）/ Result:目标4 PARTIAL（P0 6/7，5 项整改 5 PASS，3 条非阻断残留）/ Next:powerdns 三处 `recId` 校验 + 把折叠扫描扩到 getDomainList + 任务超时硬兜底
+
+
+## 复审 3（c45b710a · 目标 4 + 架构）
+
+> 复核方式：只读 + 门禁实跑 + 对 `parseCompositeRecordId` 做边界单测式验证（未起服务，本轮无 API 行为变更）。
+> 门禁实数与声明一致：`tsc --noEmit` = 0；`vitest run` **82 文件 / 646 条全绿**；client `vitest` **45 / 170 全绿**；`eslint --max-warnings=0` = 0。
+
+### 结论：**PASS**（目标 4 达成）；**阻断项：无**；**P0 = 7/7**
+
+### 逐项核验
+
+**R1 · P0-5（严格 RecordId）：可判闭合。**
+- 13 处数字兜底已清零：`grep -rn 'toNumber([a-zA-Z]*[Rr]ecordId[A-Za-z]*, 0)' server/src` → 仅剩 `common.ts:50` 的注释。
+- powerdns 3 处改为 `parseCompositeRecordId`（`powerdns/adapter.ts:270,317,359`），实测边界：
+```
+5_3    → {"rrsetId":5,"recordId":3}
+5_abc  → throws 非法复合记录 ID：5_abc
+5_1_2  → throws 非法复合记录 ID：5_1_2
+5_-1   → throws 非法复合记录 ID：5_-1
+5_      → {"rrsetId":5,"recordId":0}     ← 仍接受 0（见下）
+_1      → {"rrsetId":0,"recordId":1}      ← 仍接受 rrsetId 0
+```
+- 0 是否仍会"落到 0 号记录"？**不会**：powerdns 的 id 空间从 1 起（`adapter.ts:149-159`：`rrsetId++` 后才赋值、`recordId++` 后才赋值），而 update/delete 是**身份比较** `record.id === recId` / `rrset.id === rrsetId`（`:289`、`:322`），0 命中不了任何记录 → `found=false` → `this.error='记录不存在'` → 返回 false，不会写错记录。**建议**（非阻断）：把 `recId < 0` 收紧为 `recId <= 0`/`rrsetId <= 0`，让报错语义从"记录不存在"变成"非法 ID"。
+
+**R2 · getDomainList 空折叠：清零。**
+8 处全部补 `this.error`（逐点抽查）：`dnshe:147`、`dpdns_reverse:56`（catch 里同时 log）、`hidns:134`、`hidns_v2:155`、`rainyun:112`、`west:157`、`caihongdns:174`（失败分支；`:179` 合法空列表保留）。全仓复扫（`fold_fn.mjs`，按函数窗口）**真实提供商裸折叠 = 0**，唯一残留是 `_example/adapter.ts:184` 脚手架示例（未注册、不上线）。
+保留意见（非阻断）：契约测试 `adapter-contract.test.ts:139-152` 仍只扫 `getDomainRecords` 的函数体，`getDomainList` 这一组靠人肉补齐、没有门禁兜底；建议把扫描范围扩到任意 `getDomain*List|Records`，否则下一次新增提供商仍可复发。
+
+**R3 · taskManager 活性兜底：可接受。**
+`taskManager.ts:57` `HARD_TIMEOUT_GRACE_MS = 5 * 60_000`；`:66-76` `release()` 用 per-invocation `released` 标志幂等——僵尸任务在硬超时释放后若晚到 settle，再次调用 `release()` 是 no-op，不会误删同 ID 的**新**执行；`:285-292` 硬定时器只在软超时后启动，`:325` 成功路径与 `:340` finally 都走同一 `release()`。代价明确：仅当任务体卡死 > `timeout + 5min` 时才可能出现同 ID 双跑，属于有界、可控的权衡，优于"永久占用导致队列停摆"。
+
+**R4 · 客户端契约测试与口径。**
+新增 `features/domains/__tests__/domains-api-contract.test.ts`、`features/accounts/__tests__/accounts-api-contract.test.ts`、`features/domains/__tests__/service-monitor-api-contract.test.ts`；`00-PLAN.md:13` 目标 5 措辞已改为"手写类型 + 关键数据面（domains/accounts/records/servicemonitor）受 fetch 级契约测试约束（不要求代码生成）"，`04-AUDIT-2.3.0.md:114` 有同口径脚注。当前可见的数据面 fetch 级契约用例 ≥5（含既有 `ns-monitor-api`、`batch-api`），与"5/22"声明一致；22 的分母定义未在文档中列出，无法独立核验。
+
+### P0 计数
+
+**7/7 全部达成**：P0-1（门禁闭环·单层守卫）、P0-2、P0-3、P0-4（复审 2 闭合）、P0-5（本轮闭合）、P0-6、P0-7。
+
+### 最终判定
+
+按 `00-PLAN §4` 的验收口径（**panel P0 全部 + P1 安全类**）判定：**PASS**。
+仍未闭合、但**不属于本轮验收口径**的非安全类 P1（列入下一迭代 backlog，不影响判定）：`TaskOptions.concurrency` 仍是死字段（`taskManager.ts:32` vs `:173` 全局并发）、`DSM_BACKUP_REQUIRED` 两处默认相反（`backup-manager.ts:16` vs `schema-reconciler.ts:470`）、`test-database.yml` 5 处 `continue-on-error` + `:140 || true`、`release.yml` 10 处 `--no-frozen-lockfile`、`check_i18n_simple.js` 零引用。
+
+---
+
+Current:复审 3（c45b710a）/ Result:目标4 PASS（P0 7/7，13 处兜底清零、8 处折叠清零、硬超时可接受，无阻断项）/ Next:把折叠扫描扩到 getDomainList + `recId<=0` 收紧 + 非安全类 P1 排入 backlog
+
