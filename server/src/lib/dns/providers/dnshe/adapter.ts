@@ -144,6 +144,7 @@ export class DnsheAdapter extends BaseAdapter implements DnsAdapter {
       });
 
       if (!res.success || !res.subdomains) {
+        this.error = this.error || '读取域名列表失败：上游返回异常';
         return { total: 0, list: [] };
       }
 

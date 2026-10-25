@@ -109,6 +109,7 @@ export class RainyunAdapter extends BaseAdapter {
       );
 
       if (res.code !== 200 || !res.data) {
+        this.error = `读取域名列表失败：code=${res.code}`;
         return { total: 0, list: [] };
       }
 

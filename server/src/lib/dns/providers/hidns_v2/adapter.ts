@@ -152,6 +152,7 @@ export class HidnsV2Adapter implements DnsAdapter {
       const res = await this.request<{ total: number; list: HidnsV2Domain[] } | HidnsV2Domain[]>('GET', '/domains', params);
 
       if (res.code !== 0) {
+        this.error = `读取域名列表失败：code=${res.code}`;
         return { total: 0, list: [] };
       }
 

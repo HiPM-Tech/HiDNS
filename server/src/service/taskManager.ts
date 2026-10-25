@@ -53,6 +53,9 @@ const REQUEUE_BASE_DELAY_MS = 1000;
 /** 同 ID 任务冲突的最大延后次数，超过则判定为异常并失败，避免无限等待 */
 const MAX_REQUEUE_DEFERRALS = 60;
 /** 未显式配置超时的任务所使用的兜底超时（毫秒），确保任务必然结束、ID 必然释放 */
+/** 超时后等待任务体自行结束的宽限；超过则强制释放 ID（防止队列停摆） */
+const HARD_TIMEOUT_GRACE_MS = 5 * 60_000;
+
 const DEFAULT_TASK_TIMEOUT_MS = 30 * 60 * 1000;
 
 export class TaskManager {
@@ -255,6 +258,15 @@ export class TaskManager {
     });
 
     let timedOut = false;
+    let released = false;
+    let hardTimer: NodeJS.Timeout | null = null;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      if (hardTimer) clearTimeout(hardTimer);
+      this.runningTasks.delete(taskId);
+      this.processQueue();
+    };
     try {
       // 兜底超时：即便调用方未配置超时，也必须保证任务最终结束，
       // 否则任务 ID 永不释放，后续同 ID 提交将永久无法执行。
@@ -265,16 +277,18 @@ export class TaskManager {
 
       const fnPromise = fn().finally(() => {
         // 超时后 fn 仍可能在跑：只有它真正结束才释放 ID，避免同 ID 双跑
-        if (timedOut) {
-          this.runningTasks.delete(taskId);
-          this.processQueue();
-        }
+        if (timedOut) release();
       });
       const executionPromise = Promise.race([
         fnPromise,
         new Promise<never>((_, reject) => {
           timeoutId = setTimeout(() => {
             timedOut = true;
+            // 活性兜底：任务体若永不 settle，防止 ID 永久占用导致队列停摆
+            hardTimer = setTimeout(() => {
+              log.error('Task hard timeout: releasing task id after grace period', { taskId, graceMs: HARD_TIMEOUT_GRACE_MS });
+              release();
+            }, HARD_TIMEOUT_GRACE_MS);
             reject(new Error(`Task timeout after ${timeout}ms`));
           }, timeout);
         }),
@@ -333,10 +347,7 @@ export class TaskManager {
       }
     } finally {
       // 超时路径：任务本体可能仍在运行，交给 fnPromise.finally 释放 ID
-      if (!timedOut) {
-        this.runningTasks.delete(taskId);
-        this.processQueue();
-      }
+      if (!timedOut) release();
     }
   }
 

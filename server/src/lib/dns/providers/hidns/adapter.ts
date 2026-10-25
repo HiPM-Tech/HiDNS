@@ -130,6 +130,7 @@ export class HiDNSAdapter implements DnsAdapter {
       });
 
       if (res.code !== 0) {
+        this.error = `读取域名列表失败：code=${res.code}`;
         log.error('getDomainList failed', { code: res.code, msg: res.msg });
         return { total: 0, list: [] };
       }
@@ -149,6 +150,7 @@ export class HiDNSAdapter implements DnsAdapter {
         total = res.data.total || domains.length;
         log.debug('Detected paginated object format response');
       } else {
+        this.error = '读取域名列表失败：返回结构不合法';
         log.error('getDomainList invalid data structure', { data: res.data });
         return { total: 0, list: [] };
       }

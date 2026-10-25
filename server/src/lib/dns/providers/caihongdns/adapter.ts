@@ -171,6 +171,7 @@ export class CaihongDnsAdapter implements DnsAdapter {
 
       // Check for error
       if (res.code !== undefined && res.code !== 0) {
+        this.error = this.error || `读取域名列表失败：code=${res.code}`;
         return { total: 0, list: [] };
       }
 

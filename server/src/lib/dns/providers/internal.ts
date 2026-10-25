@@ -50,6 +50,7 @@ export {
   resolveCreatedRecordId,
   resolveProviderLine,
   requireNumericRecordId,
+  parseCompositeRecordId,
   uuid,
   isSrv,
   parseSrvValue,

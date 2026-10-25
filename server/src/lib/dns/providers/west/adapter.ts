@@ -154,6 +154,7 @@ export class WestAdapter extends BaseAdapter implements DnsAdapter {
         page,
       });
       if (res.result !== 200 || !res.data) {
+        this.error = `读取域名列表失败：result=${res.result}`;
         return { total: 0, list: [] };
       }
 

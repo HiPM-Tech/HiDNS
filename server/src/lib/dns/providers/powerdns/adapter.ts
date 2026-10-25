@@ -1,4 +1,4 @@
-import {createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveCreatedRecordId } from '../internal';
+import {createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveCreatedRecordId, parseCompositeRecordId } from '../internal';
 
 const log = createProviderAdapterLogger('Powerdns');
 interface PowerdnsConfig {
@@ -267,9 +267,7 @@ export class PowerdnsAdapter extends BaseAdapter {
         return false;
       }
 
-      const [rrsetIdStr, recordIdStr] = recordId.split('_');
-      const rrsetId = toNumber(rrsetIdStr, 0);
-      const recId = toNumber(recordIdStr, 0);
+      const { rrsetId, recordId: recId } = parseCompositeRecordId(recordId);
 
       let recordValue = value;
       if (type === 'TXT' && !recordValue.startsWith('"')) {
@@ -316,9 +314,7 @@ export class PowerdnsAdapter extends BaseAdapter {
         return false;
       }
 
-      const [rrsetIdStr, recordIdStr] = recordId.split('_');
-      const rrsetId = toNumber(rrsetIdStr, 0);
-      const recId = toNumber(recordIdStr, 0);
+      const { rrsetId, recordId: recId } = parseCompositeRecordId(recordId);
 
       for (const rrset of this.rrsetsCache) {
         if (rrset.id === rrsetId) {
@@ -360,9 +356,7 @@ export class PowerdnsAdapter extends BaseAdapter {
         return false;
       }
 
-      const [rrsetIdStr, recordIdStr] = recordId.split('_');
-      const rrsetId = toNumber(rrsetIdStr, 0);
-      const recId = toNumber(recordIdStr, 0);
+      const { rrsetId, recordId: recId } = parseCompositeRecordId(recordId);
 
       for (const rrset of this.rrsetsCache) {
         if (rrset.id === rrsetId) {

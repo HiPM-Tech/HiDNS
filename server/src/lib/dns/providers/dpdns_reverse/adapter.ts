@@ -52,7 +52,8 @@ export class DpdnsReverseAdapter extends BaseAdapter {
       log.info(`Fetched ${list.length} domains from dpdns API`);
       return { total: list.length, list };
     } catch (e: any) {
-      log.error('Failed to fetch domain list', { error: e.message });
+      this.error = e?.message ? String(e.message) : String(e);
+      log.error('Failed to fetch domain list', { error: this.error });
       return { total: 0, list: [] };
     }
   }

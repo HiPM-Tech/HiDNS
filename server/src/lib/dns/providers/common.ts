@@ -57,6 +57,19 @@ export function requireNumericRecordId(recordId: string): number {
   return n;
 }
 
+/** 解析 powerdns 这类「rrsetId_recordId」复合 ID；任一段非法直接报错 */
+export function parseCompositeRecordId(recordId: string, separator = '_'): { rrsetId: number; recordId: number } {
+  const parts = String(recordId).split(separator);
+  if (parts.length !== 2) throw new Error(`非法复合记录 ID：${recordId || '(空)'}`);
+  const [rrsetRaw, recordRaw] = parts;
+  const rrsetId = Number(rrsetRaw);
+  const recId = Number(recordRaw);
+  if (!Number.isInteger(rrsetId) || rrsetId < 0 || !Number.isInteger(recId) || recId < 0) {
+    throw new Error(`非法复合记录 ID：${recordId}`);
+  }
+  return { rrsetId, recordId: recId };
+}
+
 export function resolveProviderLine(line: string | undefined, defaultLine: string): string {
   const trimmed = typeof line === 'string' ? line.trim() : '';
   if (!trimmed) return defaultLine;
