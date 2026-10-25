@@ -12,6 +12,7 @@ import { useDeleteDomain, useDomainAccounts, useDomains, useToggleDomain, useUpd
 import { isDomainEnabled, isGroupHeader, type DomainQuery, type DomainRow } from './api';
 import { formatWhoisStatus, whoisStatusVariant } from './whois-status';
 import { AddDomainDialog } from './add-domain-dialog';
+import { providerLabel } from '../accounts/provider-labels';
 import { isAdminUser, useSession } from '../session/use-session';
 
 const PINNED_KEY = 'hidns.domains.pinned';
@@ -199,7 +200,7 @@ export function DomainsPage() {
                   <SelectItem value="all">全部账户</SelectItem>
                   {(accountsQuery.data ?? []).map((account) => (
                     <SelectItem key={account.id} value={String(account.id)}>
-                      {account.name}
+                      {account.name} · {providerLabel(account.type)}
                     </SelectItem>
                   ))}
                 </SelectContent>

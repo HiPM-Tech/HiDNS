@@ -241,7 +241,7 @@ export function DomainRenewalTab() {
 
 function AddRenewableDialog({ open, accounts, onClose, onError, onDone }: {
   open: boolean;
-  accounts: Array<{ id: number; name: string }>;
+  accounts: Array<{ id: number; name: string; type: string }>;
   onClose: () => void;
   onError: (message: string) => void;
   onDone: (count: number) => void;
@@ -285,7 +285,11 @@ function AddRenewableDialog({ open, accounts, onClose, onError, onDone }: {
             <Select value={accountId} onValueChange={(value) => { setAccountId(value); setSelected([]); }}>
               <SelectTrigger id="renewal-account"><SelectValue placeholder="选择账户" /></SelectTrigger>
               <SelectContent>
-                {accounts.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>)}
+                {accounts.map((item) => (
+                  <SelectItem key={item.id} value={String(item.id)}>
+                    {item.name} · {providerLabel(item.type)}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

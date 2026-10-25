@@ -4,6 +4,8 @@ import { formatWhoisStatus, whoisStatusVariant } from '../whois-status';
 describe('WHOIS 状态翻译', () => {
   it('单状态与多行 EPP 状态都翻译', () => {
     expect(formatWhoisStatus('active')).toBe('正常');
+    expect(formatWhoisStatus('ok')).toBe('正常');
+    expect(formatWhoisStatus('OK')).toBe('正常');
     expect(formatWhoisStatus('clientTransferProhibited\nclientDeleteProhibited')).toBe('禁止转移 / 禁止删除');
     expect(formatWhoisStatus('redemptionPeriod')).toBe('赎回期');
   });
