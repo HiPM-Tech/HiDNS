@@ -391,6 +391,10 @@ Base URL: `http://<部署地址>:3001/api`
 
 获取域名的 DNS 解析线路列表。
 
+- 返回 `[{ id, name }]`，`id` 的取值空间由提供商决定（如华为云为 `default_view` / `Dianxin` / `Liantong` …，阿里云为数字线路码）。
+- **不要传 `"0"` 表示默认线路**：`"0"` 是历史哨兵，2.3.1 起按「未指定」处理，由适配器选择默认（华为云为 `default_view`）。
+- 华为云：线路创建后不可修改（`PUT` 忽略 `line`），前端应在编辑态禁用线路选择；详见 `docs/providers/huawei-line.md`。
+
 ### `GET /api/domains/:id/record-types`
 鉴权：`authMiddleware`
 
@@ -461,7 +465,6 @@ Base URL: `http://<部署地址>:3001/api`
   "name": "www",
   "type": "A",
   "value": "1.2.3.4",
-  "line": "0",
   "ttl": 600,
   "mx": 0,
   "weight": 0,
@@ -481,7 +484,6 @@ Base URL: `http://<部署地址>:3001/api`
   "name": "www",
   "type": "A",
   "value": "1.2.3.5",
-  "line": "0",
   "ttl": 600,
   "mx": 0,
   "weight": 0,
@@ -517,7 +519,7 @@ Base URL: `http://<部署地址>:3001/api`
 ```json
 {
   "records": [
-    { "name": "www", "type": "A", "value": "1.2.3.4", "line": "0", "ttl": 600 },
+    { "name": "www", "type": "A", "value": "1.2.3.4", "ttl": 600 },
     { "name": "mail", "type": "MX", "value": "mail.example.com", "mx": 10 }
   ]
 }

@@ -12,6 +12,12 @@
 - **读失败 fail-closed**：`DnsProviderService.getRecords` 调用前 `clearError()`，空结果且本次有错误时抛错，不再把上游失败伪装成「0 条记录」。
 - **工厂别名归一化**：`createAdapter()` 入口做 `normalizeProviderType()`，历史库中的 `alidns`/`aliesa`/`edgeone` 等别名可正常创建适配器。
 
+### 华为云线路（合并上游 PR #39）
+
+- 合并 `sylingd/HiDNS#39` 的方向：线路选项改为官方 `ListSystemLines` 返回的系统线路，删除阿里云式 `0–4` 假线路；`UpdateRecordSets` 不再发送 `line`（线路创建后不可改）。
+- 按官方文档补齐评审指出的问题：`default_view` 排首位（避免默认建到境外线路）、适配器内把旧哨兵 `0` 归一为 `default_view`、查询失败抛错而不是回退静态列表。
+- 新增 `docs/providers/huawei-line.md` 与 4 条回归用例（`huawei-line.test.ts`）。
+
 ### 文档
 
 - `root.ai.md` 适配器章节更新：`index.ts` 为具名导出（装配由 registry `adapterFactory` 承担）、HTTP 通道允许 `requestJson/requestXml` 或 `fetchWithFallback`（仍禁原生 `fetch`）、别名表位置改为 `providerAlias.ts`，并新增「适配器语义不变量」（RecordId、线路失败、能力位执行、读 fail-closed）。

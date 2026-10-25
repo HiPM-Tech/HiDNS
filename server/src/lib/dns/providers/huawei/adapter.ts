@@ -224,7 +224,7 @@ export class HuaweiAdapter extends BaseAdapter {
       };
 
       if (type) query.type = type;
-      if (line) query.line_id = line;
+      if (line && line !== '0') query.line_id = line;
       if (status !== undefined) query.status = status === 1 ? 'ACTIVE' : 'DISABLE';
 
       if (subdomain) {
@@ -289,7 +289,8 @@ export class HuaweiAdapter extends BaseAdapter {
         name: hostName,
         type: this.convertType(type),
         records: records,
-        line: line || '0',
+        // 华为云线路 ID 没有 '0'：未指定时用官方默认线路 default_view
+        line: line && line !== '0' ? line : 'default_view',
         ttl: ttl,
         description: remark,
       };
@@ -336,11 +337,12 @@ export class HuaweiAdapter extends BaseAdapter {
       }
       const records = recordValue.split(',').reverse();
 
+      // 华为云 UpdateRecordSets 不接受 line（线路创建后不可改），这里显式不透传
+      void line;
       const body: Dict = {
         name: hostName,
         type: this.convertType(type),
         records: records,
-        line: line || '0',
         ttl: ttl,
         description: remark,
       };
@@ -384,14 +386,47 @@ export class HuaweiAdapter extends BaseAdapter {
   }
 
   async getRecordLines(): Promise<Array<{ id: string; name: string }>> {
-    // Return basic lines, full list requires loading from JSON file
-    return [
-      { id: '0', name: '默认' },
-      { id: '1', name: '电信' },
-      { id: '2', name: '联通' },
-      { id: '3', name: '移动' },
-      { id: '4', name: '教育网' },
-    ];
+    try {
+      // 官方接口：GET /v2.1/system-lines（ListSystemLines，支持 limit/offset 分页）
+      const pageSize = 500;
+      const collected = new Map<string, string>();
+      let offset = 0;
+      for (let page = 0; page < 10; page += 1) {
+        const data = await this.client.request<{
+          lines?: Dict[];
+          recordsets?: Dict[];
+          metadata?: { total_count?: number };
+        }>('GET', '/v2.1/system-lines', {
+          limit: String(pageSize),
+          offset: String(offset),
+        });
+        const rows = asArray<Dict>(data.lines ?? data.recordsets);
+        for (const row of rows) {
+          const id = safeString(row.id);
+          if (!id || collected.has(id)) continue;
+          collected.set(id, safeString(row.name) || id);
+        }
+        const total = toNumber(data.metadata?.total_count, 0);
+        if (rows.length < pageSize || (total > 0 && collected.size >= total)) break;
+        offset += pageSize;
+      }
+
+      if (collected.size === 0) {
+        this.error = '华为云线路列表为空（ListSystemLines 返回 0 条）';
+        throw new Error(this.error);
+      }
+
+      // default_view 必须排首位：前端按「首项=默认」取默认线路，
+      // 而华为云线路创建后不可改，错建只能用删除重建。
+      const entries = [...collected.entries()].map(([id, name]) => ({ id, name }));
+      return [
+        ...entries.filter((line) => line.id === 'default_view'),
+        ...entries.filter((line) => line.id !== 'default_view'),
+      ];
+    } catch (e) {
+      this.error = e instanceof Error ? e.message : String(e);
+      throw e;
+    }
   }
 
   async getMinTTL(): Promise<number> {
@@ -435,7 +470,7 @@ export class HuaweiAdapter extends BaseAdapter {
       Name: name,
       Type: safeString(row.type),
       Value: Array.isArray(row.records) ? row.records.join(',') : safeString(row.records),
-      Line: safeString(row.line) || '0',
+      Line: safeString(row.line) || 'default_view',
       TTL: toNumber(row.ttl, 600),
       MX: row.mx ? toNumber(row.mx, 0) : 0,
       Status: row.status === 'ACTIVE' ? 1 : 0,
