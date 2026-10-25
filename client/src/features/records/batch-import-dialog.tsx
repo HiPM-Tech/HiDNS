@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { alertVariants } from '../../ui/alert';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../ui';
 import { batchCreateRecords, type BatchResult, type RecordPayload } from './api';
+import { parseZoneText } from './zone-import';
 
 const SAMPLE = `www A 1.2.3.4 600
 @ MX mail.example.com 3600
@@ -43,18 +44,40 @@ export interface BatchImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   domainId: number;
+  /** 域名（用于解析 .zone 的相对名称与 $ORIGIN） */
+  domainName?: string;
   onImported?: () => void;
 }
 
-export function BatchImportDialog({ open, onOpenChange, domainId, onImported }: BatchImportDialogProps) {
+export function BatchImportDialog({ open, onOpenChange, domainId, domainName, onImported }: BatchImportDialogProps) {
   const [text, setText] = useState('');
+  const [zoneRows, setZoneRows] = useState<ParsedRow[]>([]);
+  const [zoneNotice, setZoneNotice] = useState<string | null>(null);
+  const zoneInputRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<BatchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const parsed = useMemo(() => text.split('\n').map(parseBatchLine), [text]);
-  const valid = parsed.filter((row) => row.payload);
-  const invalid = parsed.filter((row) => row.error);
+  const allRows = useMemo(() => [...parsed, ...zoneRows], [parsed, zoneRows]);
+  const valid = allRows.filter((row) => row.payload);
+  const invalid = allRows.filter((row) => row.error);
+
+  const handleZoneFile = async (file: File | undefined) => {
+    if (!file) return;
+    setZoneNotice(null);
+    try {
+      const content = await file.text();
+      const { rows, skipped } = parseZoneText(content, domainName ?? '');
+      setZoneRows(rows);
+      const ok = rows.filter((row) => row.payload).length;
+      setZoneNotice(`从 ${file.name} 解析 ${ok} 条${skipped > 0 ? `，跳过 ${skipped} 条（SOA/NS 等）` : ''}`);
+    } catch (err) {
+      setZoneNotice(err instanceof Error ? err.message : '读取 zone 文件失败');
+    } finally {
+      if (zoneInputRef.current) zoneInputRef.current.value = '';
+    }
+  };
 
   const submit = async () => {
     if (valid.length === 0) {
@@ -81,7 +104,7 @@ export function BatchImportDialog({ open, onOpenChange, domainId, onImported }: 
   const sourceLineOf = (index: number) => valid[index]?.line ?? index + 1;
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { onOpenChange(next); if (!next) { setResult(null); setError(null); } }}>
+    <Dialog open={open} onOpenChange={(next) => { onOpenChange(next); if (!next) { setResult(null); setError(null); setZoneRows([]); setZoneNotice(null); } }}>
       <DialogContent className="w-[min(94vw,40rem)]">
         <DialogHeader>
           <DialogTitle>批量导入记录</DialogTitle>
@@ -95,6 +118,19 @@ export function BatchImportDialog({ open, onOpenChange, domainId, onImported }: 
             <AlertTriangle className="h-4 w-4" /> {error}
           </div>
         )}
+
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <input
+            ref={zoneInputRef}
+            type="file"
+            accept=".zone,.txt,text/plain"
+            className="hidden"
+            onChange={(event) => void handleZoneFile(event.target.files?.[0])}
+            aria-label="选择 zone 文件"
+          />
+          <Button variant="outline" size="sm" onClick={() => zoneInputRef.current?.click()}>从 .zone 文件导入</Button>
+          {zoneNotice && <span className="text-xs text-muted-foreground">{zoneNotice}</span>}
+        </div>
 
         <textarea
           className="h-44 w-full resize-y rounded-md border border-input bg-background p-3 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

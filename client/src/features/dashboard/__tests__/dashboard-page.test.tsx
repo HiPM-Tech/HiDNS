@@ -40,9 +40,9 @@ describe('DashboardPage', () => {
     expect(await screen.findByText('42')).toBeTruthy();
     expect(screen.getByText('记录数 128')).toBeTruthy();
     expect(screen.getByText('example.com')).toBeTruthy();
-    expect(screen.getByText('aliyun')).toBeTruthy();
-    expect(screen.getByText('cloudflare')).toBeTruthy();
-    expect(screen.getByText('update_record')).toBeTruthy();
+    expect(screen.getByText('阿里云')).toBeTruthy();
+    expect(screen.getByText('Cloudflare')).toBeTruthy();
+    expect(screen.getByText('修改记录')).toBeTruthy();
   });
 
   it('加载失败展示错误与重试按钮', async () => {

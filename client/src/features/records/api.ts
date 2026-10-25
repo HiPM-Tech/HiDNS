@@ -117,8 +117,10 @@ export async function batchCreateRecords(domainId: number, records: RecordPayloa
   return envelope.data ?? { total: records.length, results: [] };
 }
 
-export function zoneExportUrl(domainId: number): string {
-  const base = import.meta.env.VITE_API_URL as string | undefined;
-  const prefix = base ? base.replace(/\/$/, '') : `${window.location.protocol}//${window.location.host}/api`;
-  return `${prefix}/domains/${domainId}/records/export/zone`;
+/** 导出 Zone：返回 BIND 文本与文件名（由前端触发下载，支持相对/完整名称） */
+export async function exportZone(domainId: number, nameFormat: 'relative' | 'full' = 'relative'): Promise<{ content: string; filename: string }> {
+  const envelope = await http.get<{ content: string; filename: string }>(`/domains/${domainId}/records/export/zone`, {
+    query: { nameFormat },
+  });
+  return envelope.data;
 }

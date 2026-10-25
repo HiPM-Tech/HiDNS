@@ -14,6 +14,7 @@ import {
   PROVIDER_LINES_TTL_MS,
   __resetProviderLineFailures,
   getProviderLinesCached,
+  isProviderLinesCacheFresh,
   markProviderLinesFailed,
   selectProvidersToRefresh,
 } from '../providerLines';
@@ -75,6 +76,12 @@ describe('动态线路缓存', () => {
     });
     expect(third.source).toBe('default');
     expect(fetchLines).toHaveBeenCalledTimes(2);
+  });
+
+  it('updated_at 为 Date / 毫秒数时也能判新鲜（驱动差异）', () => {
+    expect(isProviderLinesCacheFresh(new Date(NOW - 60_000), NOW)).toBe(true);
+    expect(isProviderLinesCacheFresh(NOW - 60_000, NOW)).toBe(true);
+    expect(isProviderLinesCacheFresh(NOW - PROVIDER_LINES_TTL_MS - 1000, NOW)).toBe(false);
   });
 
   it('上游返回空列表也视为失败（只给默认线路）', async () => {

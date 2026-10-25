@@ -37,15 +37,20 @@ export function defaultOnlyLines(defaultLine: string): ProviderLine[] {
   return [{ id: defaultLine, name: '默认' }];
 }
 
-function parseDbTime(value: string | null): number {
-  if (!value) return 0;
-  // SQLite CURRENT_TIMESTAMP 是 UTC 且形如 'YYYY-MM-DD HH:MM:SS'
-  const iso = value.includes('T') ? value : value.replace(' ', 'T') + 'Z';
-  const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? ms : 0;
+function parseDbTime(value: unknown): number {
+  if (value === null || value === undefined) return 0;
+  // 不同驱动返回类型不同：SQLite 返回 'YYYY-MM-DD HH:MM:SS'，PG 返回 Date，部分驱动返回毫秒数
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const iso = value.includes('T') ? value : value.replace(' ', 'T') + 'Z';
+    const ms = Date.parse(iso);
+    return Number.isFinite(ms) ? ms : 0;
+  }
+  return 0;
 }
 
-export function isProviderLinesCacheFresh(updatedAt: string | null, now: number = Date.now()): boolean {
+export function isProviderLinesCacheFresh(updatedAt: unknown, now: number = Date.now()): boolean {
   const ts = parseDbTime(updatedAt);
   return ts > 0 && now - ts < PROVIDER_LINES_TTL_MS;
 }
@@ -96,7 +101,7 @@ export async function getProviderLinesCached(params: {
 
 export interface RefreshCandidateInput {
   accounts: Array<{ type: string; enabled?: boolean | number }>;
-  cacheUpdatedAt: Map<string, string | null>;
+  cacheUpdatedAt: Map<string, unknown>;
   now?: number;
 }
 

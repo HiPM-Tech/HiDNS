@@ -15,8 +15,21 @@ const loginChallengeStore = new Map<number, string>(); // user_id -> challenge
 
 // Ensure RP name and ID match your deployment
 const rpName = 'HiDNS';
-const rpID = process.env.WEBAUTHN_RP_ID || 'localhost';
-const origin = process.env.WEBAUTHN_ORIGIN || `http://${rpID}:3000`; // Modify accordingly in prod
+
+/**
+ * 从请求推导 RP ID / Origin（部署端口、域名不必手配环境变量）。
+ * 显式设置 WEBAUTHN_RP_ID / WEBAUTHN_ORIGIN 时仍以环境变量为准。
+ */
+export function resolveWebAuthnConfig(req: Request): { rpID: string; origin: string } {
+  const forwardedHost = String(req.headers['x-forwarded-host'] ?? '').split(',')[0].trim();
+  const host = forwardedHost || req.get('host') || 'localhost';
+  const forwardedProto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim();
+  const proto = forwardedProto || req.protocol || 'http';
+  const hostname = host.replace(/:\d+$/, '');
+  const rpID = process.env.WEBAUTHN_RP_ID || hostname || 'localhost';
+  const origin = process.env.WEBAUTHN_ORIGIN || `${proto}://${host}`;
+  return { rpID, origin };
+}
 
 router.get('/registration-options', authMiddleware, async (req: Request, res: Response) => {
   const userId = req.user!.userId;
@@ -25,6 +38,7 @@ router.get('/registration-options', authMiddleware, async (req: Request, res: Re
 
   const userCredentials = await getUserWebAuthnCredentials(userId);
 
+  const { rpID } = resolveWebAuthnConfig(req);
   const options = await generateRegistrationOptions({
     rpName,
     rpID,
@@ -58,6 +72,7 @@ router.post('/registration-verify', authMiddleware, async (req: Request, res: Re
   if (!expectedChallenge) return sendError(res, 'Challenge not found', 400);
 
   try {
+    const { rpID, origin } = resolveWebAuthnConfig(req);
     const verification = await verifyRegistrationResponse({
       response: body,
       expectedChallenge,
@@ -114,6 +129,7 @@ router.get('/login-options', async (req: Request, res: Response) => {
   const userCredentials = await getUserWebAuthnCredentials(user.id);
   if (userCredentials.length === 0) return sendError(res, 'No passkeys available', 400);
   
+  const { rpID } = resolveWebAuthnConfig(req);
   const options = await generateAuthenticationOptions({
     rpID,
     allowCredentials: userCredentials.map(cred => ({

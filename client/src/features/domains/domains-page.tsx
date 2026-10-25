@@ -291,7 +291,12 @@ export function DomainsPage() {
                           <div className={"flex items-center gap-2" + (domain._groupParentId != null ? ' pl-phi-7' : '')}>
                             <Globe2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                             <div className="min-w-0">
-                              <p className="truncate font-medium">{domain.name}</p>
+                              <Link
+                                to={`/dash/domains/${domain.id}/records`}
+                                className="truncate font-medium underline-offset-4 hover:underline"
+                              >
+                                {domain.name}
+                              </Link>
                               {domain.remark ? <p className="max-w-[26rem] truncate text-xs text-muted-foreground" title={domain.remark}>{domain.remark}</p> : null}
                               {domain.whois_status ? (
                                 <Badge variant={domain.whois_status === 'active' ? 'success' : 'warning'} className="mt-1">

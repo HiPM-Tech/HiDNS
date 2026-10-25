@@ -26,7 +26,7 @@ describe('BatchImportDialog 与后端逐条结果契约', () => {
 
     render(<BatchImportDialog open onOpenChange={() => undefined} domainId={1} onImported={onImported} />);
     await user.type(screen.getByRole('textbox'), 'www A 1.2.3.4\n@ TXT abc');
-    await user.click(screen.getByRole('button', { name: /导入/ }));
+    await user.click(screen.getByRole('button', { name: /^导入/ }));
 
     await waitFor(() => expect(api.batchCreateRecords).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/成功 1 条，失败 1 条/)).toBeTruthy();

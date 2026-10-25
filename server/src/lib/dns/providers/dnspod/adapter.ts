@@ -141,7 +141,7 @@ export class DnspodAdapter extends TencentCloudAdapter {
           Keyword: keyword || undefined,
           RecordValue: value || undefined,
           RecordType: type ? [this.convertType(type)] : undefined,
-          RecordLine: line ? [line] : undefined,
+          RecordLineId: line || undefined,
           RecordStatus: status === undefined ? undefined : [status === 1 ? 'ENABLE' : 'DISABLE'],
         };
         const data = await this.call<Dict>('DescribeRecordFilterList', payload);
@@ -211,8 +211,8 @@ export class DnspodAdapter extends TencentCloudAdapter {
         SubDomain: normalizeRrName(name),
         RecordType: this.convertType(type),
         Value: value,
-        RecordLine: resolveProviderLine(line, '0'),
-        RecordLineId: this.convertLineCode(line),
+        // DNSPod 的 RecordLine 是线路名称（默认线路为「默认」），用 ID 时应只传 RecordLineId
+        RecordLineId: this.convertLineCode(resolveProviderLine(line, '0')),
         TTL: ttl,
         MX: type === 'MX' ? mx : undefined,
         Weight: weight,
@@ -250,8 +250,8 @@ export class DnspodAdapter extends TencentCloudAdapter {
         SubDomain: normalizeRrName(name),
         RecordType: this.convertType(type),
         Value: value,
-        RecordLine: resolveProviderLine(line, '0'),
-        RecordLineId: this.convertLineCode(line),
+        // 只传 RecordLineId：RecordLine 是线路名称，传 '0' 会触发 RecordLineInvalid
+        RecordLineId: this.convertLineCode(resolveProviderLine(line, '0')),
         TTL: ttl,
         MX: type === 'MX' ? mx : undefined,
         Weight: weight,

@@ -21,7 +21,7 @@ let started = false;
 export async function refreshProviderLinesOnce(): Promise<string[]> {
   const accounts = await DnsAccountOperations.getAll() as unknown as Array<{ id: number; type: string; enabled?: boolean | number }>;
   const types = [...new Set(accounts.map((account) => account.type))];
-  const cacheUpdatedAt = new Map<string, string | null>();
+  const cacheUpdatedAt = new Map<string, unknown>();
   for (const type of types) {
     cacheUpdatedAt.set(type, await ProviderLineOperations.getLastUpdatedAt(type));
   }

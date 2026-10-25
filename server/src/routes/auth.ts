@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { resolveWebAuthnConfig } from './webauthn';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { authMiddleware, noTokenAuth } from '../middleware/auth';
@@ -653,11 +654,12 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
         }
 
         try {
-          const verification = await verifyAuthenticationResponse({
+          const webAuthn = resolveWebAuthnConfig(req);
+        const verification = await verifyAuthenticationResponse({
             response: webauthnResponse,
             expectedChallenge,
-            expectedOrigin: process.env.WEBAUTHN_ORIGIN || `http://${process.env.WEBAUTHN_RP_ID || 'localhost'}:3000`,
-            expectedRPID: process.env.WEBAUTHN_RP_ID || 'localhost',
+            expectedOrigin: webAuthn.origin,
+            expectedRPID: webAuthn.rpID,
             authenticator: {
               credentialID: cred.id,
               credentialPublicKey: Buffer.from(cred.public_key, 'base64'),

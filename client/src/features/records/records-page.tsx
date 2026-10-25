@@ -14,7 +14,8 @@ import { BatchImportDialog } from './batch-import-dialog';
 import {
   useDeleteRecord, useDomainDetail, useRecordLines, useRecords, useRecordTypes, useToggleRecordStatus,
 } from './use-records';
-import { zoneExportUrl, type DnsRecordRow, type RecordQuery } from './api';
+import { type DnsRecordRow, type RecordQuery } from './api';
+import { ZoneExportDialog } from './zone-export-dialog';
 import { useDomainAccounts } from '../domains/use-domains';
 
 /** 稳定引用：避免把 `?? []` 产生的新数组传给对话框导致 effect 每次渲染都重置表单 */
@@ -29,6 +30,7 @@ export function RecordsPage() {
   const [keyword, setKeyword] = useState('');
   const [type, setType] = useState('all');
   const [line, setLine] = useState('all');
+  const [exportOpen, setExportOpen] = useState(false);
   const [status, setStatus] = useState<'all' | 'enabled' | 'disabled'>('all');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -131,9 +133,9 @@ export function RecordsPage() {
             <RefreshCw className={records.isFetching ? 'animate-spin' : undefined} /> 刷新
           </Button>
           <Button variant="outline" size="sm" asChild>
-            <a href={zoneExportUrl(domainId)} download>
+            <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
               <Download className="h-4 w-4" /> 导出 Zone
-            </a>
+            </Button>
           </Button>
           {canWrite && (
             <Button variant="outline" size="sm" onClick={() => setBatchOpen(true)}>
@@ -300,8 +302,11 @@ export function RecordsPage() {
               />
       )}
 
+      <ZoneExportDialog open={exportOpen} onOpenChange={setExportOpen} domainId={domainId} domainName={domain?.data?.name} />
+
       <BatchImportDialog
         open={batchOpen}
+        domainName={domain?.data?.name}
         onOpenChange={setBatchOpen}
         domainId={domainId}
         onImported={() => void records.refetch()}

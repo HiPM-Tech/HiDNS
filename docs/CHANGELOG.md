@@ -8,6 +8,16 @@
 - 域名续期「添加域名」的账户下拉：仅保留 `capabilities.renewal === true` 的提供商账户，同样显示提供商。
 - 新增 `filterAccountsByProviderCapability()` 与 3 条单测；providers 未加载时不过滤，避免首屏闪空。
 
+### 修复：仪表盘/账户映射、域名跳转、Zone 导入导出、通行密钥、DDNS 更新
+
+- 仪表盘「提供商分布」改用 `providerLabel()`（不再显示 `aliyun`/`cloudflare` 原始类型）；「最近操作」改用 `auditActionLabel()`（不再显示 `update_record` 等裸键）。
+- 域名列表点击域名名称直接进入 `/dash/domains/:id/records`。
+- 导出 Zone 恢复为对话框：可选「相对名称 / 完整名称」，前端拉取 `{content,filename}` 后触发下载（此前 `<a href>` 直接指向 JSON 接口，会下载到 JSON）。
+- 批量导入支持选择 `.zone` 文件：解析 `$ORIGIN`/`$TTL`/括号续行/引号/相对名，跳过 SOA/NS，MX 保留优先级，进入同一预览与逐条结果。
+- 修复 `ProviderLines` 任务崩溃：`parseDbTime` 兼容 Date / 毫秒数（PG 等驱动返回非字符串）。
+- 修复通行密钥：WebAuthn RP ID / Origin 不再固定 `localhost:3000`，按请求 Host 与 `X-Forwarded-*` 推导（环境变量仍可覆盖）。
+- 修复 DNSPod 更新记录报 `RecordLineInvalid`：只传 `RecordLineId`，不再把 `0` 当作线路名称（DDNS-Go 固定 `line:"0"` 的更新路径恢复）。
+
 ### 修复：仅启用 Logto 时登录报「OAuth login is disabled」
 
 - 后端 `/api/auth/oauth/start` 未显式传 `provider` 时不再固定 `custom`，改为回落到第一个已启用的提供商（`pickOAuthProvider`）；显式指定未启用的提供商会返回 `OAuth provider is not enabled`。

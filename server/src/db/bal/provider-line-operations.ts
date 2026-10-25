@@ -12,7 +12,7 @@ export interface ProviderLineRow {
   provider_type: string;
   line_id: string;
   line_name: string;
-  updated_at: string;
+  updated_at: string | Date | number;
 }
 
 export const ProviderLineOperations = {
@@ -23,8 +23,8 @@ export const ProviderLineOperations = {
     );
   },
 
-  async getLastUpdatedAt(providerType: string): Promise<string | null> {
-    const rows = await query<{ updated_at: string }>(
+  async getLastUpdatedAt(providerType: string): Promise<string | Date | number | null> {
+    const rows = await query<{ updated_at: string | Date | number }>(
       'SELECT updated_at FROM provider_lines WHERE provider_type = ? ORDER BY updated_at DESC LIMIT 1',
       [providerType],
     );

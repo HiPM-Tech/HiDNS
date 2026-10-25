@@ -4,6 +4,8 @@ import { Button, Card, CardContent, CardHeader, CardTitle, Skeleton } from '../.
 import { useDashboard } from './use-dashboard';
 import type { DashboardLog } from './api';
 import { daysUntil, formatDate, formatRelative } from '../../lib/format';
+import { providerLabel } from '../accounts/provider-labels';
+import { auditActionLabel } from '../audit/labels';
 
 function StatCard({ icon: Icon, label, value, hint }: { icon: typeof Globe2; label: string; value: string; hint?: string }) {
   return (
@@ -27,7 +29,7 @@ function LogRow({ log }: { log: DashboardLog }) {
     <li className="flex items-center gap-3 py-2 text-sm">
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" aria-hidden />
       <span className="min-w-0 flex-1 truncate">
-        <span className="font-medium">{log.action}</span>
+        <span className="font-medium">{auditActionLabel(log.action)}</span>
         {log.domain ? <span className="text-muted-foreground"> · {log.domain}</span> : null}
       </span>
       <span className="shrink-0 text-xs text-muted-foreground">{formatRelative(log.created_at)}</span>
@@ -144,7 +146,7 @@ export function DashboardPage() {
               providerStats.map((row) => (
                 <div key={row.type} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-medium">{row.type}</span>
+                    <span className="font-medium">{providerLabel(row.type)}</span>
                     <span className="text-muted-foreground">{row.count}</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-muted">
