@@ -382,7 +382,7 @@ router.put('/smtp', authMiddleware, noTokenAuth('system settings'), adminOnly, a
   }
 });
 
-router.post('/smtp/test', authMiddleware, adminOnly, async (req: Request, res: Response) => {
+router.post('/smtp/test', authMiddleware, noTokenAuth('SMTP test'), adminOnly, async (req: Request, res: Response) => {
   const { to } = req.body as { to?: string };
   try {
     const me = await UserOperations.getById(req.user!.userId);

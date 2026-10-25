@@ -17,6 +17,11 @@ export interface ApiModule {
   readonly router: Router;
   /** 挂载前依次执行的中间件（限流等） */
   readonly middlewares?: readonly RequestHandler[];
+  /**
+   * API 令牌服务名（allowed_services）。
+   * 声明后，携带 API 令牌的请求必须包含该服务（或 '*'）；会话 JWT 不受影响。
+   */
+  readonly service?: string;
   /** 未初始化时是否放行；默认 false（受初始化门禁保护） */
   readonly exemptFromInitGate?: boolean;
   /**
@@ -35,5 +40,6 @@ export interface ApiManifestEntry {
   readonly exemptFromInitGate: boolean;
   readonly closedStateProbes: readonly string[];
   readonly middlewareCount: number;
+  readonly service: string | null;
   readonly description: string;
 }

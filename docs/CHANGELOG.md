@@ -2,6 +2,16 @@
 
 ## [2.3.1] - 未发布（本地）
 
+### 审核整改（对照 2.3.0 重构目标审核）
+
+- 前端 legacy 样式清理：`globals.css` 3080 → 309 行，删除 116 个 TDesign 选择器、151 条 `--td-*` 变量声明与 244 条未引用规则；CSS 产物 87.3kB → 40.5kB（gzip 15.5 → 8.65kB），新增样式门禁测试（禁止 `.t-*`/`--td-*`/`!important`/超 600 行）。
+- `record_count` 失败通道：适配器错误不再折叠成 0 条，成功读到 0 条也会回写（修复「真删到 0 条永不刷新」）。
+- 令牌服务门禁接线：`ApiModule.service`（dns/mcp）由 `mount.ts` 统一应用 `requireServicePermission`，DNS 数据面模块与 MCP 模块分别受 `allowed_services` 约束。
+- 畸形 JSON 请求体返回 **400**（此前 500）。
+- 鉴权/限流漏点：RDAP 不再因任意 `Bearer` 免限流；`/settings/smtp/test` 禁止 API 令牌；`/providers/:type/icon` 需要登录。
+
+
+
 > 收尾 2.3.0 评估报告中的适配器语义未完成项。未推送、未发布。
 
 ### DNS 适配器契约

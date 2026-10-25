@@ -252,14 +252,19 @@ router.get('/', authMiddleware, requireTokenDomainPermission('domainId'), asyncH
     log.debug('Fetching records', { domainId: access.domain.id, page, pageSize, keyword, subdomain, value, type, line, status });
     const dnsAdapter = await getAdapterForDomain(access.domain);
     log.debug('Got adapter, calling getDomainRecords');
+    dnsAdapter.clearError?.();
     const result = await dnsAdapter.getDomainRecords(
       page, pageSize, keyword, subdomain, value, type, line,
       status !== undefined ? parseInt(status) : undefined
     );
     log.debug('Got records result', { total: result.total, count: result.list.length });
-    // 适配器读失败会折叠成 { total: 0, list: [] }，与"真的 0 条"同形；
-    // 只在拿到非空结果时回写计数，避免一次上游抖动把 record_count 永久写成 0。
-    if (result.total > 0) {
+    // fail-closed：空结果 + 本次有错误 → 视为失败，不返回空列表、不写计数
+    if (result.list.length === 0 && result.total === 0 && dnsAdapter.getError()) {
+      sendError(res, `读取记录失败：${dnsAdapter.getError()}`);
+      return;
+    }
+    // 成功读到结果才回写（含真的 0 条），避免旧值永不过期
+    if (result.total !== access.domain.record_count) {
       await updateDomainRecordCount(access.domain.id, result.total);
     }
     sendSuccess(res, { total: result.total, list: result.list.map(toApiRecord) });

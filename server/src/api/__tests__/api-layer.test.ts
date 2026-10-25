@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { defineApiModules, getExemptPrefixes, toManifest } from '../registry';
+import { buildApiModules } from '../index';
 import { createInitGate } from '../init-gate';
 import type { ApiModule } from '../types';
 
@@ -141,5 +142,19 @@ describe('init gate', () => {
     const gate = createInitGate(modules, { isInitialized: () => false, isSurfaceOpen: () => false });
     expect(runGate(gate, '/setup').nextCalled).toBe(true);
     expect(runGate(gate, '/assets/index.js').nextCalled).toBe(true);
+  });
+});
+
+describe('service 门禁接线（allowed_services）', () => {
+  it('DNS 数据面模块声明 service=dns，MCP 声明 service=mcp，认证类不声明', () => {
+    const manifest = toManifest(buildApiModules());
+    const byId = new Map(manifest.map((item) => [item.id, item.service]));
+    expect(byId.get('records')).toBe('dns');
+    expect(byId.get('domains')).toBe('dns');
+    expect(byId.get('providers')).toBe('dns');
+    expect(byId.get('accounts')).toBe('dns');
+    expect(byId.get('mcp')).toBe('mcp');
+    expect(byId.get('auth')).toBeNull();
+    expect(byId.get('tokens')).toBeNull();
   });
 });

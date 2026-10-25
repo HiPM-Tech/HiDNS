@@ -88,6 +88,7 @@ export function toManifest(modules: readonly ApiModule[]): ApiManifestEntry[] {
     exemptFromInitGate: module.exemptFromInitGate === true,
     closedStateProbes: [...(module.closedStateProbes ?? [])],
     middlewareCount: module.middlewares?.length ?? 0,
+    service: module.service ?? null,
     description: module.description,
   }));
 }

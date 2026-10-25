@@ -17,7 +17,7 @@ const router = Router();
  * Get provider icon
  * GET /api/providers/:type/icon
  */
-router.get('/:type/icon', asyncHandler(async (req: Request, res: Response) => {
+router.get('/:type/icon', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
   const { type } = req.params;
 
   try {

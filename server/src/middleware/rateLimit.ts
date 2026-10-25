@@ -100,10 +100,8 @@ export const rdapLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req: Request) => {
-    // 已认证用户/应用跳过限速
-    const hasSessionCookie = !!(req as any).cookies?.token;
-    const hasBearerToken = req.headers.authorization?.startsWith('Bearer ');
-    return hasSessionCookie || !!hasBearerToken;
+    // 仅会话登录用户跳过限速；任意 Bearer 不再免限（此前伪造 Bearer 即可绕过）
+    return !!(req as any).cookies?.token;
   },
 });
 

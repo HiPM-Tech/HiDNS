@@ -16,11 +16,15 @@ async function refreshDomainRecordCount(domain: Domain, account: DnsAccount): Pr
       : account.config as Record<string, string>;
 
     const dnsAdapter = createAdapter(account.type, cfg, domain.name, domain.third_id);
+    // fail-closed：先清空历史错误，空结果且本次有错误 → 按失败处理，不写缓存
+    dnsAdapter.clearError?.();
     const result = await dnsAdapter.getDomainRecords(1, 10);
+    if (result.list.length === 0 && result.total === 0 && dnsAdapter.getError()) {
+      throw new Error(dnsAdapter.getError());
+    }
 
-    // 适配器把读失败折叠成 { total: 0, list: [] }，与"真的 0 条"同形：
-    // 计数只允许在拿到非空结果时回写，否则一次上游抖动会把 record_count 永久写成 0。
-    if (result.total > 0 && result.total !== domain.record_count) {
+    // 成功读到结果（包括真的 0 条）才回写；失败在上方抛错，不会把抖动写成 0
+    if (result.total !== domain.record_count) {
       await DomainOperations.updateRecordCount(domain.id, result.total);
       log.info(`Updated record count for ${domain.name}: ${domain.record_count} -> ${result.total}`);
     }

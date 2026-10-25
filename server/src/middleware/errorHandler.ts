@@ -45,8 +45,13 @@ export function errorHandler(
   }
 
   // body-parser 的超限错误：默认会走 500，前端只看到「Internal server error」
-  if ((err as Error & { type?: string }).type === 'entity.too.large') {
+  const bodyParserType = (err as Error & { type?: string }).type;
+  if (bodyParserType === 'entity.too.large') {
     sendError(res, 'Request body too large', 413);
+    return;
+  }
+  if (bodyParserType === 'entity.parse.failed') {
+    sendError(res, 'Invalid JSON body', 400);
     return;
   }
 

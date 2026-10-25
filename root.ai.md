@@ -380,7 +380,8 @@
 ### 路由
 1. 路由架构
     - 业务路由器实现集中在 `server/src/routes/`；**注册集中在 `server/src/api/index.ts`（唯一注册点）**。
-    - 每个 API 模块声明 `id / prefix / router / middlewares? / exemptFromInitGate? / closedStateProbes? / description`，由 `api/registry.ts` 校验：`id` 与 `prefix` 唯一（同前缀二次挂载会让后者被永久遮蔽）、前缀格式、探测路径必须归属自身前缀。
+    - 每个 API 模块声明 `id / prefix / router / service? / middlewares? / exemptFromInitGate? / closedStateProbes? / description`，由 `api/registry.ts` 校验：`id` 与 `prefix` 唯一（同前缀二次挂载会让后者被永久遮蔽）、前缀格式、探测路径必须归属自身前缀。
+    - `service` 表示 API 令牌 `allowed_services` 的归属（DNS 数据面用 `dns`，MCP 用 `mcp`）；由 `api/mount.ts` 统一挂 `requireServicePermission(service)`，路由不得自行维护服务白名单；会话 JWT 不受此约束。
     - **禁止在 `app.ts` 直接 `app.use` 业务路由**；新增端点只能向模块清单添加条目。`app.ts` 只保留：门禁、`/api/docs`、`apiLayer.mount(app)`。
     - 初始化门禁由 `api/init-gate.ts` 实现**三态**：`initialized` 全放行；`uninitialized` 只放行声明了 `exemptFromInitGate` 的模块（当前仅 `/api/init`、`/api/rdap`）；`unreachable`（数据库不可达）**初始化面一并关闭**，只放行模块声明的 `closedStateProbes` 只读探测（当前为 `/api/init/status`、`/api/init/db-config`）。
     - 门禁路径比较**必须不区分大小写**：Express 路由本身大小写不敏感，历史实现用 `startsWith('/api/')` 做敏感比较，`GET /API/mcp/status` 可绕过 503。
