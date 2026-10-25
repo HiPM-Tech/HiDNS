@@ -10,7 +10,7 @@
 
 ### 修复：DNSPod RecordLine 必填、PSL 刷新主键冲突
 
-- DNSPod：`ModifyRecord` 的 `RecordLine` 是**必填名称**（默认「默认」），`RecordLineId` 只是可选加速字段；补 `convertLineIdToName`（`0→默认`、`10=0→电信`…），add/update 同时传名称与 ID。修复线上 `MissingParameter: RecordLine`。
+- DNSPod：只传 `RecordLine`（线路名称）；registry `defaultLine` 设为「默认」，`0`/未指定/「默认」统一归一到「默认」，数字/等号 ID 通过 `convertLineIdToName` 映射成中文名称（`10=0→电信`…）。修复线上 `MissingParameter: RecordLine`。
 - 公共后缀刷新：`replaceSource` 先按后缀删除其它 source 的同名记录再插入，修复 PostgreSQL `duplicate key ... public_suffixes_pkey`（builtin 播种与 iana 清单重叠）。
 - 新增 DNSPod 名称/ID 映射用例与 PSL 冲突回归用例。
 

@@ -37,7 +37,12 @@ export class DnspodAdapter extends TencentCloudAdapter {
     return convertDict[line] ?? line;
   }
 
-  /** DNSPod 的 RecordLine 必填且是「线路名称」，ID 只是可选加速字段 */
+  /** DNSPod 的 RecordLine 必填且是「线路名称」；0/默认 都归一到「默认」，ID 也映射成名称 */
+  private resolveDnspodLine(line?: string): string {
+    const normalized = resolveProviderLine(line, '默认');
+    return this.convertLineIdToName(normalized);
+  }
+
   private convertLineIdToName(lineId: string): string {
     const names: Record<string, string> = {
       '0': '默认',
@@ -227,9 +232,8 @@ export class DnspodAdapter extends TencentCloudAdapter {
         SubDomain: normalizeRrName(name),
         RecordType: this.convertType(type),
         Value: value,
-        // DNSPod 的 RecordLine 必填（名称），RecordLineId 为可选 ID
-        RecordLine: this.convertLineIdToName(this.convertLineCode(resolveProviderLine(line, '0')) ?? '0'),
-        RecordLineId: this.convertLineCode(resolveProviderLine(line, '0')),
+        // 只传 RecordLine（线路名称）：0/未指定 → 默认；数字/等号 ID 映射为中文名称
+        RecordLine: this.resolveDnspodLine(line),
         TTL: ttl,
         MX: type === 'MX' ? mx : undefined,
         Weight: weight,
@@ -267,9 +271,8 @@ export class DnspodAdapter extends TencentCloudAdapter {
         SubDomain: normalizeRrName(name),
         RecordType: this.convertType(type),
         Value: value,
-        // RecordLine 必填（名称）；RecordLineId 为可选加速字段
-        RecordLine: this.convertLineIdToName(this.convertLineCode(resolveProviderLine(line, '0')) ?? '0'),
-        RecordLineId: this.convertLineCode(resolveProviderLine(line, '0')),
+        // 只传 RecordLine（线路名称）：0/未指定 → 默认；数字/等号 ID 映射为中文名称
+        RecordLine: this.resolveDnspodLine(line),
         TTL: ttl,
         MX: type === 'MX' ? mx : undefined,
         Weight: weight,
