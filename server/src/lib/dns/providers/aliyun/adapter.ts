@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, AliyunRpcAdapter, asArray, Dict, normalizeRrName, safeString, toNumber, toRecordStatus } from '../internal';
+import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, AliyunRpcAdapter, asArray, Dict, normalizeRrName, safeString, toNumber, toRecordStatus, resolveProviderLine } from '../internal';
 
 const log = createProviderAdapterLogger('Aliyun');
 export class AliyunAdapter extends AliyunRpcAdapter {
@@ -20,7 +20,7 @@ export class AliyunAdapter extends AliyunRpcAdapter {
       Name: normalizeRrName(safeString(item.RR)),
       Type: safeString(item.Type),
       Value: safeString(item.Value),
-      Line: this.normalizeLine(safeString(item.Line)) ?? '0',
+      Line: this.normalizeLine(safeString(item.Line)) ?? 'default',
       TTL: toNumber(item.TTL, 600),
       MX: toNumber(item.Priority, 0),
       Status: toRecordStatus(item.Status),
@@ -132,7 +132,7 @@ export class AliyunAdapter extends AliyunRpcAdapter {
         RR: normalizeRrName(name),
         Type: type,
         Value: value,
-        Line: this.normalizeLine(line) ?? '0',
+        Line: this.normalizeLine(resolveProviderLine(line, 'default')),
         TTL: ttl,
         Priority: type === 'MX' ? mx : undefined,
         Weight: weight,
@@ -164,7 +164,7 @@ export class AliyunAdapter extends AliyunRpcAdapter {
         RR: normalizeRrName(name),
         Type: type,
         Value: value,
-        Line: this.normalizeLine(line) ?? '0',
+        Line: this.normalizeLine(resolveProviderLine(line, 'default')),
         TTL: ttl,
         Priority: type === 'MX' ? mx : undefined,
         Weight: weight,
@@ -212,7 +212,7 @@ export class AliyunAdapter extends AliyunRpcAdapter {
         id: safeString(row.LineCode),
         name: safeString(row.LineDisplayName),
       }));
-      return lines.length > 0 ? lines : [{ id: '0', name: '默认' }];
+      return lines.length > 0 ? lines : [{ id: 'default', name: '默认' }];
     } catch (e) {
       // 上游失败必须抛出：返回 [{id:'0'}] 会让调用方把「查询失败」当成「只有默认线路」
       this.error = e instanceof Error ? e.message : String(e);

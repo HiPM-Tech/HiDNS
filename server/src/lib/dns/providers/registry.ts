@@ -77,7 +77,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     type: 'aliyun',
     name: 'provider.aliyun',
     lineSource: 'dynamic',
-    defaultLine: '0',
+    defaultLine: 'default',
     capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: true, renewal: false, redirect: false },
     configFields: [
       { key: 'AccessKeyId', label: 'provider.config.access_key_id', type: 'text', required: true },
@@ -114,7 +114,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     type: 'baidu',
     name: 'provider.baidu',
     lineSource: 'builtin',
-    defaultLine: '0',
+    defaultLine: 'default',
     capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'AccessKeyId', label: 'provider.config.access_key_id', type: 'text', required: true },

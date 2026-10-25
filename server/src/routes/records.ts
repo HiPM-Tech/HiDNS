@@ -881,15 +881,19 @@ router.put('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
   try {
     const dnsAdapter = await getAdapterForDomain(access.domain);
     // line 语义收敛：line 只表示线路；CF/ESA 的代理开关走 proxied（兼容旧 cloudflare/aliyunesa.proxied 与 line:'0'/'1'）
-    const { line: effectiveLine } = resolveLineInput(normalizeProviderType(account?.type ?? ''), {
+    const lineSpecified = line !== undefined || proxied !== undefined
+      || cloudflare?.proxied !== undefined || aliyunesa?.proxied !== undefined;
+    const { line: resolvedLine } = resolveLineInput(normalizeProviderType(account?.type ?? ''), {
       line,
       proxied,
       legacyProxied: cloudflare?.proxied ?? aliyunesa?.proxied,
     });
-    // 仅在存在工作流订阅者时才回查旧值，避免给热路径增加固定开销
-    const previousRecord = hasWorkflowSubscribers()
+    // 未指定线路/代理时要保留记录原值（否则只改 value 的 DDNS/API 调用会把记录挪到默认线路或关掉代理）；
+    // 工作流订阅者同样需要旧值做 diff。
+    const previousRecord = (!lineSpecified || hasWorkflowSubscribers())
       ? await dnsAdapter.getDomainRecordInfo(recordId).catch(() => null)
       : null;
+    const effectiveLine = (!lineSpecified && previousRecord?.Line) ? previousRecord.Line : resolvedLine;
     const updateCapability = account ? providerCapability(account.type) : null;
     const updateRedirect = resolveRedirectTarget(Boolean(updateCapability?.redirect), redirect);
     if (updateRedirect.error) { sendError(res, updateRedirect.error); return; }

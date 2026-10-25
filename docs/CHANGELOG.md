@@ -8,6 +8,14 @@
 - 域名续期「添加域名」的账户下拉：仅保留 `capabilities.renewal === true` 的提供商账户，同样显示提供商。
 - 新增 `filterAccountsByProviderCapability()` 与 3 条单测；providers 未加载时不过滤，避免首屏闪空。
 
+### 修复：线路语义审计（Aliyun 默认线路、更新保留原线路、DNSPod 同类问题）
+
+- Aliyun：`AddDomainRecord`/`UpdateDomainRecord` 的 `Line` 默认值改为官方 `default`（原实现发送 `0`）；线路列表兜底 id 同步改 `default`；registry `defaultLine` 对齐。
+- Baidu：registry `defaultLine` 从 `0` 改为 `default`，与适配器列表/硬编码回退统一。
+- 记录更新（PUT）：未显式传 `line`/`proxied` 时先读原记录并保留其线路/代理，避免 DDNS/API 只改 value 时把记录挪到默认线路或关掉 Cloudflare 橙云。
+- Namesilo / PowerDNS：读回记录的 `Line` 对齐线路列表 id（`0`），不再出现线路列/筛选不命中。
+- 新增 Aliyun 线路默认值 4 条回归用例；DNSPod 仍只传 `RecordLineId`。
+
 ### 修复：仪表盘/账户映射、域名跳转、Zone 导入导出、通行密钥、DDNS 更新
 
 - 仪表盘「提供商分布」改用 `providerLabel()`（不再显示 `aliyun`/`cloudflare` 原始类型）；「最近操作」改用 `auditActionLabel()`（不再显示 `update_record` 等裸键）。

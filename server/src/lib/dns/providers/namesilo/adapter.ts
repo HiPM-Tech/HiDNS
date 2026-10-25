@@ -190,7 +190,7 @@ export class NamesiloAdapter extends BaseAdapter {
     return false;
   }
 
-  private mapRecord(r: XmlDict, line = 'default'): DnsRecord {
+  private mapRecord(r: XmlDict, line = '0'): DnsRecord {
     const domain = this.config.domain || '';
     const host = safeString(r.host);
     return {
