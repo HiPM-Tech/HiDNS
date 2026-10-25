@@ -90,7 +90,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     type: 'dnspod',
     name: 'provider.dnspod',
     lineSource: 'dynamic',
-    defaultLine: '默认',
+    defaultLine: '0',
     capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: true, renewal: false, redirect: false },
     configFields: [
       { key: 'SecretId', label: 'provider.config.secret_id', type: 'text', required: true },

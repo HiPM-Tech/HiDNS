@@ -37,9 +37,9 @@ export class DnspodAdapter extends TencentCloudAdapter {
     return convertDict[line] ?? line;
   }
 
-  /** DNSPod 的 RecordLine 必填且是「线路名称」；0/默认 都归一到「默认」，ID 也映射成名称 */
+  /** defaultLine 是线路 ID（0），写入上游时转成 RecordLine 名称（默认「默认」） */
   private resolveDnspodLine(line?: string): string {
-    const normalized = resolveProviderLine(line, '默认');
+    const normalized = resolveProviderLine(line, '0');
     return this.convertLineIdToName(normalized);
   }
 

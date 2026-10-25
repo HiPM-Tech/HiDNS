@@ -7,7 +7,7 @@ import { DnspodAdapter } from '../dnspod/adapter';
  * InvalidParameter.RecordLineInvalid；因此必须只传 RecordLineId。
  */
 describe('DNSPod 更新记录的线路参数', () => {
-  it('line=0 时 RecordLine=默认', async () => {
+  it('defaultLine=0：未传或传 0 都映射为 RecordLine=默认', async () => {
     const adapter = new DnspodAdapter({ SecretId: 'id', SecretKey: 'key', domain: 'example.com' });
     const call = vi.fn(async (..._args: unknown[]) => ({}));
     (adapter as unknown as { call: typeof call }).call = call;
