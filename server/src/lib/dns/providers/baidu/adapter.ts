@@ -1,5 +1,6 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, safeString, toNumber, toRecordStatus, uuid, fetchWithFallback, resolveProviderLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, safeString, toNumber, toRecordStatus, uuid, fetchWithFallback, resolveProviderLine, normalizeLine } from '../internal';
 import crypto from 'node:crypto';
+export const DEFAULT_LINE = 'default';
 
 const log = createProviderAdapterLogger('Baidu');
 class BaiduCloudClient {
@@ -282,7 +283,7 @@ export class BaiduAdapter extends BaseAdapter {
         rr: name,
         type: this.convertType(type),
         value: value,
-        line: resolveProviderLine(line, 'default'),
+        line: normalizeLine(line, DEFAULT_LINE),
         ttl: ttl,
         description: remark,
       };
@@ -326,7 +327,7 @@ export class BaiduAdapter extends BaseAdapter {
         rr: name,
         type: this.convertType(type),
         value: value,
-        line: resolveProviderLine(line, 'default'),
+        line: normalizeLine(line, DEFAULT_LINE),
         ttl: ttl,
         description: remark,
       };

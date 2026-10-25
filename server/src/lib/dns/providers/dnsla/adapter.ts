@@ -1,4 +1,5 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine, normalizeLine } from '../internal';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('Dnsla');
 interface DnslaConfig {
@@ -175,7 +176,7 @@ export class DnslaAdapter extends BaseAdapter {
         host: name,
         data: value,
         ttl: toNumber(ttl, 600),
-        lineId: resolveProviderLine(line, '0'),
+        lineId: normalizeLine(line, DEFAULT_LINE),
       };
 
       if (type === 'MX') {
@@ -218,7 +219,7 @@ export class DnslaAdapter extends BaseAdapter {
         host: name,
         data: value,
         ttl: toNumber(ttl, 600),
-        lineId: resolveProviderLine(line, '0'),
+        lineId: normalizeLine(line, DEFAULT_LINE),
       };
 
       if (type === 'MX') {

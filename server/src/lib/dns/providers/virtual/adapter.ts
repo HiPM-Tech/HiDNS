@@ -3,7 +3,8 @@ import { OriginGroupClient } from '../tencenteo/origin-group-client';
 import { VirtualStore, type VirtualDnsRecord, type VirtualZone } from './store';
 import { createVirtualTeoCall } from './origin-api';
 import { isVirtualProviderEnabled, virtualProviderDisabledReason } from '../availability';
-import { resolveProviderLine } from '../common';
+import { normalizeLine } from '../internal';
+export const DEFAULT_LINE = 'default';
 
 /**
  * 虚拟 DNS 提供商。
@@ -194,7 +195,7 @@ export class VirtualAdapter implements DnsAdapter {
       Type: String(type).toUpperCase(),
       Value: String(value),
       TTL: Number(ttl) > 0 ? Number(ttl) : DEFAULT_TTL,
-      Line: resolveProviderLine(line, 'default'),
+      Line: normalizeLine(line, DEFAULT_LINE),
       MX: Number(mx) || 0,
       Status: 1,
       Weight: weight,

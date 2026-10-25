@@ -1,4 +1,5 @@
-import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, AliyunRpcAdapter, asArray, Dict, normalizeRrName, safeString, toNumber, toRecordStatus, resolveProviderLine } from '../internal';
+import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, AliyunRpcAdapter, asArray, Dict, normalizeRrName, safeString, toNumber, toRecordStatus, resolveProviderLine, normalizeLine } from '../internal';
+export const DEFAULT_LINE = 'default';
 
 const log = createProviderAdapterLogger('Aliyun');
 export class AliyunAdapter extends AliyunRpcAdapter {
@@ -132,7 +133,7 @@ export class AliyunAdapter extends AliyunRpcAdapter {
         RR: normalizeRrName(name),
         Type: type,
         Value: value,
-        Line: this.normalizeLine(resolveProviderLine(line, 'default')),
+        Line: this.normalizeLine(normalizeLine(line, DEFAULT_LINE)),
         TTL: ttl,
         Priority: type === 'MX' ? mx : undefined,
         Weight: weight,
@@ -164,7 +165,7 @@ export class AliyunAdapter extends AliyunRpcAdapter {
         RR: normalizeRrName(name),
         Type: type,
         Value: value,
-        Line: this.normalizeLine(resolveProviderLine(line, 'default')),
+        Line: this.normalizeLine(normalizeLine(line, DEFAULT_LINE)),
         TTL: ttl,
         Priority: type === 'MX' ? mx : undefined,
         Weight: weight,

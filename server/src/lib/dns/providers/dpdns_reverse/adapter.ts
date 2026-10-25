@@ -7,6 +7,7 @@ import {
 } from '../internal';
 import { validateCredentials } from './auth';
 import { listAllDomains, parseDpdnsDate } from './renewal';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('DPDNS');
 

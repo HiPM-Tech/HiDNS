@@ -4,7 +4,9 @@
 
 ## 1. 规则
 
-- `lineSource: 'builtin'`：`getRecordLines()` 返回代码内静态表，**不得发起网络请求**；`defaultLine` 必须在表内。
+- **线路归一中间层**（`server/src/lib/dns/line-normalizer.ts`）：只把 空 / `'0'` / `'默认'` 归一为适配器的 `DEFAULT_LINE`，其它值原样透传；不维护跨提供商默认表。
+- 每个适配器导出 `DEFAULT_LINE`（上游真实值），registry `defaultLine` 必须一致。
+- `lineSource: 'builtin'`：`getRecordLines()` 返回代码内静态表，**不得发起网络请求**；默认线路必须在表内。
 - `lineSource: 'dynamic'`：`getRecordLines()` 必须请求上游；失败时**适配器抛错**，由服务层统一降级为「只返回默认线路」，并在 5 分钟后重试。
 - 动态线路拉取成功写入 `provider_lines` 缓存表，TTL **3600s**；失败进入 **300s** 冷却，期间直接用默认线路，不再打上游。
 - PSL（公共后缀）与线路刷新共用 `taskManager` 约束（并发/超时/同 ID 去重），且**只对「有启用账号」的提供商**加入拉取。
@@ -16,16 +18,16 @@
 
 | 提供商 | 类型 | 线路来源 | 默认线路 |
 | --- | --- | --- | --- |
-| 阿里云 (`aliyun`) | dynamic | dynamic | `0` |
+| 阿里云 (`aliyun`) | dynamic | dynamic | `default` |
 | 阿里云 ESA (`aliyunesa`) | builtin | builtin | `0` |
-| 百度云 (`baidu`) | builtin | builtin | `0` |
+| 百度云 (`baidu`) | builtin | builtin | `default` |
 | 宝塔 (`bt`) | dynamic | dynamic | `0` |
 | 彩虹 DNS 聚合 (`caihongdns`) | builtin | builtin | `默认` |
 | Cloudflare (`cloudflare`) | builtin | builtin | `0` |
 | DNSHE (`dnshe`) | builtin | builtin | `0` |
 | DNS.LA (`dnsla`) | dynamic | dynamic | `0` |
 | DNS Neko (`dnsneko`) | dynamic | dynamic | `default` |
-| 腾讯云 DNSPod (`dnspod`) | dynamic | dynamic | `0` |
+| 腾讯云 DNSPod (`dnspod`) | dynamic | dynamic | `默认` |
 | DigitalPlat 反向 (`dpdns_reverse`) | builtin | builtin | `0` |
 | Gcore (`gcore`) | builtin | builtin | `0` |
 | HiDNS (`hidns`) | builtin | builtin | `0` |
@@ -49,7 +51,7 @@
 
 ## 4. 默认线路与历史哨兵
 
-- `0` 只在默认线路本身是 `0` 的提供商（阿里云 / 百度 / 宝塔 / DNSPod 等）里保留；华为云等默认非 `0` 的提供商，收到 `0` 一律回落 `defaultLine`。
+- `0` 是调用方哨兵，由线路归一中间层统一处理：阿里云 → `default`、百度 → `default`、DNSPod → `默认`、华为 → `default_view`；适配器不再各自判断。
 - 前端「默认线路」提交空值，由服务端按上表落到各自默认线路。
 
 ## 5. 缓存与任务
@@ -61,5 +63,5 @@
 ## 6. 实现位置
 
 - 声明：`server/src/lib/dns/providers/registry.ts`（`ProviderDefinition.lineSource` / `defaultLine`）
-- 归一化：`server/src/lib/dns/providers/common.ts`（`resolveProviderLine`）
+- 归一化：`server/src/lib/dns/line-normalizer.ts`（中间层） + 各适配器的 `DEFAULT_LINE`
 - 路由语义：`server/src/service/record-line.ts`（未指定代理 → `proxied=false`）

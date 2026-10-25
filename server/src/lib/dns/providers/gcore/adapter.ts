@@ -1,6 +1,7 @@
 import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, resolveDomainIdHelper } from '../internal';
 import { buildAuthHeaders, type GcoreAuthConfig } from './auth';
 import { requestJson } from '../http';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('Gcore');
 interface GcoreZone {

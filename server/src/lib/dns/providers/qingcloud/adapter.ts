@@ -1,5 +1,6 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine, normalizeLine } from '../internal';
 import crypto from 'node:crypto';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('Qingcloud');
 interface QingcloudConfig {
@@ -258,7 +259,7 @@ export class QingcloudAdapter extends BaseAdapter {
       const params: Dict = {
         zone_name: domainId,
         domain_name: name,
-        view_id: toNumber(resolveProviderLine(line, '0'), 0),
+        view_id: toNumber(normalizeLine(line, DEFAULT_LINE), 0),
         type,
         ttl: toNumber(ttl, 600),
         record: JSON.stringify(record),
@@ -322,7 +323,7 @@ export class QingcloudAdapter extends BaseAdapter {
       const params: Dict = {
         zone_name: domainId,
         domain_name: name,
-        view_id: toNumber(resolveProviderLine(line, '0'), 0),
+        view_id: toNumber(normalizeLine(line, DEFAULT_LINE), 0),
         type,
         ttl: toNumber(ttl, 600),
         record: JSON.stringify(record),

@@ -1,4 +1,5 @@
 import {createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveCreatedRecordId, parseCompositeRecordId } from '../internal';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('Powerdns');
 interface PowerdnsConfig {

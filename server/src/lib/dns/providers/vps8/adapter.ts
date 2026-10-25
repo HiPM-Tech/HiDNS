@@ -1,4 +1,5 @@
 import {createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, BaseAdapter, safeString, toNumber, Dict, fetchWithFallback, resolveCreatedRecordId } from '../internal';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('VPS8');
 interface Vps8Config {

@@ -1,4 +1,5 @@
 import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, fetchWithFallback, resolveDomainIdHelper } from '../internal';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('HiDNS');
 interface HiDNSConfig {

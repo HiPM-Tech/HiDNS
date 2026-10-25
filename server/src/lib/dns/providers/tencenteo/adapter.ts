@@ -1,5 +1,6 @@
-import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, buildSrvValue, Dict, isSrv, normalizeRrName, parseSrvValue, safeString, TencentCloudAdapter, toNumber, resolveProviderLine } from '../internal';
+import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, buildSrvValue, Dict, isSrv, normalizeRrName, parseSrvValue, safeString, TencentCloudAdapter, toNumber, resolveProviderLine, normalizeLine } from '../internal';
 import { OriginGroupClient } from './origin-group-client';
+export const DEFAULT_LINE = 'Default';
 
 const log = createProviderAdapterLogger('TencentEO');
 export class TencenteoAdapter extends TencentCloudAdapter {
@@ -206,7 +207,7 @@ export class TencenteoAdapter extends TencentCloudAdapter {
         Name: this.fqdn(name),
         Type: type,
         Content: isSrv(type) ? srv.target : value,
-        Location: resolveProviderLine(line, 'Default'),
+        Location: normalizeLine(line, DEFAULT_LINE),
         TTL: ttl,
         Priority: type === 'MX' ? mx : undefined,
         Weight: weight === undefined ? -1 : weight,
@@ -242,7 +243,7 @@ export class TencenteoAdapter extends TencentCloudAdapter {
         Name: this.fqdn(name),
         Type: type,
         Content: isSrv(type) ? srv.target : value,
-        Location: resolveProviderLine(line, 'Default'),
+        Location: normalizeLine(line, DEFAULT_LINE),
         TTL: ttl,
         Priority: type === 'MX' ? mx : undefined,
         Weight: weight === undefined ? -1 : weight,

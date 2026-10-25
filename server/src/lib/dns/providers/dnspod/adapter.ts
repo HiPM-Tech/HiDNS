@@ -1,4 +1,5 @@
-import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, Dict, normalizeRrName, safeString, TencentCloudAdapter, toNumber, toRecordStatus, resolveProviderLine, requireNumericRecordId } from '../internal';
+import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, Dict, normalizeRrName, safeString, TencentCloudAdapter, toNumber, toRecordStatus, resolveProviderLine, requireNumericRecordId, normalizeLine } from '../internal';
+export const DEFAULT_LINE = '默认';
 
 const log = createProviderAdapterLogger('Dnspod');
 export class DnspodAdapter extends TencentCloudAdapter {
@@ -21,25 +22,9 @@ export class DnspodAdapter extends TencentCloudAdapter {
     return '2021-03-23';
   }
 
-  private convertLineCode(line?: string): string | undefined {
-    const convertDict: Record<string, string> = {
-      default: '0',
-      unicom: '10=1',
-      telecom: '10=0',
-      mobile: '10=3',
-      edu: '10=2',
-      oversea: '3=0',
-      btvn: '10=22',
-      search: '80=0',
-      internal: '7=0',
-    };
-    if (!line) return undefined;
-    return convertDict[line] ?? line;
-  }
-
   /** defaultLine 是线路 ID（0），写入上游时转成 RecordLine 名称（默认「默认」） */
   private resolveDnspodLine(line?: string): string {
-    const normalized = resolveProviderLine(line, '0');
+    const normalized = normalizeLine(line, DEFAULT_LINE);
     return this.convertLineIdToName(normalized);
   }
 
@@ -98,7 +83,8 @@ export class DnspodAdapter extends TencentCloudAdapter {
       Name: normalizeRrName(safeString(item.Name)),
       Type: this.convertTypeId(safeString(item.Type)) || safeString(item.Type),
       Value: safeString(item.Value),
-      Line: safeString(item.LineId) || safeString(item.RecordLineId) || safeString(item.Line) || '0',
+      // 线路空间统一为上游名称（RecordLine），默认「默认」
+      Line: safeString(item.Line) || safeString(item.RecordLine) || this.convertLineIdToName(safeString(item.LineId)) || DEFAULT_LINE,
       TTL: toNumber(item.TTL, 600),
       MX: toNumber(item.MX, 0),
       Status: toRecordStatus(item.Status),
@@ -162,7 +148,7 @@ export class DnspodAdapter extends TencentCloudAdapter {
           Keyword: keyword || undefined,
           RecordValue: value || undefined,
           RecordType: type ? [this.convertType(type)] : undefined,
-          RecordLineId: line || undefined,
+          RecordLine: line || undefined,
           RecordStatus: status === undefined ? undefined : [status === 1 ? 'ENABLE' : 'DISABLE'],
         };
         const data = await this.call<Dict>('DescribeRecordFilterList', payload);
@@ -176,7 +162,7 @@ export class DnspodAdapter extends TencentCloudAdapter {
         Domain: this.domain,
         Subdomain: subdomain || undefined,
         RecordType: this.convertType(type),
-        RecordLineId: this.convertLineCode(line),
+        RecordLine: line || undefined,
         Keyword: keyword || undefined,
         Offset: offset,
         Limit: pageSize,
@@ -211,7 +197,7 @@ export class DnspodAdapter extends TencentCloudAdapter {
         Name: normalizeRrName(safeString(info.SubDomain)),
         Type: this.convertTypeId(safeString(info.RecordType)) || safeString(info.RecordType),
         Value: safeString(info.Value),
-        Line: safeString(info.RecordLineId) || '0',
+        Line: safeString(info.RecordLine) || this.convertLineIdToName(safeString(info.RecordLineId)) || DEFAULT_LINE,
         TTL: toNumber(info.TTL, 600),
         MX: toNumber(info.MX, 0),
         Status: toNumber(info.Enabled, 1) === 1 ? 1 : 0,
@@ -329,9 +315,9 @@ export class DnspodAdapter extends TencentCloudAdapter {
           const name = safeString(node.LineName);
           const lineId = safeString(node.LineId);
           const useful = Boolean(node.Useful);
-          if (useful && lineId && name && !lineId.startsWith('N.') && !seen.has(lineId)) {
-            seen.add(lineId);
-            lines.push({ id: lineId, name });
+          if (useful && name && !lineId.startsWith('N.') && !seen.has(name)) {
+            seen.add(name);
+            lines.push({ id: name, name });
           }
           const sub = asArray<Dict>(node.SubGroup);
           if (sub.length > 0) walk(sub);
@@ -357,9 +343,9 @@ export class DnspodAdapter extends TencentCloudAdapter {
       for (const item of asArray<Dict>(data.LineList)) {
         const id = safeString(item.LineId);
         const name = safeString(item.Name);
-        if (id && name && !id.startsWith('N.') && !seen.has(id)) {
-          seen.add(id);
-          merged.push({ id, name });
+        if (id && name && !id.startsWith('N.') && !seen.has(name)) {
+          seen.add(name);
+          merged.push({ id: name, name });
         }
       }
       for (const item of asArray<Dict>(data.LineGroupList)) {

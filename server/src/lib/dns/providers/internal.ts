@@ -32,6 +32,7 @@ export const createProviderWhoisLogger = (provider: string) => createProviderLog
 // ============================================================================
 export { fetchWithFallback } from '../../proxy-http';
 export { requestXml } from './http';
+export { normalizeLine } from '../line-normalizer';
 
 // ============================================================================
 // Common Types and Utilities

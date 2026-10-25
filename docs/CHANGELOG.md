@@ -8,6 +8,13 @@
 - 域名续期「添加域名」的账户下拉：仅保留 `capabilities.renewal === true` 的提供商账户，同样显示提供商。
 - 新增 `filterAccountsByProviderCapability()` 与 3 条单测；providers 未加载时不过滤，避免首屏闪空。
 
+### 重构：线路归一中间层（不再由适配器各自归一）
+
+- 新增 `server/src/lib/dns/line-normalizer.ts`（**线路归一中间层**）：只处理空 / `0` / `默认` → 适配器 `DEFAULT_LINE`，其它值原样透传；不维护跨提供商默认值表，也不接管动态/内嵌线路列表。
+- 26 家适配器各自导出 `DEFAULT_LINE`（上游真实值：DNSPod `默认`、阿里云/百度 `default`、华为 `default_view`…），registry `defaultLine` 与之一致并由契约测试校验。
+- DNSPod 线路空间统一为上游名称：`getRecordLines`/记录回读返回名称（默认「默认」），写入只传 `RecordLine`；ID 别名（`10=0→电信` 等）保留在适配器内部。
+- `resolveProviderLine` 旧名保留为中间层别名，适配器不再各自写默认值。
+
 ### 修复：记录弹窗「默认」与「默认线路」重复
 
 - 线路下拉归一：过滤掉与 `defaultLine` 相同的选项并按 id 去重，默认线路只保留「默认线路」一项（此前 provider 返回 `0/默认` 时会出现两个近义选项）。

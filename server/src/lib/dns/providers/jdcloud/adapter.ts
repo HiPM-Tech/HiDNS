@@ -1,5 +1,6 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, uuid, fetchWithFallback, resolveProviderLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, uuid, fetchWithFallback, resolveProviderLine, normalizeLine } from '../internal';
 import crypto from 'node:crypto';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('Jdcloud');
 interface JdcloudConfig {
@@ -250,7 +251,7 @@ export class JdcloudAdapter extends BaseAdapter {
         hostRecord: name,
         type: this.convertType(type),
         hostValue: value,
-        viewValue: toNumber(resolveProviderLine(line, '0'), 0),
+        viewValue: toNumber(normalizeLine(line, DEFAULT_LINE), 0),
         ttl: toNumber(ttl, 600),
       };
 
@@ -300,7 +301,7 @@ export class JdcloudAdapter extends BaseAdapter {
         hostRecord: name,
         type: this.convertType(type),
         hostValue: value,
-        viewValue: toNumber(resolveProviderLine(line, '0'), 0),
+        viewValue: toNumber(normalizeLine(line, DEFAULT_LINE), 0),
         ttl: toNumber(ttl, 600),
       };
 

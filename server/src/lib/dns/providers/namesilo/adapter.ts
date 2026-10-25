@@ -1,4 +1,5 @@
-import {createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, normalizeRrName, safeString, toNumber, requestXml, resolveCreatedRecordId } from '../internal';
+import {createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, normalizeRrName, safeString, toNumber, requestXml, resolveCreatedRecordId, normalizeLine } from '../internal';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('Namesilo');
 interface NamesiloConfig {

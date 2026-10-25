@@ -1,5 +1,6 @@
 import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, resolveDomainIdHelper } from '../internal';
 import { buildAuthHeaders, authenticatedRequest, type CloudflareAuthConfig } from './auth';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('Cloudflare');
 interface CfZone {

@@ -1,4 +1,5 @@
 import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, safeString, toNumber, fetchWithFallback } from '../internal';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('Spaceship');
 interface SpaceshipConfig {

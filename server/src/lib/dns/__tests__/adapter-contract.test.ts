@@ -106,7 +106,7 @@ describe('线路来源声明（2.3.1 线路模型）', () => {
     expect(violations).toEqual([]);
   });
 
-  it('每个适配器显式引用自己的 defaultLine（resolveProviderLine 第二参数）', () => {
+  it('每个适配器内部声明 DEFAULT_LINE（归一中间层使用）', () => {
     const missing = providerDefinitions
       .filter((definition) => {
         const file = path.join(PROVIDERS_DIR, definition.type, 'adapter.ts');
@@ -119,7 +119,7 @@ describe('线路来源声明（2.3.1 线路模型）', () => {
   });
 });
 
-describe('resolveProviderLine（默认线路归一化）', () => {
+describe('normalizeLine（线路归一中间层）', () => {
   it('未指定或空串落到 defaultLine', () => {
     expect(resolveProviderLine(undefined, 'default_view')).toBe('default_view');
     expect(resolveProviderLine('', 'DEFAULT')).toBe('DEFAULT');

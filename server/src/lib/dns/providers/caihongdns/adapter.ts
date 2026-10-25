@@ -1,5 +1,6 @@
 import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, fetchWithFallback, resolveDomainIdHelper } from '../internal';
 import crypto from 'crypto';
+export const DEFAULT_LINE = '默认';
 
 const log = createProviderAdapterLogger('CaihongDns');
 interface CaihongDnsConfig {

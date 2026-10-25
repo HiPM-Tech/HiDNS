@@ -1,4 +1,5 @@
-import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine, requireNumericRecordId } from '../internal';
+import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine, requireNumericRecordId, normalizeLine } from '../internal';
+export const DEFAULT_LINE = 'DEFAULT';
 
 const log = createProviderAdapterLogger('Rainyun');
 interface RainyunConfig {
@@ -259,7 +260,7 @@ export class RainyunAdapter extends BaseAdapter {
         type: type.toUpperCase(),
         value: value,
         ttl: ttl,
-        line: resolveProviderLine(line, 'DEFAULT'),
+        line: normalizeLine(line, DEFAULT_LINE),
       };
 
       if (type.toUpperCase() === 'MX' && mx > 0) {
@@ -306,7 +307,7 @@ export class RainyunAdapter extends BaseAdapter {
         type: type.toUpperCase(),
         value: value,
         ttl: ttl,
-        line: resolveProviderLine(line, 'DEFAULT'),
+        line: normalizeLine(line, DEFAULT_LINE),
       };
 
       if (type.toUpperCase() === 'MX' && mx > 0) {
@@ -388,7 +389,7 @@ export class RainyunAdapter extends BaseAdapter {
       Name: name,
       Type: safeString(r.type).toUpperCase(),
       Value: safeString(r.value),
-      Line: resolveProviderLine(r.line, 'DEFAULT'),
+      Line: normalizeLine(r.line, DEFAULT_LINE),
       TTL: r.ttl ?? 600,
       MX: r.level ?? 0,
       Status: 1, // 雨云没有记录状态字段，默认启用

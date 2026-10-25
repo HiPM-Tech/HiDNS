@@ -1,5 +1,6 @@
 import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, resolveDomainIdHelper, safeString, toNumber, toRecordStatus, uuid, fetchWithFallback } from '../internal';
 import crypto from 'node:crypto';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('AliyunESA');
 class AliyunEsaRpcClient {

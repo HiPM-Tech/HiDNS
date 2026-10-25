@@ -9,8 +9,10 @@ import {
   resolveDomainIdHelper,
   Dict,
   resolveProviderLine,
+  normalizeLine,
 } from '../internal';
 import { authenticatedRequest, type HidnsV2AuthConfig } from './auth';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('HiDNS-V2');
 
@@ -270,7 +272,7 @@ export class HidnsV2Adapter implements DnsAdapter {
         name: normalizeRrName(name),
         type,
         value,
-        line: resolveProviderLine(line, '0'),
+        line: normalizeLine(line, DEFAULT_LINE),
         ttl,
         remark,
         domainType: parsed.domainType,
@@ -313,7 +315,7 @@ export class HidnsV2Adapter implements DnsAdapter {
         name: normalizeRrName(name),
         type,
         value,
-        line: resolveProviderLine(line, '0'),
+        line: normalizeLine(line, DEFAULT_LINE),
         ttl,
         remark,
       };
@@ -416,7 +418,7 @@ export class HidnsV2Adapter implements DnsAdapter {
       Name: normalizeRrName(safeString(r.name)),
       Type: safeString(r.type).toUpperCase(),
       Value: safeString(r.value),
-      Line: resolveProviderLine(r.line, '0'),
+      Line: normalizeLine(r.line, DEFAULT_LINE),
       TTL: r.ttl ?? 600,
       MX: r.mx ?? r.priority ?? 0,
       Status: r.status === 1 ? 1 : 0,

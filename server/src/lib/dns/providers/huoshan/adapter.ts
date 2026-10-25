@@ -1,5 +1,6 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine, normalizeLine } from '../internal';
 import crypto from 'node:crypto';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('Huoshan');
 interface HuoshanConfig {
@@ -269,7 +270,7 @@ export class HuoshanAdapter extends BaseAdapter {
         Host: name,
         Type: this.convertType(type),
         Value: type === 'MX' ? `${mx} ${value}` : value,
-        Line: resolveProviderLine(line, '0'),
+        Line: normalizeLine(line, DEFAULT_LINE),
         TTL: toNumber(ttl, 600),
         Remark: remark,
       };
@@ -303,7 +304,7 @@ export class HuoshanAdapter extends BaseAdapter {
         Host: name,
         Type: this.convertType(type),
         Value: type === 'MX' ? `${mx} ${value}` : value,
-        Line: resolveProviderLine(line, '0'),
+        Line: normalizeLine(line, DEFAULT_LINE),
         TTL: toNumber(ttl, 600),
         Remark: remark,
       };

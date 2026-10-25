@@ -1,6 +1,7 @@
 import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, Dict, normalizeRrName, safeString, BaseAdapter, toNumber, toRecordStatus, fetchWithFallback, requireNumericRecordId } from '../internal';
 import { renewSubdomain as renewSubdomainApi } from './renewal';
 import { getWhois as getWhoisApi } from './whois';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('DNSHE');
 interface DnsheConfig {

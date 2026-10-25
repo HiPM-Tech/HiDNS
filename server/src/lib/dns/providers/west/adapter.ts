@@ -1,5 +1,6 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, safeString, toNumber, fetchWithFallback, resolveProviderLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, safeString, toNumber, fetchWithFallback, resolveProviderLine, normalizeLine } from '../internal';
 import crypto from 'node:crypto';
+export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('West');
 interface WestConfig {
@@ -441,7 +442,7 @@ export class WestAdapter extends BaseAdapter implements DnsAdapter {
       Name: name,
       Type: safeString(record.type).toUpperCase(),
       Value: safeString(record.value),
-      Line: resolveProviderLine(line, '0'),
+      Line: normalizeLine(line, DEFAULT_LINE),
       TTL: toNumber(record.ttl, 900),
       MX: toNumber(record.level, 0),
       Status: pause === 1 ? 0 : 1,
