@@ -1,5 +1,13 @@
 # 更新日志
 
+## [2.3.1] - 未发布
+
+### 修复：域名列表分页状态在进入记录页后丢失
+
+- 域名列表的分页（page/pageSize）与筛选（keyword/accountId/status）写入 `localStorage`（`hidns.domains.view`），从记录页返回、刷新或重新打开页面都恢复上次浏览位置，不再复位到第 1 页。
+- 修复搜索防抖在首次挂载时把页码重置为 1 的问题（恢复的分页会被立即覆盖）。
+- 新增 `readDomainsViewState` / `writeDomainsViewState` 与单测；非法/损坏数据回落默认。
+
 ## [2.3.0] - 2026-10-25
 
 ### 修复：账户下拉未标注提供商、未按能力过滤

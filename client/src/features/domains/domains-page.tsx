@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { alertVariants } from '../../ui/alert';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ChevronDown, ChevronRight, FolderTree, Globe2, Pencil, Pin, PinOff, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
@@ -11,6 +11,7 @@ import { daysUntil, formatDate, formatNumber } from '../../lib/format';
 import { useDeleteDomain, useDomainAccounts, useDomains, useToggleDomain, useUpdateDomainRemark } from './use-domains';
 import { isDomainEnabled, isGroupHeader, type DomainQuery, type DomainRow } from './api';
 import { formatWhoisStatus, whoisStatusVariant } from './whois-status';
+import { readDomainsViewState, writeDomainsViewState } from './view-state';
 import { AddDomainDialog } from './add-domain-dialog';
 import { providerLabel } from '../accounts/provider-labels';
 import { isAdminUser, useSession } from '../session/use-session';
@@ -43,12 +44,13 @@ function writePinned(ids: number[]): void {
 }
 
 export function DomainsPage() {
-  const [keywordInput, setKeywordInput] = useState('');
-  const [keyword, setKeyword] = useState('');
-  const [accountId, setAccountId] = useState<string>('all');
-  const [status, setStatus] = useState<'all' | 'enabled' | 'disabled'>('all');
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [savedView] = useState(readDomainsViewState);
+  const [keywordInput, setKeywordInput] = useState(savedView.keyword);
+  const [keyword, setKeyword] = useState(savedView.keyword);
+  const [accountId, setAccountId] = useState<string>(savedView.accountId);
+  const [status, setStatus] = useState<'all' | 'enabled' | 'disabled'>(savedView.status);
+  const [page, setPage] = useState(savedView.page);
+  const [pageSize, setPageSize] = useState(savedView.pageSize);
   const [pendingDelete, setPendingDelete] = useState<DomainRow | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   // 置顶：本地保存域名 id 列表，服务端按 pinned_domains 参数排前面
@@ -64,14 +66,24 @@ export function DomainsPage() {
   const { user } = useSession();
   const canCreateDomain = isAdminUser(user);
 
-  // 搜索输入防抖：300ms 后进入查询参数并回到第一页
+  // 搜索输入防抖：300ms 后进入查询参数并回到第一页。
+  // 首次挂载不触发：否则从记录页返回时恢复的页码会被立即重置为 1。
+  const keywordMounted = useRef(false);
   useEffect(() => {
+    if (!keywordMounted.current) {
+      keywordMounted.current = true;
+      return;
+    }
     const timer = setTimeout(() => {
       setKeyword(keywordInput.trim());
       setPage(1);
     }, 300);
     return () => clearTimeout(timer);
   }, [keywordInput]);
+
+  useEffect(() => {
+    writeDomainsViewState({ page, pageSize, keyword, accountId, status });
+  }, [page, pageSize, keyword, accountId, status]);
 
   const query: DomainQuery = {
     page,
