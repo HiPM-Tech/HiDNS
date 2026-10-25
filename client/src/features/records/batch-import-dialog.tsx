@@ -3,7 +3,7 @@ import { alertVariants } from '../../ui/alert';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../ui';
 import { batchCreateRecords, type BatchResult, type RecordPayload } from './api';
-import { parseZoneText } from './zone-import';
+import { parseZoneText, type ZoneNameFormat } from './zone-import';
 
 const SAMPLE = `www A 1.2.3.4 600
 @ MX mail.example.com 3600
@@ -51,29 +51,34 @@ export interface BatchImportDialogProps {
 
 export function BatchImportDialog({ open, onOpenChange, domainId, domainName, onImported }: BatchImportDialogProps) {
   const [text, setText] = useState('');
-  const [zoneRows, setZoneRows] = useState<ParsedRow[]>([]);
-  const [zoneNotice, setZoneNotice] = useState<string | null>(null);
+  const [zoneText, setZoneText] = useState('');
+  const [zoneFileName, setZoneFileName] = useState('');
+  const [zoneFormat, setZoneFormat] = useState<ZoneNameFormat>('relative');
   const zoneInputRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<BatchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const parsed = useMemo(() => text.split('\n').map(parseBatchLine), [text]);
-  const allRows = useMemo(() => [...parsed, ...zoneRows], [parsed, zoneRows]);
+  const zoneParsed = useMemo(() => {
+    if (!zoneText) return { rows: [] as ParsedRow[], skipped: 0 };
+    return parseZoneText(zoneText, domainName ?? '', zoneFormat);
+  }, [zoneText, domainName, zoneFormat]);
+  const allRows = useMemo(() => [...parsed, ...zoneParsed.rows], [parsed, zoneParsed.rows]);
   const valid = allRows.filter((row) => row.payload);
   const invalid = allRows.filter((row) => row.error);
+  const zoneOk = zoneParsed.rows.filter((row) => row.payload).length;
+  const zoneNotice = zoneFileName
+    ? `${zoneFileName}：解析 ${zoneOk} 条${zoneParsed.skipped > 0 ? `，跳过 ${zoneParsed.skipped} 条（SOA/NS 等）` : ''}`
+    : null;
 
   const handleZoneFile = async (file: File | undefined) => {
     if (!file) return;
-    setZoneNotice(null);
     try {
-      const content = await file.text();
-      const { rows, skipped } = parseZoneText(content, domainName ?? '');
-      setZoneRows(rows);
-      const ok = rows.filter((row) => row.payload).length;
-      setZoneNotice(`从 ${file.name} 解析 ${ok} 条${skipped > 0 ? `，跳过 ${skipped} 条（SOA/NS 等）` : ''}`);
+      setZoneText(await file.text());
+      setZoneFileName(file.name);
     } catch (err) {
-      setZoneNotice(err instanceof Error ? err.message : '读取 zone 文件失败');
+      setError(err instanceof Error ? err.message : '读取 zone 文件失败');
     } finally {
       if (zoneInputRef.current) zoneInputRef.current.value = '';
     }
@@ -104,7 +109,7 @@ export function BatchImportDialog({ open, onOpenChange, domainId, domainName, on
   const sourceLineOf = (index: number) => valid[index]?.line ?? index + 1;
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { onOpenChange(next); if (!next) { setResult(null); setError(null); setZoneRows([]); setZoneNotice(null); } }}>
+    <Dialog open={open} onOpenChange={(next) => { onOpenChange(next); if (!next) { setResult(null); setError(null); setZoneText(''); setZoneFileName(''); } }}>
       <DialogContent className="w-[min(94vw,40rem)]">
         <DialogHeader>
           <DialogTitle>批量导入记录</DialogTitle>
@@ -129,6 +134,22 @@ export function BatchImportDialog({ open, onOpenChange, domainId, domainName, on
             aria-label="选择 zone 文件"
           />
           <Button variant="outline" size="sm" onClick={() => zoneInputRef.current?.click()}>从 .zone 文件导入</Button>
+          <div className="flex items-center gap-1 rounded-md border border-border p-0.5" role="group" aria-label="zone 名称格式">
+            {([
+              ['relative', '相对名称'],
+              ['full', '完整名称'],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={`rounded px-2 py-1 text-xs ${zoneFormat === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+                aria-pressed={zoneFormat === value}
+                onClick={() => setZoneFormat(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {zoneNotice && <span className="text-xs text-muted-foreground">{zoneNotice}</span>}
         </div>
 

@@ -13,7 +13,7 @@
 - 仪表盘「提供商分布」改用 `providerLabel()`（不再显示 `aliyun`/`cloudflare` 原始类型）；「最近操作」改用 `auditActionLabel()`（不再显示 `update_record` 等裸键）。
 - 域名列表点击域名名称直接进入 `/dash/domains/:id/records`。
 - 导出 Zone 恢复为对话框：可选「相对名称 / 完整名称」，前端拉取 `{content,filename}` 后触发下载（此前 `<a href>` 直接指向 JSON 接口，会下载到 JSON）。
-- 批量导入支持选择 `.zone` 文件：解析 `$ORIGIN`/`$TTL`/括号续行/引号/相对名，跳过 SOA/NS，MX 保留优先级，进入同一预览与逐条结果。
+- 批量导入支持选择 `.zone` 文件，并可切换「相对名称 / 完整名称」：相对模式原样保留主机记录（仅去结尾点）；完整模式把 `www.example.com.` 转成 `www`、域外名称报错。解析 `$ORIGIN`/`$TTL`/括号续行/引号，跳过 SOA/NS，MX 保留优先级，进入同一预览与逐条结果。
 - 修复 `ProviderLines` 任务崩溃：`parseDbTime` 兼容 Date / 毫秒数（PG 等驱动返回非字符串）。
 - 修复通行密钥：WebAuthn RP ID / Origin 不再固定 `localhost:3000`，按请求 Host 与 `X-Forwarded-*` 推导（环境变量仍可覆盖）。
 - 修复 DNSPod 更新记录报 `RecordLineInvalid`：只传 `RecordLineId`，不再把 `0` 当作线路名称（DDNS-Go 固定 `line:"0"` 的更新路径恢复）。

@@ -24,15 +24,27 @@ function unquote(token: string): string {
   return token.startsWith('"') && token.endsWith('"') ? token.slice(1, -1).replace(/\\"/g, '"') : token;
 }
 
-function normalizeName(rawName: string | undefined, origin: string): string {
-  const name = (rawName ?? '@').trim();
-  if (!name || name === '@') return '@';
-  const fqdn = name.endsWith('.') ? name.slice(0, -1) : name;
+export type ZoneNameFormat = 'relative' | 'full';
+
+/** 全名转主机记录：example.com. → @、www.example.com. → www；域外名称返回 null */
+function fullNameToHost(rawName: string, origin: string): string | null {
+  const fqdn = rawName.endsWith('.') ? rawName.slice(0, -1) : rawName;
   const lower = fqdn.toLowerCase();
   const originLower = origin.toLowerCase().replace(/\.$/, '');
   if (lower === originLower) return '@';
   if (lower.endsWith('.' + originLower)) return fqdn.slice(0, fqdn.length - originLower.length - 1);
-  return fqdn;
+  return null;
+}
+
+function normalizeName(rawName: string | undefined, origin: string, format: ZoneNameFormat): string | null {
+  const name = (rawName ?? '@').trim();
+  if (!name || name === '@' || name === '.') return '@';
+  if (format === 'relative') {
+    // 相对名称：只去掉结尾的点，不把域名后缀当 FQDN 处理
+    return name.endsWith('.') ? name.slice(0, -1) : name;
+  }
+  // 完整名称：文件里是 FQDN（可能省略结尾点），统一转成主机记录
+  return fullNameToHost(name, origin);
 }
 
 /**
@@ -40,7 +52,7 @@ function normalizeName(rawName: string | undefined, origin: string): string {
  * 支持：$ORIGIN、$TTL、括号续行、行内注释、引号、相对/绝对名称；
  * 跳过 SOA/NS/PTR 等由提供商托管的记录（计入 skipped）。
  */
-export function parseZoneText(text: string, origin: string): { rows: ParsedRow[]; skipped: number } {
+export function parseZoneText(text: string, origin: string, format: ZoneNameFormat = 'relative'): { rows: ParsedRow[]; skipped: number } {
   const rows: ParsedRow[] = [];
   const logical: Array<{ line: number; text: string }> = [];
   let buffer = '';
@@ -116,8 +128,14 @@ export function parseZoneText(text: string, origin: string): { rows: ParsedRow[]
       continue;
     }
 
+    const normalizedName = normalizeName(owner, currentOrigin, format);
+    if (normalizedName === null) {
+      rows.push({ line, raw: trimmed, error: `记录名 ${owner} 不属于域名 ${origin}` });
+      continue;
+    }
+
     const payload: RecordPayload = {
-      name: normalizeName(owner, currentOrigin),
+      name: normalizedName,
       type,
       value: '',
       ttl,

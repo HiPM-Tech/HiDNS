@@ -26,9 +26,16 @@ describe('parseZoneText', () => {
     ]));
   });
 
-  it('相对名称与完整名称都归一到主机记录', () => {
-    const { rows } = parseZoneText('a 60 IN A 1.1.1.1\nb.example.com. 60 IN A 2.2.2.2\n', 'example.com');
-    expect(rows.map((row) => row.payload?.name)).toEqual(['a', 'b']);
+  it('相对名称模式：FQDN 原样保留（只去掉结尾点）', () => {
+    const { rows } = parseZoneText('a 60 IN A 1.1.1.1\nb.example.com. 60 IN A 2.2.2.2\n', 'example.com', 'relative');
+    expect(rows.map((row) => row.payload?.name)).toEqual(['a', 'b.example.com']);
+  });
+
+  it('完整名称模式：FQDN 转成主机记录，域外名称报错', () => {
+    const { rows } = parseZoneText('a.example.com. 60 IN A 1.1.1.1\nexample.com. 60 IN A 2.2.2.2\nother.com. 60 IN A 3.3.3.3\n', 'example.com', 'full');
+    expect(rows[0].payload?.name).toBe('a');
+    expect(rows[1].payload?.name).toBe('@');
+    expect(rows[2].error).toMatch(/不属于域名/);
   });
 
   it('未知类型进入错误行，不会静默丢弃', () => {
