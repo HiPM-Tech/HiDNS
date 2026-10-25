@@ -32,7 +32,8 @@ export function formatWhoisStatus(status?: string | null): string {
     .split(/[\n,;]+/)
     .map((item) => item.trim())
     .filter(Boolean)
-    .map((item) => WHOIS_STATUS_LABELS[item.toLowerCase()] ?? item);
+    // EPP 状态可能以 clientTransferProhibited / "client transfer prohibited" / client-transfer-prohibited 出现
+    .map((item) => WHOIS_STATUS_LABELS[item.toLowerCase().replace(/[\s_-]+/g, '')] ?? item);
   return [...new Set(labels)].join(' / ');
 }
 

@@ -8,6 +8,8 @@ describe('WHOIS 状态翻译', () => {
     expect(formatWhoisStatus('OK')).toBe('正常');
     expect(formatWhoisStatus('clientTransferProhibited\nclientDeleteProhibited')).toBe('禁止转移 / 禁止删除');
     expect(formatWhoisStatus('redemptionPeriod')).toBe('赎回期');
+    expect(formatWhoisStatus('client transfer prohibited')).toBe('禁止转移');
+    expect(formatWhoisStatus('client-transfer-prohibited')).toBe('禁止转移');
   });
 
   it('未知状态原样保留，空值返回空串', () => {
