@@ -10,6 +10,7 @@ import {
 import { daysUntil, formatDate, formatNumber } from '../../lib/format';
 import { useDeleteDomain, useDomainAccounts, useDomains, useToggleDomain, useUpdateDomainRemark } from './use-domains';
 import { isDomainEnabled, isGroupHeader, type DomainQuery, type DomainRow } from './api';
+import { formatWhoisStatus, whoisStatusVariant } from './whois-status';
 import { AddDomainDialog } from './add-domain-dialog';
 import { isAdminUser, useSession } from '../session/use-session';
 
@@ -299,8 +300,12 @@ export function DomainsPage() {
                               </Link>
                               {domain.remark ? <p className="max-w-[26rem] truncate text-xs text-muted-foreground" title={domain.remark}>{domain.remark}</p> : null}
                               {domain.whois_status ? (
-                                <Badge variant={domain.whois_status === 'active' ? 'success' : 'warning'} className="mt-1">
-                                  WHOIS：{domain.whois_status}
+                                <Badge
+                                  variant={whoisStatusVariant(domain.whois_status)}
+                                  className="mt-1"
+                                  title={domain.whois_status}
+                                >
+                                  WHOIS：{formatWhoisStatus(domain.whois_status)}
                                 </Badge>
                               ) : null}
                             </div>

@@ -8,6 +8,12 @@
 - 域名续期「添加域名」的账户下拉：仅保留 `capabilities.renewal === true` 的提供商账户，同样显示提供商。
 - 新增 `filterAccountsByProviderCapability()` 与 3 条单测；providers 未加载时不过滤，避免首屏闪空。
 
+### 修复：API 令牌缺少编辑入口、WHOIS 状态未翻译
+
+- API 令牌：列表新增编辑按钮，复用创建弹窗（名称/域名范围/服务/有效期），角色上限创建后只读；保存调用 `PUT /tokens/:id`。
+- WHOIS：域名列表状态徽标改用 `formatWhoisStatus()`（多行 EPP 状态逐项翻译，如 clientTransferProhibited→禁止转移），并按过期/禁止/正常给出语义色。
+- 新增令牌编辑用例与 WHOIS 状态翻译用例。
+
 ### 调整：中间层统一改写默认线路为「默认」
 
 - `normalizeLineList()` 不再过滤默认线路，而是统一改写为 `{ id: defaultLine, name: '默认' }` 并固定首位；上游原名（全网默认/Default/default_view/默认…）不再直接透出。

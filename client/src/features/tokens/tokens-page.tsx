@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { alertVariants } from '../../ui/alert';
-import { AlertTriangle, Check, Copy, KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, Copy, KeyRound, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import {
   Badge, Button, Card, CardContent, ConfirmDialog, Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle, Skeleton, Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow,
@@ -34,6 +34,7 @@ export function TokensPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [created, setCreated] = useState<CreatedToken | null>(null);
   const [pendingDelete, setPendingDelete] = useState<TokenRow | null>(null);
+  const [editing, setEditing] = useState<TokenRow | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -157,6 +158,14 @@ export function TokensPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={'编辑 ' + token.name}
+                            onClick={() => setEditing(token)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
                           <Button variant="ghost" size="sm" onClick={() => void handleToggle(token)} disabled={toggle.isPending}>
                             {isTokenActive(token) ? '停用' : '启用'}
                           </Button>
@@ -179,14 +188,18 @@ export function TokensPage() {
           )}
         </CardContent>
       </Card>
-      {dialogOpen && (
+      {(dialogOpen || editing) && (
         <TokenDialog
-          key={'token-create'}
-                open
-                onOpenChange={setDialogOpen}
-                currentRoleLevel={currentRoleLevel}
-                onCreated={(value) => { setCreated(value); setCopied(false); }}
-              />
+          key={editing ? 'token-edit-' + editing.id : 'token-create'}
+          open
+          token={editing}
+          onOpenChange={(next) => {
+            if (!next) { setDialogOpen(false); setEditing(null); }
+          }}
+          currentRoleLevel={currentRoleLevel}
+          onCreated={(value) => { setCreated(value); setCopied(false); }}
+          onSaved={() => setEditing(null)}
+        />
       )}
 
       <Dialog open={created !== null} onOpenChange={(open) => { if (!open) setCreated(null); }}>

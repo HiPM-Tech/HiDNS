@@ -6,8 +6,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../../ui';
 import { cn } from '../../ui/cn';
-import { useCreateToken, useTokenDomains } from './use-tokens';
-import type { CreatedToken, TokenDomainOption } from './api';
+import { useCreateToken, useTokenDomains, useUpdateToken } from './use-tokens';
+import type { CreatedToken, TokenDomainOption, TokenRow } from './api';
 
 const EMPTY_DOMAINS: TokenDomainOption[] = [];
 const SERVICE_PRESETS = ['dns', 'mcp'];
@@ -24,21 +24,26 @@ export interface TokenDialogProps {
   onOpenChange: (open: boolean) => void;
   /** 当前用户角色等级，令牌角色不得超过它 */
   currentRoleLevel: number;
-  onCreated: (created: CreatedToken) => void;
+  /** 传入则为编辑模式（名称/域名/服务/有效期；角色上限不可改） */
+  token?: TokenRow | null;
+  onCreated?: (created: CreatedToken) => void;
+  onSaved?: () => void;
 }
 
-export function TokenDialog({ open, onOpenChange, currentRoleLevel, onCreated }: TokenDialogProps) {
+export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCreated, onSaved }: TokenDialogProps) {
   const domains = useTokenDomains();
   const create = useCreateToken();
+  const update = useUpdateToken();
+  const editing = Boolean(token);
 
-  const [name, setName] = useState('');
+  const [name, setName] = useState(token?.name ?? '');
   const [keyword, setKeyword] = useState('');
-  const [selected, setSelected] = useState<number[]>([]);
-  const [services, setServices] = useState<string[]>(['dns']);
+  const [selected, setSelected] = useState<number[]>(token?.allowed_domains ?? []);
+  const [services, setServices] = useState<string[]>(token?.allowed_services?.length ? token.allowed_services : ['dns']);
   const [customService, setCustomService] = useState('');
-  const [maxRole, setMaxRole] = useState(String(Math.min(currentRoleLevel, 2)));
-  const [startTime, setStartTime] = useState('');
-  const [endTime, setEndTime] = useState('');
+  const [maxRole, setMaxRole] = useState(String(token?.max_role ?? Math.min(currentRoleLevel, 2)));
+  const [startTime, setStartTime] = useState(token?.start_time ?? '');
+  const [endTime, setEndTime] = useState(token?.end_time ?? '');
   const [error, setError] = useState<string | null>(null);
 
 
@@ -75,6 +80,25 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, onCreated }:
       setError('至少选择一个域名');
       return;
     }
+    if (editing && token) {
+      try {
+        await update.mutateAsync({
+          id: token.id,
+          payload: {
+            name: name.trim(),
+            allowed_domains: selected,
+            allowed_services: services.length > 0 ? services : undefined,
+            start_time: startTime || undefined,
+            end_time: endTime || undefined,
+          },
+        });
+        onSaved?.();
+        onOpenChange(false);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '保存失败');
+      }
+      return;
+    }
     try {
       const envelope = await create.mutateAsync({
         name: name.trim(),
@@ -88,7 +112,7 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, onCreated }:
         setError('创建成功但未返回令牌，请刷新列表后重试');
         return;
       }
-      onCreated(envelope.data);
+      onCreated?.(envelope.data);
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建失败');
@@ -99,9 +123,11 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, onCreated }:
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(94vw,40rem)]">
         <DialogHeader>
-          <DialogTitle>新增 API 令牌</DialogTitle>
+          <DialogTitle>{editing ? '编辑 API 令牌' : '新增 API 令牌'}</DialogTitle>
           <DialogDescription>
-            令牌只在创建后显示一次；服务权限与角色上限都不会超过你自身的权限。
+            {editing
+              ? '修改名称、域名范围、服务与有效期；角色上限创建后不可修改。'
+              : '令牌只在创建后显示一次；服务权限与角色上限都不会超过你自身的权限。'}
           </DialogDescription>
         </DialogHeader>
 
@@ -118,7 +144,7 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, onCreated }:
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="token-role">角色上限</Label>
-            <Select value={maxRole} onValueChange={setMaxRole}>
+            <Select value={maxRole} onValueChange={setMaxRole} disabled={editing}>
               <SelectTrigger id="token-role"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {ROLE_OPTIONS.filter((option) => Number(option.value) <= currentRoleLevel).map((option) => (
@@ -214,9 +240,9 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, onCreated }:
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button size="sm" onClick={() => void submit()} disabled={create.isPending}>
-            {create.isPending && <Loader2 className="animate-spin" />}
-            创建令牌
+          <Button size="sm" onClick={() => void submit()} disabled={create.isPending || update.isPending}>
+            {(create.isPending || update.isPending) && <Loader2 className="animate-spin" />}
+            {editing ? '保存' : '创建令牌'}
           </Button>
         </DialogFooter>
       </DialogContent>

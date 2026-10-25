@@ -45,8 +45,8 @@ describe('DomainsPage 置顶 / 备注 / WHOIS', () => {
 
   it('展示 WHOIS 状态徽标', async () => {
     renderPage();
-    expect(await screen.findByText('WHOIS：active')).toBeTruthy();
-    expect(screen.getByText('WHOIS：expired')).toBeTruthy();
+    expect(await screen.findByText('WHOIS：正常')).toBeTruthy();
+    expect(screen.getByText('WHOIS：已过期')).toBeTruthy();
   });
 
   it('置顶写入本地并作为查询参数下发', async () => {
