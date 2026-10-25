@@ -58,7 +58,7 @@ function isValidRecordValue(type: string, value: string): string | true {
 
 const DYNAMIC_RECORD_TYPES_PROVIDERS = new Set(['hidns_v2']);
 
-function providerCapability(accountType: string): { proxiable: boolean; status: boolean; remark: boolean; weight: boolean } | null {
+function providerCapability(accountType: string): { proxiable: boolean; status: boolean; remark: boolean; weight: boolean; redirect: boolean } | null {
   const def = getProviderDefinitions().find(
     (provider) => normalizeProviderType(provider.type) === normalizeProviderType(accountType),
   );
@@ -68,7 +68,35 @@ function providerCapability(accountType: string): { proxiable: boolean; status: 
     status: def.capabilities.dns.status,
     remark: def.capabilities.dns.remark,
     weight: def.capabilities.dns.weight,
+    redirect: Boolean(def.capabilities.redirect),
   };
+}
+
+/**
+ * 重定向入参解析。
+ * 规则：提供商未声明 capabilities.redirect → 一律忽略（不报错、不落库）；
+ * 已声明但 URL 非法 → 400；合法 → 交给适配器的 setRecordRedirect。
+ */
+export function resolveRedirectTarget(
+  redirectSupported: boolean,
+  redirect: unknown,
+): { target?: string; error?: string; ignored: boolean } {
+  if (redirect === undefined || redirect === null || redirect === '') {
+    return { ignored: false };
+  }
+  if (!redirectSupported) return { ignored: true };
+  if (typeof redirect !== 'string') return { ignored: false, error: 'redirect 必须是字符串 URL' };
+  const target = redirect.trim();
+  if (target.length > 1024) return { ignored: false, error: 'redirect 最长 1024 字符' };
+  try {
+    const parsed = new URL(target);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return { ignored: false, error: 'redirect 只支持 http/https URL' };
+    }
+  } catch {
+    return { ignored: false, error: 'redirect 不是合法 URL' };
+  }
+  return { ignored: false, target };
 }
 
 function providerSupportsProxy(accountType: string): boolean {
@@ -507,8 +535,8 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
     sendError(res, 'Permission denied', 403);
     return;
   }
-  const { name, type, value, line, proxied, ttl, mx, weight, remark, cloudflare, aliyunesa } = req.body as {
-    name: string; type: string; value: string; line?: string; proxied?: boolean;
+  const { name, type, value, line, proxied, ttl, mx, weight, remark, redirect, cloudflare, aliyunesa } = req.body as {
+    name: string; type: string; value: string; line?: string; proxied?: boolean; redirect?: string;
     ttl?: number; mx?: number; weight?: number; remark?: string;
     cloudflare?: { proxied?: boolean };
     aliyunesa?: { proxied?: boolean };
@@ -548,6 +576,11 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
       legacyProxied: cloudflare?.proxied ?? aliyunesa?.proxied,
     });
     const capability = account ? providerCapability(account.type) : null;
+    const redirectResult = resolveRedirectTarget(Boolean(capability?.redirect), redirect);
+    if (redirectResult.error) { sendError(res, redirectResult.error); return; }
+    if (redirectResult.ignored) {
+      log.debug('redirect ignored: provider did not declare capabilities.redirect', { providerType: account?.type });
+    }
     const remarkSupported = capability ? capability.remark !== false : true;
     // weight 能力位同样要有执行点：不支持的提供商不传权重，避免上游忽略/报错
     const weightSupported = capability ? capability.weight !== false : true;
@@ -556,7 +589,15 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
       sendError(res, 'Failed to add record');
       return;
     }
-    await logAuditOperation(req.user!.userId, 'add_record', access.domain.name, { name, type, value }, req);
+    if (redirectResult.target) {
+      if (typeof dnsAdapter.setRecordRedirect !== 'function') {
+        sendError(res, '该提供商声明支持重定向，但适配器尚未实现', 501);
+        return;
+      }
+      const redirectOk = await dnsAdapter.setRecordRedirect(recordId, redirectResult.target);
+      if (!redirectOk) { sendError(res, '设置记录重定向失败'); return; }
+    }
+    await logAuditOperation(req.user!.userId, 'add_record', access.domain.name, { name, type, value, redirect: redirectResult.target }, req);
 
     // 获取新创建的记录数据用于 WebSocket 推送
     const newRecord = await dnsAdapter.getDomainRecordInfo(recordId);
@@ -805,8 +846,8 @@ router.put('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
     sendError(res, 'Permission denied', 403);
     return;
   }
-  const { name, type, value, line, proxied, ttl, mx, weight, remark, status, cloudflare, aliyunesa } = req.body as {
-    name?: string; type?: string; value?: string; line?: string; proxied?: boolean;
+  const { name, type, value, line, proxied, ttl, mx, weight, remark, status, redirect, cloudflare, aliyunesa } = req.body as {
+    name?: string; type?: string; value?: string; line?: string; proxied?: boolean; redirect?: string;
     ttl?: number; mx?: number; weight?: number; remark?: string; status?: number;
     cloudflare?: { proxied?: boolean };
     aliyunesa?: { proxied?: boolean };
@@ -845,6 +886,11 @@ router.put('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
       ? await dnsAdapter.getDomainRecordInfo(recordId).catch(() => null)
       : null;
     const updateCapability = account ? providerCapability(account.type) : null;
+    const updateRedirect = resolveRedirectTarget(Boolean(updateCapability?.redirect), redirect);
+    if (updateRedirect.error) { sendError(res, updateRedirect.error); return; }
+    if (updateRedirect.ignored) {
+      log.debug('redirect ignored: provider did not declare capabilities.redirect', { providerType: account?.type });
+    }
     const updateRemarkSupported = updateCapability ? updateCapability.remark !== false : true;
     const updateWeightSupported = updateCapability ? updateCapability.weight !== false : true;
     const success = await dnsAdapter.updateDomainRecord(recordId, name, type, value, effectiveLine, ttl, mx, updateWeightSupported ? weight : undefined, updateRemarkSupported ? remark : undefined);
@@ -852,7 +898,15 @@ router.put('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
       sendError(res, 'Failed to update record');
       return;
     }
-    await logAuditOperation(req.user!.userId, 'update_record', access.domain.name, { recordId, name, type, value }, req);
+    if (updateRedirect.target) {
+      if (typeof dnsAdapter.setRecordRedirect !== 'function') {
+        sendError(res, '该提供商声明支持重定向，但适配器尚未实现', 501);
+        return;
+      }
+      const redirectOk = await dnsAdapter.setRecordRedirect(recordId, updateRedirect.target);
+      if (!redirectOk) { sendError(res, '设置记录重定向失败'); return; }
+    }
+    await logAuditOperation(req.user!.userId, 'update_record', access.domain.name, { recordId, name, type, value, redirect: updateRedirect.target }, req);
 
     publishRecordEvent({
       action: 'updated',

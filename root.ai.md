@@ -287,7 +287,7 @@
 2.1 适配器语义不变量（2.3.1 起强制）
     - `RecordId` 必须是上游真实 ID 的非空字符串；禁止用 `'success'`、`0`、空串兜底。创建接口不返回 ID 时，适配器应回查（`resolveCreatedRecordId`）或返回 `null`。
     - `getRecordLines()` 失败必须抛错（并写入 `this.error`）；不得返回编造的「默认/电信/联通」列表，让调用方把失败当成功。
-    - 能力位必须在执行点校验：`recordTypes`（记录类型）、`proxiable`（代理开关）由路由层校验；其余能力位（`status`/`remark`/`redirect`/`weight`）在接入前必须有执行点，只声明不执行视为缺陷。
+    - 能力位必须在执行点校验：`recordTypes`（记录类型）、`proxiable`（代理开关）、`status`（启停）、`remark`（备注）、`weight`（权重）由路由层校验；`redirect` 见 2.3。只声明不执行视为缺陷。
     - 读接口 fail-closed：适配器读失败不得折叠成空列表；`DnsProviderService` 用 `clearError()+getError()` 判定，空结果 + 有错误时抛错。
 
 2.2 线路模型（2.3.1 起强制）
@@ -298,6 +298,11 @@
     - PSL 与线路刷新共用 `taskManager`（并发/超时/同 ID 去重），且只对「有启用账号」的提供商加入拉取。
     - 未指定线路（`undefined` / `''` / 历史哨兵 `'0'` 且默认非 `'0'`）时，适配器必须使用 `defaultLine`；代理型提供商未指定代理状态时统一 `proxied=false`。
     - 契约测试：`server/src/lib/dns/__tests__/adapter-contract.test.ts`；模型说明见 `docs/providers/line-model.md`。
+2.3 重定向能力位（2.3.1 起强制）
+    - `capabilities.redirect` 是**提供商级**能力（不属于 `DnsCapabilities`），每家必须显式声明布尔值。
+    - **未声明或为 false 时，记录创建/更新传入的 `redirect` 一律忽略**（不报错、不落库、不写审计）。
+    - 声明 true 时：`redirect` 必须是 `http/https` URL（≤1024 字符），由适配器 `setRecordRedirect(recordId, url)` 落实；适配器未实现则返回 **501**，不得静默通过。
+    - 批量导入暂不应用 redirect（逐条重定向语义未定义），传入时按未支持忽略。
 3. 基础适配器类
     - `BaseAdapter`（`common.ts`）：所有适配器的抽象基类，提供 `getError()` 实现。
     - `AliyunRpcAdapter`（`common.ts`）：阿里云 RPC 风格 API 的抽象基类，封装了 RPC 签名逻辑。
@@ -316,8 +321,8 @@
     - `virtual`：开发/测试用的虚拟提供商，`NODE_ENV=production` 下强制不注册，**不计入可用提供商**。
 6. 提供商能力模型
     - 能力分**两层**，不得混写：
-        - `DnsCapabilities`（`registry.ts`）：DNS 解析能力位，包含 `remark`（备注）、`status`（启用/禁用）、`redirect`（重定向）、`weight`（权重）、`proxiable`（可代理）、`cnameFlattening`（CNAME 展平）、`recordTypes`（支持的记录类型数组）。
-        - `ProviderCapabilities`（`registry.ts`）：提供商整体能力，形如 `{ dns: DnsCapabilities | null, log: boolean, renewal: boolean }`；`dns: null` 表示该提供商不提供 DNS 解析能力。
+        - `DnsCapabilities`（`registry.ts`）：DNS 解析能力位，包含 `remark`（备注）、`status`（启用/禁用）、`weight`（权重）、`proxiable`（可代理）、`cnameFlattening`（CNAME 展平）、`recordTypes`（支持的记录类型数组）。
+        - `ProviderCapabilities`（`registry.ts`）：提供商整体能力，形如 `{ dns: DnsCapabilities | null, log: boolean, renewal: boolean, redirect: boolean }`；`dns: null` 表示该提供商不提供 DNS 解析能力，`redirect` 表示是否支持记录级重定向。
     - 每个提供商定义 `ProviderConfigField[]` 描述其配置字段：`{ key, label, type: 'text' | 'password' | 'select', required, group?, options? }`。
     - **提供商特有能力的扩展机制（强制）**：提供商可在自己目录下的 `extra.ts` 中声明独有能力，通过 `ProviderDefinition.extraCapabilities?: ProviderExtraCapability[]` 挂载。
         - 命名规则：能力全名为 `ext.<providerType>.<后缀>`，动作全名为 `<能力全名>.<动词>`。**顶级前缀与二级前缀由核心规定，提供商只能自定后缀**，全名必须全局唯一。

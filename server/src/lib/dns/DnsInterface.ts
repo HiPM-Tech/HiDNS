@@ -74,4 +74,6 @@ export interface DnsAdapter {
   getRecordLines(): Promise<Array<{ id: string; name?: string }>>;
   getMinTTL(): Promise<number>;
   addDomain(domain: string): Promise<boolean>;
+  /** 可选：记录级重定向（仅当 registry 声明 capabilities.redirect=true 时才会被调用） */
+  setRecordRedirect?(recordId: string, redirect: string): Promise<boolean>;
 }

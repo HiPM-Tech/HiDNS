@@ -460,6 +460,8 @@ Base URL: `http://<部署地址>:3001/api`
 
 添加 DNS 记录。
 
+> `redirect`（可选，`http/https` URL，≤1024）：仅当该提供商在 registry 声明 `capabilities.redirect=true` 时生效；**未声明时传入会被忽略**（不报错、不落库）。已声明但适配器未实现 `setRecordRedirect` 返回 501。
+
 ```json
 {
   "name": "www",
@@ -480,6 +482,8 @@ Base URL: `http://<部署地址>:3001/api`
 鉴权：`authMiddleware` + `requireTokenDomainPermission('domainId')`
 
 更新 DNS 记录。
+
+> `redirect` 语义同创建：未声明能力的提供商忽略；已声明则调用适配器 `setRecordRedirect`。
 
 ```json
 {

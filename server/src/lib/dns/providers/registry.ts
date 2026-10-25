@@ -19,7 +19,6 @@ import { findSharingInconsistencies, listSharingParticipants } from './credentia
 export interface DnsCapabilities {
   remark: boolean;
   status: boolean;
-  redirect: boolean;
   weight: boolean;
   proxiable: boolean;
   cnameFlattening: boolean;
@@ -30,6 +29,8 @@ export interface ProviderCapabilities {
   dns: DnsCapabilities | null;
   log: boolean;
   renewal: boolean;
+  /** 是否支持记录级重定向（未声明/为 false 时，API 传入的 redirect 一律忽略） */
+  redirect: boolean;
 }
 
 export interface ProviderConfigFieldOption {
@@ -77,7 +78,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.aliyun',
     lineSource: 'dynamic',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: true, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: true, renewal: false, redirect: false },
     configFields: [
       { key: 'AccessKeyId', label: 'provider.config.access_key_id', type: 'text', required: true },
       { key: 'AccessKeySecret', label: 'provider.config.access_key_secret', type: 'password', required: true },
@@ -90,7 +91,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.dnspod',
     lineSource: 'dynamic',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: true, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: true, renewal: false, redirect: false },
     configFields: [
       { key: 'SecretId', label: 'provider.config.secret_id', type: 'text', required: true },
       { key: 'SecretKey', label: 'provider.config.secret_key', type: 'password', required: true },
@@ -102,7 +103,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.huawei',
     lineSource: 'dynamic',
     defaultLine: 'default_view',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'AccessKeyId', label: 'provider.config.access_key_id', type: 'text', required: true },
       { key: 'SecretAccessKey', label: 'provider.config.secret_access_key', type: 'password', required: true },
@@ -114,7 +115,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.baidu',
     lineSource: 'builtin',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'AccessKeyId', label: 'provider.config.access_key_id', type: 'text', required: true },
       { key: 'SecretAccessKey', label: 'provider.config.secret_access_key', type: 'password', required: true },
@@ -126,7 +127,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.huoshan',
     lineSource: 'dynamic',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'AccessKeyId', label: 'provider.config.access_key_id', type: 'text', required: true },
       { key: 'SecretAccessKey', label: 'provider.config.secret_access_key', type: 'password', required: true },
@@ -138,7 +139,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.jdcloud',
     lineSource: 'dynamic',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'AccessKeyId', label: 'provider.config.access_key_id', type: 'text', required: true },
       { key: 'AccessKeySecret', label: 'provider.config.access_key_secret', type: 'password', required: true },
@@ -150,7 +151,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.cloudflare',
     lineSource: 'builtin',
     defaultLine: '0',
-    capabilities: { dns: { remark: true, status: false, redirect: true, weight: true, proxiable: true, cnameFlattening: true, recordTypes: CLOUDFLARE_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: true, status: false, weight: true, proxiable: true, cnameFlattening: true, recordTypes: CLOUDFLARE_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'accountId', label: 'provider.config.account_id_tunnels', type: 'text', required: false, group: 'token' },
       { key: 'apiToken', label: 'provider.config.api_token', type: 'password', required: true, group: 'token' },
@@ -164,7 +165,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.dnsla',
     lineSource: 'dynamic',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: true, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: true, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'apiid', label: 'provider.config.api_id', type: 'text', required: true },
       { key: 'apisecret', label: 'provider.config.api_secret', type: 'password', required: true },
@@ -176,7 +177,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.west',
     lineSource: 'builtin',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'username', label: 'provider.config.username', type: 'text', required: true },
       { key: 'api_password', label: 'provider.config.api_password', type: 'password', required: true },
@@ -188,7 +189,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.qingcloud',
     lineSource: 'dynamic',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'access_key_id', label: 'provider.config.access_key_id_label', type: 'text', required: true },
       { key: 'secret_access_key', label: 'provider.config.secret_access_key_label', type: 'password', required: true },
@@ -200,7 +201,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.namesilo',
     lineSource: 'builtin',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: false, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [{ key: 'apikey', label: 'provider.config.api_key', type: 'password', required: true }],
     adapterFactory: (config) => new Adapters.NamesiloAdapter(config),
   },
@@ -209,7 +210,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.bt',
     lineSource: 'dynamic',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'AccountID', label: 'provider.config.account_id', type: 'text', required: true },
       { key: 'AccessKey', label: 'provider.config.access_key', type: 'password', required: true },
@@ -222,7 +223,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.spaceship',
     lineSource: 'builtin',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: false, redirect: false, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: false, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'apiKey', label: 'provider.config.api_key', type: 'text', required: true },
       { key: 'apiSecret', label: 'provider.config.api_secret', type: 'password', required: true },
@@ -234,7 +235,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.powerdns',
     lineSource: 'builtin',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'serverUrl', label: 'provider.config.server_url', type: 'text', required: true },
       { key: 'apiKey', label: 'provider.config.api_key', type: 'password', required: true },
@@ -247,7 +248,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.aliyunesa',
     lineSource: 'builtin',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: true, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: true, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'AccessKeyId', label: 'provider.config.access_key_id', type: 'text', required: true },
       { key: 'AccessKeySecret', label: 'provider.config.access_key_secret', type: 'password', required: true },
@@ -259,7 +260,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.tencenteo',
     lineSource: 'builtin',
     defaultLine: 'Default',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     extraCapabilities: [tencenteoOriginGroupCapability],
     configFields: [
       { key: 'SecretId', label: 'provider.config.secret_id', type: 'text', required: true },
@@ -281,7 +282,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.virtual',
     lineSource: 'builtin',
     defaultLine: 'default',
-    capabilities: { dns: { remark: true, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: true, status: true, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     extraCapabilities: [virtualOriginGroupCapability],
     configFields: [
       { key: 'virtual_enabled', label: 'provider.config.virtual_enabled', type: 'select', required: true, options: [
@@ -305,7 +306,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.dnshe',
     lineSource: 'builtin',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: false, redirect: false, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: true },
+    capabilities: { dns: { remark: false, status: false, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: true, redirect: false },
     configFields: [
       { key: 'apiKey', label: 'provider.config.api_key', type: 'text', required: true },
       { key: 'apiSecret', label: 'provider.config.api_secret', type: 'password', required: true },
@@ -317,7 +318,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.rainyun',
     lineSource: 'builtin',
     defaultLine: 'DEFAULT',
-    capabilities: { dns: { remark: false, status: false, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [{ key: 'apiKey', label: 'provider.config.api_key', type: 'password', required: true }],
     adapterFactory: (config) => new Adapters.RainyunAdapter(config),
   },
@@ -326,7 +327,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.hidns',
     lineSource: 'builtin',
     defaultLine: '0',
-    capabilities: { dns: { remark: true, status: true, redirect: false, weight: true, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: true, status: true, weight: true, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'baseUrl', label: 'provider.config.hidns_url', type: 'text', required: true },
       { key: 'apiToken', label: 'provider.config.api_token', type: 'password', required: true },
@@ -338,7 +339,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.hidns_v2',
     lineSource: 'dynamic',
     defaultLine: '0',
-    capabilities: { dns: { remark: true, status: true, redirect: false, weight: true, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: true, status: true, weight: true, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'baseUrl', label: 'provider.config.hidns_url', type: 'text', required: true },
       { key: 'apiToken', label: 'provider.config.api_token', type: 'password', required: true },
@@ -350,7 +351,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.caihongdns',
     lineSource: 'builtin',
     defaultLine: '默认',
-    capabilities: { dns: { remark: true, status: true, redirect: false, weight: true, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: true, status: true, weight: true, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'baseUrl', label: 'provider.config.caihong_url', type: 'text', required: true },
       { key: 'uid', label: 'provider.config.user_id', type: 'text', required: true },
@@ -363,7 +364,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.vps8',
     lineSource: 'builtin',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: false, redirect: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'apiKey', label: 'provider.config.api_key', type: 'password', required: true },
     ],
@@ -374,7 +375,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.gcore',
     lineSource: 'builtin',
     defaultLine: '0',
-    capabilities: { dns: { remark: false, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: false, status: true, weight: false, proxiable: false, cnameFlattening: true, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'apiKey', label: 'provider.config.api_key', type: 'password', required: true },
     ],
@@ -385,7 +386,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.dnsneko',
     lineSource: 'dynamic',
     defaultLine: 'default',
-    capabilities: { dns: { remark: true, status: true, redirect: false, weight: false, proxiable: false, cnameFlattening: true, recordTypes: DNSNEKO_RECORD_TYPES }, log: false, renewal: false },
+    capabilities: { dns: { remark: true, status: true, weight: false, proxiable: false, cnameFlattening: true, recordTypes: DNSNEKO_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'username', label: 'provider.config.username', type: 'text', required: true },
       { key: 'apiKey', label: 'provider.config.api_key', type: 'password', required: true },
@@ -397,7 +398,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.dpdns_reverse',
     lineSource: 'builtin',
     defaultLine: '0',
-    capabilities: { dns: null, log: false, renewal: true },
+    capabilities: { dns: null, log: false, renewal: true, redirect: false },
     configFields: [
       { key: 'rememberToken', label: 'provider.config.remember_token', type: 'password', required: true },
     ],

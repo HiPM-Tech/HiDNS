@@ -30,6 +30,7 @@ export interface ProviderInfo {
     dns: { export?: string; recordTypes?: string[]; proxiable?: boolean } | null;
     log?: boolean;
     renewal?: boolean;
+    redirect?: boolean;
   };
   configFields: ProviderConfigField[];
   isStub?: boolean;

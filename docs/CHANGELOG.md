@@ -12,6 +12,13 @@
 - **读失败 fail-closed**：`DnsProviderService.getRecords` 调用前 `clearError()`，空结果且本次有错误时抛错，不再把上游失败伪装成「0 条记录」。
 - **工厂别名归一化**：`createAdapter()` 入口做 `normalizeProviderType()`，历史库中的 `alidns`/`aliesa`/`edgeone` 等别名可正常创建适配器。
 
+### 重定向能力位（redirect）
+
+- 将 `redirect` 从 `DnsCapabilities` 抽到 **提供商级** `capabilities.redirect`，26 家全部显式声明（当前均为 false）。
+- 记录创建/更新接受可选 `redirect`：**未声明能力的提供商一律忽略**（不报错、不落库）；声明为 true 时校验 http/https URL，交适配器 `setRecordRedirect`，未实现返回 501。
+- 新增 `resolveRedirectTarget()` 与 6 条契约用例（声明完整性 / 未声明忽略 / URL 校验 / 适配器实现校验）。
+- 兼容性核对：DDNS-Go（`dns/hipmdnsmgr.go`）与 Certd（`plugin-hipmdnsmgr`）均不发送 `redirect`；两者发送的 `line: "0"` 按「未指定」落到各自默认线路。详见 `docs/integrations/ddns-go-certd-compat.md`。
+
 ### 线路模型（默认线路 + 内置/动态二选一）
 
 - 每个提供商在 `registry.ts` 显式声明 `lineSource`（builtin/dynamic）与 `defaultLine`；**不允许动态提供商再内置兜底**。
