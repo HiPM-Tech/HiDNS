@@ -8,6 +8,12 @@
 - 域名续期「添加域名」的账户下拉：仅保留 `capabilities.renewal === true` 的提供商账户，同样显示提供商。
 - 新增 `filterAccountsByProviderCapability()` 与 3 条单测；providers 未加载时不过滤，避免首屏闪空。
 
+### 调整：中间层统一改写默认线路为「默认」
+
+- `normalizeLineList()` 不再过滤默认线路，而是统一改写为 `{ id: defaultLine, name: '默认' }` 并固定首位；上游原名（全网默认/Default/default_view/默认…）不再直接透出。
+- 默认线路缺失时由中间层补一条，保证前端始终有且只有一条默认线路；前端移除 `__default` 哨兵与 `displayLine` 映射，直接渲染接口返回。
+- 编辑记录时按默认线路 id 选中「默认」，提交后由适配器/中间层归一。
+
 ### 重构：默认线路去重合并到线路归一中间层
 
 - `line-normalizer.ts` 新增 `normalizeLineList()`：过滤默认线路（`id === defaultLine`）、按 id 去重、丢弃空 id；`DnsProviderService.getLines()` 对内置/动态线路统一套用。

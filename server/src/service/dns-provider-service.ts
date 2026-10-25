@@ -163,7 +163,7 @@ export class DnsProviderService {
       defaultLine: definition.defaultLine,
       fetchLines: () => adapter.getRecordLines(),
     });
-    // 默认线路统一由前端「默认线路」选项表达，接口不重复返回
+    // 默认线路由中间层统一改写为「默认」并置于首位
     return normalizeLineList(result.lines, definition.defaultLine);
   }
 

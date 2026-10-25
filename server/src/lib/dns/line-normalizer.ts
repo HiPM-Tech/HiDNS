@@ -17,10 +17,10 @@ export function normalizeLine(line: string | null | undefined, defaultLine: stri
 export const resolveProviderLine = normalizeLine;
 
 /**
- * 线路列表归一（默认线路只保留前端「默认线路」选项）：
- * - 过滤默认线路（id === defaultLine）
- * - 按 id 去重、丢弃空 id
- * - 名称缺省时回填 id
+ * 线路列表归一（默认线路由中间层统一改写）：
+ * - 默认线路统一改写为 name='默认'，并固定排在首位；上游原名（全网默认/Default/default_view…）不直接透出
+ * - 默认线路缺失时由中间层补一条，保证前端始终有且只有一条默认线路
+ * - 其它线路按 id 去重、丢弃空 id，名称缺省回填 id
  */
 export function normalizeLineList<T extends { id: string; name?: string }>(
   lines: T[],
@@ -34,5 +34,6 @@ export function normalizeLineList<T extends { id: string; name?: string }>(
     seen.add(id);
     out.push({ id, name: String(raw.name ?? '').trim() || id });
   }
-  return out;
+  if (!defaultLine) return out;
+  return [{ id: defaultLine, name: '默认' }, ...out];
 }

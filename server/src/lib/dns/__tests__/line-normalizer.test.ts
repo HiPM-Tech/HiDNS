@@ -27,8 +27,16 @@ describe('线路归一中间层', () => {
       { id: '', name: '空' },
       { id: '联通' },
     ], '默认')).toEqual([
+      { id: '默认', name: '默认' },
       { id: '电信', name: '电信' },
       { id: '联通', name: '联通' },
+    ]);
+  });
+
+  it('默认线路缺失时补一条，并固定首位、名称统一为「默认」', () => {
+    expect(normalizeLineList([{ id: '电信', name: '电信' }], 'default')).toEqual([
+      { id: 'default', name: '默认' },
+      { id: '电信', name: '电信' },
     ]);
   });
 
