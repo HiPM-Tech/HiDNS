@@ -8,6 +8,12 @@
 - 域名续期「添加域名」的账户下拉：仅保留 `capabilities.renewal === true` 的提供商账户，同样显示提供商。
 - 新增 `filterAccountsByProviderCapability()` 与 3 条单测；providers 未加载时不过滤，避免首屏闪空。
 
+### 修复：DNSPod RecordLine 必填、PSL 刷新主键冲突
+
+- DNSPod：`ModifyRecord` 的 `RecordLine` 是**必填名称**（默认「默认」），`RecordLineId` 只是可选加速字段；补 `convertLineIdToName`（`0→默认`、`10=0→电信`…），add/update 同时传名称与 ID。修复线上 `MissingParameter: RecordLine`。
+- 公共后缀刷新：`replaceSource` 先按后缀删除其它 source 的同名记录再插入，修复 PostgreSQL `duplicate key ... public_suffixes_pkey`（builtin 播种与 iana 清单重叠）。
+- 新增 DNSPod 名称/ID 映射用例与 PSL 冲突回归用例。
+
 ### 修复：线路语义审计（Aliyun 默认线路、更新保留原线路、DNSPod 同类问题）
 
 - Aliyun：`AddDomainRecord`/`UpdateDomainRecord` 的 `Line` 默认值改为官方 `default`（原实现发送 `0`）；线路列表兜底 id 同步改 `default`；registry `defaultLine` 对齐。

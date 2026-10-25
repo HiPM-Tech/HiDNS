@@ -37,6 +37,22 @@ export class DnspodAdapter extends TencentCloudAdapter {
     return convertDict[line] ?? line;
   }
 
+  /** DNSPod 的 RecordLine 必填且是「线路名称」，ID 只是可选加速字段 */
+  private convertLineIdToName(lineId: string): string {
+    const names: Record<string, string> = {
+      '0': '默认',
+      '10=0': '电信',
+      '10=1': '联通',
+      '10=3': '移动',
+      '10=2': '教育网',
+      '3=0': '境外',
+      '10=22': 'BGP',
+      '80=0': '搜索引擎',
+      '7=0': '内网',
+    };
+    return names[lineId] ?? lineId;
+  }
+
   private convertType(type?: string): string | undefined {
     if (!type) return type;
     if (type === 'REDIRECT_URL') return '显性URL';
@@ -211,7 +227,8 @@ export class DnspodAdapter extends TencentCloudAdapter {
         SubDomain: normalizeRrName(name),
         RecordType: this.convertType(type),
         Value: value,
-        // DNSPod 的 RecordLine 是线路名称（默认线路为「默认」），用 ID 时应只传 RecordLineId
+        // DNSPod 的 RecordLine 必填（名称），RecordLineId 为可选 ID
+        RecordLine: this.convertLineIdToName(this.convertLineCode(resolveProviderLine(line, '0')) ?? '0'),
         RecordLineId: this.convertLineCode(resolveProviderLine(line, '0')),
         TTL: ttl,
         MX: type === 'MX' ? mx : undefined,
@@ -250,7 +267,8 @@ export class DnspodAdapter extends TencentCloudAdapter {
         SubDomain: normalizeRrName(name),
         RecordType: this.convertType(type),
         Value: value,
-        // 只传 RecordLineId：RecordLine 是线路名称，传 '0' 会触发 RecordLineInvalid
+        // RecordLine 必填（名称）；RecordLineId 为可选加速字段
+        RecordLine: this.convertLineIdToName(this.convertLineCode(resolveProviderLine(line, '0')) ?? '0'),
         RecordLineId: this.convertLineCode(resolveProviderLine(line, '0')),
         TTL: ttl,
         MX: type === 'MX' ? mx : undefined,

@@ -50,6 +50,12 @@ export const PublicSuffixOperations = {
   async replaceSource(source: string, list: string[]): Promise<number> {
     const normalized = [...new Set(list.map((item) => item.trim().toLowerCase()).filter(Boolean))];
     await execute('DELETE FROM public_suffixes WHERE source = ?', [source]);
+    // 同一后缀可能来自其它 source（builtin 播种、旧清单）：先按后缀清掉，避免主键冲突（PG 23505）
+    for (let i = 0; i < normalized.length; i += 200) {
+      const chunk = normalized.slice(i, i + 200);
+      const placeholders = chunk.map(() => '?').join(',');
+      await execute(`DELETE FROM public_suffixes WHERE suffix IN (${placeholders})`, chunk);
+    }
     for (const suffix of normalized) {
       await execute(
         'INSERT INTO public_suffixes (suffix, source, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
