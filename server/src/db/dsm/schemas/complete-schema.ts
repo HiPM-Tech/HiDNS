@@ -934,6 +934,20 @@ export const COMPLETE_SCHEMA: DatabaseSchema = {
       indexes: [
         { name: 'idx_public_suffixes_source', columns: ['source'] }
       ]
+    },
+    {
+      name: 'provider_lines',
+      columns: [
+        { name: 'id', type: 'id', primaryKey: true, autoIncrement: true },
+        { name: 'provider_type', type: 'string', length: 64, nullable: false },
+        { name: 'line_id', type: 'string', length: 255, nullable: false },
+        { name: 'line_name', type: 'string', length: 255, defaultValue: '' },
+        { name: 'updated_at', type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' },
+      ],
+      indexes: [
+        { name: 'uniq_provider_lines', columns: ['provider_type', 'line_id'], unique: true },
+        { name: 'idx_provider_lines_provider', columns: ['provider_type'] }
+      ]
     }
   ]
 };

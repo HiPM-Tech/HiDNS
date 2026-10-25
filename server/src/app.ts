@@ -225,7 +225,8 @@ import { startDomainSyncJob } from './service/domainSyncJob';
 import { startGroupedCacheRefreshJob } from './service/groupedCacheJob';
 import { startMcpOAuthCleanupJob } from './service/mcpOAuthCleanupJob';
 import { startResourceMonitorJob } from './service/resource/job';
-import { startPublicSuffixJob } from './service/publicSuffixJob';
+import { startPublicSuffixJob, stopPublicSuffixJob } from './service/publicSuffixJob';
+import { startProviderLinesJob, stopProviderLinesJob } from './service/providerLinesJob';
 import { NSMonitorOperations } from './db/bal/business-adapter';
 import { startResourcePruneJob } from './service/resource/prune';
 import { checkForUpdate, downloadUpdate } from './service/autoUpdater';
@@ -530,6 +531,9 @@ async function gracefulShutdown(
 
   // 停止工作流模块（先退订总线，再断开数据库）
   stopWorkflowModule();
+  // 停止外部数据拉取任务（PSL / 提供商线路）
+  stopProviderLinesJob();
+  stopPublicSuffixJob();
 
   // Shutdown WebSocket service
   wsService.shutdown();
@@ -603,6 +607,7 @@ async function initializeApp() {
       startResourcePruneJob();
       // 公共后缀表：先载入 DB（内存快照），再异步拉上游；失败只记日志不影响启动
       startPublicSuffixJob();
+      startProviderLinesJob();
       // 一次性回收历史孤儿 NS 监控（域名已删除但仍在校验）
       void NSMonitorOperations.deleteOrphans()
         .then((removed) => { if (removed > 0) log.info('Cleaned orphan NS monitors', { removed }); })
@@ -717,6 +722,7 @@ async function initializeApp() {
           startDomainSyncJob(0.5); // Sync every 30 minutes
           startGroupedCacheRefreshJob();
           startPublicSuffixJob();
+          startProviderLinesJob();
           startResourceMonitorJob();
           startResourcePruneJob();
           startWorkflowModule();

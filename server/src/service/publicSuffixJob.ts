@@ -1,10 +1,21 @@
 import { createLogger } from '../lib/logger';
 import { loadPublicSuffixesFromDb, refreshPublicSuffixes } from './public-suffix';
+import { taskManager } from './taskManager';
 
 const log = createLogger('Job').sub('PublicSuffix');
 
 let timer: NodeJS.Timeout | null = null;
 let started = false;
+
+/** 与线路刷新共用 taskManager 约束（并发/超时/同 ID 去重），避免两个外部拉取任务互相踩踏 */
+function submitRefresh(): void {
+  void taskManager
+    .submit(
+      { id: 'public-suffix-refresh', name: 'Refresh public suffix list', concurrency: 1, timeout: 120_000 },
+      async () => { await refreshPublicSuffixes(); },
+    )
+    .catch((error: Error) => log.warn('Public suffix refresh failed', { error: error.message }));
+}
 
 /**
  * 公共后缀定时任务。
@@ -24,10 +35,10 @@ export function startPublicSuffixJob(): void {
     const intervalMs = days * 24 * 60 * 60 * 1000;
 
     // 首次拉取：延迟 30s，避开启动高峰（初始化门禁、迁移、其它任务都在抢资源）
-    setTimeout(() => { void refreshPublicSuffixes(); }, 30_000);
+    setTimeout(() => { submitRefresh(); }, 30_000);
 
     if (timer) clearInterval(timer);
-    timer = setInterval(() => { void refreshPublicSuffixes(); }, intervalMs);
+    timer = setInterval(() => { submitRefresh(); }, intervalMs);
     log.info('Public suffix job started', { refreshDays: days });
   })().catch((error) => log.error('Failed to start public suffix job', { error }));
 }

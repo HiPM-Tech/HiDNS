@@ -15,6 +15,9 @@ import {
 import { DomainOperations, DnsAccountOperations } from '../db/bal/business-adapter';
 import { createLogger } from '../lib/logger';
 import type { Domain, DnsAccount } from '../types';
+import { getProviderDefinitions } from '../lib/dns/providers/registry';
+import { normalizeProviderType } from '../lib/dns/providerAlias';
+import { getProviderLinesCached } from './providerLines';
 
 const log = createLogger('DnsProviderService');
 export class DnsProviderService {
@@ -142,7 +145,24 @@ export class DnsProviderService {
    */
   static async getLines(domainId: number): Promise<Array<{ id: string; name?: string }>> {
     const adapter = await this.getAdapter(domainId);
-    return adapter.getRecordLines();
+
+    // 内置线路直接返回（不联网、不入缓存）；动态线路走「缓存 3600s → 拉取 → 失败只返回默认」。
+    const domain = await DomainOperations.getById(domainId) as { account_id?: number } | undefined;
+    const account = domain?.account_id
+      ? await DnsAccountOperations.getById(Number(domain.account_id)) as { type?: string } | undefined
+      : undefined;
+    const providerType = normalizeProviderType(String(account?.type ?? ''));
+    const definition = getProviderDefinitions().find((item) => item.type === providerType);
+    if (!definition || definition.lineSource === 'builtin') {
+      return adapter.getRecordLines();
+    }
+
+    const result = await getProviderLinesCached({
+      providerType,
+      defaultLine: definition.defaultLine,
+      fetchLines: () => adapter.getRecordLines(),
+    });
+    return result.lines;
   }
 
   /**

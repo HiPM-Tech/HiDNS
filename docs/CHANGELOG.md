@@ -15,7 +15,7 @@
 ### 线路模型（默认线路 + 内置/动态二选一）
 
 - 每个提供商在 `registry.ts` 显式声明 `lineSource`（builtin/dynamic）与 `defaultLine`；**不允许动态提供商再内置兜底**。
-- 动态提供商（阿里云、宝塔、DNSPod、DNS.LA、DNS Neko、HiDNS v2、华为云、火山、京东云、青云）失败时抛错；内置提供商（百度、彩虹、Cloudflare、DNSHE、Gcore、HiDNS、NameSilo、PowerDNS、雨云、Spaceship、EdgeOne、虚拟、VPS8、西部数码、DigitalPlat 反向、阿里云 ESA）不发起网络请求。
+- 动态提供商（阿里云、宝塔、DNSPod、DNS.LA、DNS Neko、HiDNS v2、华为云、火山、京东云、青云）拉取成功后写入 `provider_lines`（TTL 3600s），失败只返回默认线路并在 5 分钟后重试（`providerLinesJob`，与 PSL 共用 taskManager，仅对启用账号的提供商拉取）；内置提供商（百度、彩虹、Cloudflare、DNSHE、Gcore、HiDNS、NameSilo、PowerDNS、雨云、Spaceship、EdgeOne、虚拟、VPS8、西部数码、DigitalPlat 反向、阿里云 ESA）不发起网络请求。
 - 未指定线路 / 历史哨兵 `0` → 适配器统一回落 `defaultLine`（`resolveProviderLine`）；代理型提供商未指定代理状态 → `proxied=false`。
 - 新增契约测试：声明完整性、内置不联网、动态不兜底、适配器引用 defaultLine；文档 `docs/providers/line-model.md`。
 

@@ -293,7 +293,9 @@
 2.2 线路模型（2.3.1 起强制）
     - 每个 ProviderDefinition 必须声明 `lineSource: 'builtin' | 'dynamic'` 与 `defaultLine: string`；**二选一，不允许「动态 + 内置兜底」**。
     - `builtin`：`getRecordLines()` 返回代码内静态表，不得发起网络请求；`defaultLine` 必须在表内。
-    - `dynamic`：`getRecordLines()` 必须请求上游，失败必须抛错（不得回退静态列表）。
+    - `dynamic`：`getRecordLines()` 必须请求上游，失败必须抛错（不得回退静态列表）；服务层捕获后**只返回默认线路**。
+    - 动态线路成功拉取写入 `provider_lines`（TTL 3600s）；失败进入 300s 冷却，期间用默认线路，5 分钟后由任务重试。
+    - PSL 与线路刷新共用 `taskManager`（并发/超时/同 ID 去重），且只对「有启用账号」的提供商加入拉取。
     - 未指定线路（`undefined` / `''` / 历史哨兵 `'0'` 且默认非 `'0'`）时，适配器必须使用 `defaultLine`；代理型提供商未指定代理状态时统一 `proxied=false`。
     - 契约测试：`server/src/lib/dns/__tests__/adapter-contract.test.ts`；模型说明见 `docs/providers/line-model.md`。
 3. 基础适配器类
