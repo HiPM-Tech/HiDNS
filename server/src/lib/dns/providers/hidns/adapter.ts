@@ -225,7 +225,7 @@ export class HiDNSAdapter implements DnsAdapter {
 
   private mapRecord(r: HiDNSRecord): DnsRecord {
     return {
-      RecordId: r.id,
+      RecordId: String(r.id),
       Domain: this.config.domain || '',
       Name: r.name,
       Type: r.type,

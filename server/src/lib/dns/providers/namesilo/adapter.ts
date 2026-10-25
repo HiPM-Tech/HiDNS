@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, normalizeRrName, safeString, toNumber, requestXml } from '../internal';
+import {createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, normalizeRrName, safeString, toNumber, requestXml, resolveCreatedRecordId } from '../internal';
 
 const log = createProviderAdapterLogger('Namesilo');
 interface NamesiloConfig {
@@ -134,7 +134,9 @@ export class NamesiloAdapter extends BaseAdapter {
         rrvalue: value,
         rrttl: String(ttl),
       });
-      return safeString(reply.record_id) || 'success';
+      const createdId = safeString(reply.record_id);
+      if (createdId) return createdId;
+      return await resolveCreatedRecordId(this, name, type);
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       return null;

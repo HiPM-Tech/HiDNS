@@ -213,8 +213,10 @@ export class AliyunAdapter extends AliyunRpcAdapter {
         name: safeString(row.LineDisplayName),
       }));
       return lines.length > 0 ? lines : [{ id: '0', name: '默认' }];
-    } catch {
-      return [{ id: '0', name: '默认' }];
+    } catch (e) {
+      // 上游失败必须抛出：返回 [{id:'0'}] 会让调用方把「查询失败」当成「只有默认线路」
+      this.error = e instanceof Error ? e.message : String(e);
+      throw e;
     }
   }
 

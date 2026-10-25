@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, BaseAdapter, safeString, toNumber, Dict, fetchWithFallback } from '../internal';
+import {createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, BaseAdapter, safeString, toNumber, Dict, fetchWithFallback, resolveCreatedRecordId } from '../internal';
 
 const log = createProviderAdapterLogger('VPS8');
 interface Vps8Config {
@@ -203,7 +203,9 @@ export class Vps8Adapter extends BaseAdapter {
       }
 
       const response = await this.request<{ id: string }>('record_create', params);
-      return safeString(response.id) || 'success';
+      const createdId = safeString(response.id);
+      if (createdId) return createdId;
+      return await resolveCreatedRecordId(this, name, type);
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       log.error('addDomainRecord failed', this.error);

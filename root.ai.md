@@ -276,14 +276,20 @@
 ### DNS提供商适配器
 1. DNS提供商适配器架构
     - DNS提供商使用类驱动方式接入，实现在 `server/src/lib/dns/providers/<provider>/` 目录下。
-    - 所有提供商需在 `server/src/lib/dns/providers/index.ts` 中导出，键名为提供商类型，值为提供商适配器类。
+    - 所有提供商在 `server/src/lib/dns/providers/index.ts` 中**具名导出**适配器类；装配统一由 `registry.ts` 的 `adapterFactory` 承担（不要把 index 当作 type→class 映射表）。
     - 提供商注册信息（名称、能力、配置字段）在 `server/src/lib/dns/providers/registry.ts` 中定义。
-    - 提供商**必须**使用 `requestJson` / `requestXml`（定义在 `server/src/lib/dns/providers/http.ts`）进行 HTTP 请求，这些函数自动调用代理模块 `fetchWithFallback`（`server/src/lib/proxy-http.ts`），以适配特殊网络环境。
-    - 禁止直接使用原生 `fetch` 发起请求，否则将导致代理环境下请求挂死或静默超时。
+    - 提供商**必须**经代理通道发起 HTTP 请求：`requestJson` / `requestXml`（`providers/http.ts`）或直接调用 `fetchWithFallback`（由 `internal.ts` 再导出，底层是 `server/src/lib/proxy-http.ts`）。
+    - **禁止直接使用原生 `fetch`**，否则将导致代理环境下请求挂死或静默超时。
     - 提供商需要保持模块化，每个提供商目录下包含 `adapter.ts`（适配器主逻辑）、`auth.ts`（认证逻辑）、`index.ts`（导出入口）。
 2. DNS接口定义
     - `DnsAdapter` 接口定义在 `server/src/lib/dns/DnsInterface.ts`，所有提供商必须实现该接口。
     - 核心方法包括：`check()`、`getDomainList()`、`getDomainRecords()`、`getDomainRecordInfo()`、`addDomainRecord()`、`updateDomainRecord()`、`deleteDomainRecord()`、`setDomainRecordStatus()`、`getRecordLines()`、`getMinTTL()`、`addDomain()`。
+2.1 适配器语义不变量（2.3.1 起强制）
+    - `RecordId` 必须是上游真实 ID 的非空字符串；禁止用 `'success'`、`0`、空串兜底。创建接口不返回 ID 时，适配器应回查（`resolveCreatedRecordId`）或返回 `null`。
+    - `getRecordLines()` 失败必须抛错（并写入 `this.error`）；不得返回编造的「默认/电信/联通」列表，让调用方把失败当成功。
+    - 能力位必须在执行点校验：`recordTypes`（记录类型）、`proxiable`（代理开关）由路由层校验；其余能力位（`status`/`remark`/`redirect`/`weight`）在接入前必须有执行点，只声明不执行视为缺陷。
+    - 读接口 fail-closed：适配器读失败不得折叠成空列表；`DnsProviderService` 用 `clearError()+getError()` 判定，空结果 + 有错误时抛错。
+
 3. 基础适配器类
     - `BaseAdapter`（`common.ts`）：所有适配器的抽象基类，提供 `getError()` 实现。
     - `AliyunRpcAdapter`（`common.ts`）：阿里云 RPC 风格 API 的抽象基类，封装了 RPC 签名逻辑。
@@ -313,7 +319,8 @@
     - 顶级前缀白名单定义在 `server/src/types/namespace.ts`（全局主核心）。各子系统只能**认领**，不得自行新增；预留前缀在认领前禁止出现在任何动作名中。
 7. Provider 类型与别名映射
     - 创建/更新 DNS 账号时，API 会将 lego 风格 provider 名称归一化为内部 provider 类型。
-    - 别名映射定义在 `DnsHelper.ts` 的 `PROVIDER_ALIASES` 或各适配器的 `alias` 属性中。
+    - 别名映射定义在 `server/src/lib/dns/providerAlias.ts`（`LEGO_TO_INTERNAL`）。
+    - `createAdapter()` 入口必须先做 `normalizeProviderType()`，保证历史库里的别名（`alidns`/`aliesa`/`edgeone` 等）仍可创建适配器。
     - 内部类型与支持别名对应关系请参考完整的 `README.md`。
 
 ### 环境配置

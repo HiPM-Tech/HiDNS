@@ -9,6 +9,7 @@ import {
   providerDefinitionMap,
 } from './providers/registry';
 import { createLogger } from '../logger';
+import { normalizeProviderType } from './providerAlias';
 
 const log = createLogger('DNS').sub('Helper');
 
@@ -78,7 +79,9 @@ function createLoggingAdapter(adapter: DnsAdapter, providerType: string): DnsAda
 }
 
 export function createAdapter(type: string, config: Record<string, string>, domain?: string, zoneId?: string, domainId?: string): DnsAdapter {
-  const definition = providerDefinitionMap.get(type);
+  // 工厂入口归一化：历史库/外部集成可能存的是 lego 别名（alidns/aliesa/…），
+  // 不归一化会让 createAdapter('aliesa') 抛 Unknown provider type。
+  const definition = providerDefinitionMap.get(normalizeProviderType(type));
   if (!definition) {
     throw new Error(`Unknown provider type: ${type}`);
   }

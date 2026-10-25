@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback } from '../internal';
+import {createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveCreatedRecordId } from '../internal';
 import crypto from 'node:crypto';
 
 const log = createProviderAdapterLogger('Bt');
@@ -203,7 +203,7 @@ export class BtAdapter extends BaseAdapter {
       };
 
       await this.request('/api/v1/dns/record/create', params);
-      return 'success';
+      return await resolveCreatedRecordId(this, name, type);
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       return null;
@@ -292,13 +292,9 @@ export class BtAdapter extends BaseAdapter {
       const data = await this.request<Array<{ viewId: string; name: string; free: boolean }>>('/api/v1/dns/record/get_views', {});
       return (data || []).filter((line) => line.free).map((line) => ({ id: line.viewId, name: line.name }));
     } catch (e) {
-      return [
-        { id: '0', name: '默认' },
-        { id: '1', name: '电信' },
-        { id: '2', name: '联通' },
-        { id: '3', name: '移动' },
-        { id: '4', name: '教育网' },
-      ];
+      // 失败不能编造线路：返回假列表会让用户以为这些线路真实可用
+      this.error = e instanceof Error ? e.message : String(e);
+      throw e;
     }
   }
 

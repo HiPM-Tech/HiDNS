@@ -73,3 +73,18 @@ sed -n '78,95p' server/src/lib/dns/DnsHelper.ts
 ```
 
 关联：`ai-censorship/dsh-agent_review-20261023-panel.md`（P0-4/P0-5/T1/T2）、`docs/refactor/00-PLAN.md`（§1 目标 / §4 台账）。
+## 六、修复状态（2.3.1 未发布，本地工作区）
+
+| 编号 | 原判定 | 现状 | 证据 |
+| --- | --- | --- | --- |
+| A1 能力位 | ❌ | ✅ 基本修复：`recordTypes`、`proxiable`、`status`（禁用记录）、`remark`（不支持时丢弃）、`weight`（不支持时不传）均有执行点；前端代理开关改读 `capabilities.dns.proxiable`。`redirect` 无对应记录字段，暂不适用 | `routes/records.ts` `providerCapability/proxyCapabilityError`；`records-page.tsx` `useProviders()` |
+| A2 RecordId | ❌ | ✅ 已修：`powerdns/bt/namesilo/vps8` 改用 `resolveCreatedRecordId()` 回查真实 ID，拿不到返回 `null`；`hidns` 改为 `String(r.id)`；新增源码守卫测试禁止 `return 'success'` | `providers/common.ts`；`__tests__/adapter-contract.test.ts` |
+| A3 线路失败 | ❌ | ✅ 已修：`aliyun/bt/dnsneko/hidns_v2` 的 `getRecordLines` 失败改为抛错并写 `this.error`；源码守卫测试禁止 catch 分支返回固定列表 | 同上 |
+| A4 错误折叠 | ⚠️ | ✅ 已修：`DnsProviderService.getRecords` 先 `clearError`，空结果 + 有错误 → 抛错（fail-closed）；计数仍只在 `total>0` 时回写 | `service/dns-provider-service.ts`；测试覆盖「空+错误抛错」「真空返回」 |
+| A5 HTTP 通道 | ⚠️ | ✅ 已对齐文档：`root.ai.md` 明确允许 `requestJson/requestXml` 或 `fetchWithFallback`（同一代理通道），仍禁止原生 `fetch` | `root.ai.md` §DNS提供商适配器 |
+| A6 工厂别名 | ⚠️ | ✅ 已修：`createAdapter` 入口 `normalizeProviderType`；新增 3 条用例（别名/大小写空白/未知类型） | `DnsHelper.ts`；`__tests__/adapter-alias.test.ts` |
+| A7 index 导出形态 | ⚠️ | ✅ 已对齐文档：明确 index 为具名导出、装配由 registry `adapterFactory` 承担 | `root.ai.md:279` |
+| A8 别名位置 | ⚠️ | ✅ 已对齐文档：改为 `providerAlias.ts` | `root.ai.md:322` |
+| A9 common 自建 logger | ⚠️ | ⏳ 保留：`common.ts` 是共享基类，属规范灰区（非具体 provider 文件），已在报告中标注 | — |
+
+修复后门禁：`server` 77 文件 / 617 条、`client` 41 文件 / 161 条，双侧 eslint 0、`vite build` 通过。

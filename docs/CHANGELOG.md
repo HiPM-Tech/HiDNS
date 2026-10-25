@@ -1,5 +1,26 @@
 # 更新日志
 
+## [2.3.1] - 未发布（本地）
+
+> 收尾 2.3.0 评估报告中的适配器语义未完成项。未推送、未发布。
+
+### DNS 适配器契约
+
+- **RecordId**：`powerdns` / `bt` / `namesilo` / `vps8` 不再用字面量 `success` 充当记录 ID，改为创建后回查真实 ID（`resolveCreatedRecordId`），拿不到返回 `null`（调用方按失败处理）；`hidns` 的 `RecordId` 统一为字符串。
+- **线路查询失败**：`aliyun` / `bt` / `dnsneko` / `hidns_v2` 的 `getRecordLines()` 失败改为抛错并写入 `this.error`，不再返回编造的「默认/电信/联通」列表。
+- **能力位执行**：`proxiable`（非代理型提供商收到 `proxied=true` 返回 400）、`status`（不支持时拒绝对记录启停）、`remark`/`weight`（不支持时丢弃/不传）均在路由层执行；前端代理开关改为读取 `capabilities.dns.proxiable`，不再硬编码 cloudflare/aliyunesa。
+- **读失败 fail-closed**：`DnsProviderService.getRecords` 调用前 `clearError()`，空结果且本次有错误时抛错，不再把上游失败伪装成「0 条记录」。
+- **工厂别名归一化**：`createAdapter()` 入口做 `normalizeProviderType()`，历史库中的 `alidns`/`aliesa`/`edgeone` 等别名可正常创建适配器。
+
+### 文档
+
+- `root.ai.md` 适配器章节更新：`index.ts` 为具名导出（装配由 registry `adapterFactory` 承担）、HTTP 通道允许 `requestJson/requestXml` 或 `fetchWithFallback`（仍禁原生 `fetch`）、别名表位置改为 `providerAlias.ts`，并新增「适配器语义不变量」（RecordId、线路失败、能力位执行、读 fail-closed）。
+
+### 测试
+
+- 新增 `adapter-contract.test.ts`：源码守卫（禁止 `return 'success'`、禁止 catch 返回固定线路列表）+ 能力位用例 + fail-closed 用例（空+错误抛错 / 真空返回）。
+- 新增 `adapter-alias.test.ts`：别名、大小写空白、未知类型三条用例。
+
 ## [2.3.0] - 2026-10-24
 
 > 本版本跨度较大：**前端整体迁移到新栈 + 后端历史残留清理与架构梳理（含 DNS 适配器）+ 域名/IDN 能力补齐 + 工作流可视化 + 多轮审核驱动的安全与体验修复**。

@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback } from '../internal';
+import {createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveCreatedRecordId } from '../internal';
 
 const log = createProviderAdapterLogger('Powerdns');
 interface PowerdnsConfig {
@@ -241,7 +241,8 @@ export class PowerdnsAdapter extends BaseAdapter {
 
       const records = [{ content: recordValue, disabled: false }];
       await this.rrsetReplace(name, type, ttl, records, remark, domainId);
-      return 'success';
+      // rrset replace 不返回记录 ID：回查一次，拿不到就按失败处理（不能编造 'success'）
+      return await resolveCreatedRecordId(this, name, type);
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       return null;

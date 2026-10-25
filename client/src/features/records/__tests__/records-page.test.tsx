@@ -23,6 +23,11 @@ vi.mock('../api', async (importOriginal) => {
 const domainAccountsMock: { data: Array<{ id: number; name: string; type: string }> } = {
   data: [{ id: 1, name: '阿里云', type: 'aliyun' }],
 };
+vi.mock('../../accounts/use-accounts', () => ({
+  // 代理开关改读能力位后，页面会取 providers；测试里给一个「支持代理」的提供商
+  useProviders: () => ({ data: [{ type: 'cloudflare', capabilities: { dns: { proxiable: true } } }], isLoading: false }),
+}));
+
 vi.mock('../../domains/use-domains', () => ({
   useDomainAccounts: () => ({ data: domainAccountsMock.data, isLoading: false }),
 }));

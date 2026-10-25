@@ -34,6 +34,8 @@ export interface PageResult<T> {
 export interface DnsAdapter {
   check(): Promise<boolean>;
   getError(): string;
+  /** 可选：清空上一次错误（读接口用它做 fail-closed 判定） */
+  clearError?(): void;
   getDomainList(keyword?: string, page?: number, pageSize?: number): Promise<PageResult<DomainInfo>>;
   getDomainRecords(
     page?: number,

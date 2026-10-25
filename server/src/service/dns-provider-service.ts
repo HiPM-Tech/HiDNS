@@ -115,7 +115,10 @@ export class DnsProviderService {
   ): Promise<PageResult<DnsRecord>> {
     const adapter = await this.getAdapter(domainId);
 
-    return adapter.getDomainRecords(
+    // 适配器可能把「上游失败」折叠成空结果，与「真的 0 条」同形。
+    // 调用前清空上次错误、调用后若为空且本次有错误，则按失败抛出（fail-closed）。
+    adapter.clearError?.();
+    const result = await adapter.getDomainRecords(
       options?.page || 1,
       options?.pageSize || 100,
       options?.keyword,
@@ -125,6 +128,13 @@ export class DnsProviderService {
       options?.line,
       options?.status !== undefined ? options.status : undefined
     );
+
+    // 适配器可能把「上游失败」折叠成空结果，与「真的 0 条」同形。
+    // 这里用「本次调用后的错误」做 fail-closed：空结果 + 有错误 → 抛给上层 500，而不是伪装成空列表。
+    if (result.list.length === 0 && result.total === 0 && adapter.getError()) {
+      throw new Error(`读取记录失败：${adapter.getError()}`);
+    }
+    return result;
   }
 
   /**

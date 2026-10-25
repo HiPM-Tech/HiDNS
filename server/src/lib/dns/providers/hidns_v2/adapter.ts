@@ -356,15 +356,21 @@ export class HidnsV2Adapter implements DnsAdapter {
   async getRecordLines(): Promise<Array<{ id: string; name: string }>> {
     try {
       const domainId = await this.resolveDomainId();
-      if (!domainId) return [{ id: '0', name: '默认' }];
+      if (!domainId) {
+        this.error = '域名未解析到 siteId，无法查询线路';
+        throw new Error(this.error);
+      }
 
       const res = await this.request<Array<{ id: string; name: string }>>('GET', `/domains/${domainId}/lines`);
       if (res.code === 0 && Array.isArray(res.data)) {
         return res.data;
       }
-      return [{ id: '0', name: '默认' }];
-    } catch {
-      return [{ id: '0', name: '默认' }];
+      // 非 0 code 或形状不符：这是失败，不是「只有默认线路」
+      this.error = '线路查询失败（hidns_v2）';
+      throw new Error(this.error);
+    } catch (e) {
+      this.error = e instanceof Error ? e.message : String(e);
+      throw e;
     }
   }
 

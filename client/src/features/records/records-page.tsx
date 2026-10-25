@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useProviders } from '../accounts/use-accounts';
 import { alertVariants } from '../../ui/alert';
 import { Link, useParams } from 'react-router-dom';
 import {
@@ -75,6 +76,13 @@ export function RecordsPage() {
     () => (accounts.data ?? []).find((account) => account.id === domain.data?.account_id)?.type ?? '',
     [accounts.data, domain.data],
   );
+
+  // 代理开关由能力位决定（此前硬编码 cloudflare/aliyunesa，和能力模型脱节）
+  const providers = useProviders();
+  const proxyCapable = useMemo(() => {
+    const provider = (providers.data ?? []).find((item) => item.type === providerType);
+    return Boolean(provider?.capabilities.dns?.proxiable);
+  }, [providers.data, providerType]);
 
   const rows = records.data?.list ?? [];
   const total = records.data?.total ?? 0;
@@ -282,7 +290,7 @@ export function RecordsPage() {
                 recordTypes={types.data ?? DEFAULT_RECORD_TYPES}
                 lines={lines.data ?? EMPTY_LINES}
                 lineEditable={providerType !== 'huawei'}
-                proxyCapable={providerType === 'cloudflare' || providerType === 'aliyunesa'}
+                proxyCapable={proxyCapable}
                 record={editing}
               />
       )}

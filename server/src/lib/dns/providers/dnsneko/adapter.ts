@@ -339,7 +339,10 @@ export class DnsnekoAdapter implements DnsAdapter {
         }>;
       }>('GET', '/geo-lines');
 
-      if (res.code !== 200 || !res.data) return [{ id: 'default' }];
+      if (res.code !== 200 || !res.data) {
+        this.error = '线路查询失败（dnsneko）';
+        throw new Error(this.error);
+      }
 
       const lines: Array<{ id: string; name?: string }> = [];
       if (res.data.defaultOption?.value && res.data.defaultOption.available !== false) {
@@ -357,8 +360,9 @@ export class DnsnekoAdapter implements DnsAdapter {
         }
       }
       return lines.length > 0 ? lines : [{ id: 'default' }];
-    } catch {
-      return [{ id: 'default' }];
+    } catch (e) {
+      this.error = e instanceof Error ? e.message : String(e);
+      throw e;
     }
   }
 

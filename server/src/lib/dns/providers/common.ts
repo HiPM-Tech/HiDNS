@@ -12,6 +12,31 @@ const log = createLogger('DNS').sub('Provider').sub('Common');
 
 export type { Dict };
 
+/**
+ * 创建记录后回查真实 RecordId。
+ *
+ * 部分上游创建接口不返回记录 ID（PowerDNS 的 rrset replace、宝塔批量 create 等），
+ * 历史实现用字面量 'success' 充当 ID，导致后续 update/delete 指向不存在的记录。
+ * 这里按 name+type 回查，匹配不到返回 null（调用方按失败处理），绝不编造。
+ */
+export async function resolveCreatedRecordId(
+  adapter: Pick<DnsAdapter, 'getDomainRecords'>,
+  name: string,
+  type: string,
+): Promise<string | null> {
+  try {
+    const result = await adapter.getDomainRecords(1, 100);
+    const wantedName = normalizeRrName(name);
+    const wantedType = type.toUpperCase();
+    const match = (result.list ?? []).find(
+      (record) => normalizeRrName(record.Name) === wantedName && String(record.Type).toUpperCase() === wantedType,
+    );
+    return safeString(match?.RecordId) || null;
+  } catch {
+    return null;
+  }
+}
+
 export function safeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -121,6 +146,11 @@ export abstract class BaseAdapter implements DnsAdapter {
 
   getError(): string {
     return this.error;
+  }
+
+  /** 清空上一次调用的错误：读接口用它区分「本次失败」与「历史错误」 */
+  clearError(): void {
+    this.error = '';
   }
 
   abstract check(): Promise<boolean>;

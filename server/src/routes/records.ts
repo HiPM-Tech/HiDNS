@@ -58,6 +58,33 @@ function isValidRecordValue(type: string, value: string): string | true {
 
 const DYNAMIC_RECORD_TYPES_PROVIDERS = new Set(['hidns_v2']);
 
+function providerCapability(accountType: string): { proxiable: boolean; status: boolean; remark: boolean; weight: boolean } | null {
+  const def = getProviderDefinitions().find(
+    (provider) => normalizeProviderType(provider.type) === normalizeProviderType(accountType),
+  );
+  if (!def?.capabilities.dns) return null;
+  return {
+    proxiable: def.capabilities.dns.proxiable,
+    status: def.capabilities.dns.status,
+    remark: def.capabilities.dns.remark,
+    weight: def.capabilities.dns.weight,
+  };
+}
+
+function providerSupportsProxy(accountType: string): boolean {
+  const def = getProviderDefinitions().find(
+    (provider) => normalizeProviderType(provider.type) === normalizeProviderType(accountType),
+  );
+  return Boolean(def?.capabilities.dns?.proxiable);
+}
+
+/** 代理开关是能力位，不是所有提供商都支持；不支持的提供商收到 proxied=true 应直接拒绝 */
+export function proxyCapabilityError(accountType: string, proxied: boolean | undefined): string | null {
+  if (proxied !== true) return null;
+  if (providerSupportsProxy(accountType)) return null;
+  return `提供商 "${accountType}" 不支持代理开关（proxied）`;
+}
+
 function isTypeSupportedByProvider(accountType: string, recordType: string): boolean {
   if (DYNAMIC_RECORD_TYPES_PROVIDERS.has(accountType)) return true;
   const def = getProviderDefinitions().find(p => p.type === accountType);
@@ -508,6 +535,10 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
     sendError(res, `Record type "${type}" is not supported by provider "${account.type}"`);
     return;
   }
+  if (account) {
+    const proxyError = proxyCapabilityError(account.type, proxied);
+    if (proxyError) { sendError(res, proxyError); return; }
+  }
   try {
     const dnsAdapter = await getAdapterForDomain(access.domain);
     // line 语义收敛：line 只表示线路；CF/ESA 的代理开关走 proxied（兼容旧 cloudflare/aliyunesa.proxied 与 line:'0'/'1'）
@@ -516,7 +547,11 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
       proxied,
       legacyProxied: cloudflare?.proxied ?? aliyunesa?.proxied,
     });
-    const recordId = await dnsAdapter.addDomainRecord(name, type, value, effectiveLine, ttl, mx, weight, remark);
+    const capability = account ? providerCapability(account.type) : null;
+    const remarkSupported = capability ? capability.remark !== false : true;
+    // weight 能力位同样要有执行点：不支持的提供商不传权重，避免上游忽略/报错
+    const weightSupported = capability ? capability.weight !== false : true;
+    const recordId = await dnsAdapter.addDomainRecord(name, type, value, effectiveLine, ttl, mx, weightSupported ? weight : undefined, remarkSupported ? remark : undefined);
     if (!recordId) {
       sendError(res, 'Failed to add record');
       return;
@@ -793,6 +828,10 @@ router.put('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
     sendError(res, `Record type "${type}" is not supported by provider "${account.type}"`);
     return;
   }
+  if (account) {
+    const proxyError = proxyCapabilityError(account.type, proxied);
+    if (proxyError) { sendError(res, proxyError); return; }
+  }
   try {
     const dnsAdapter = await getAdapterForDomain(access.domain);
     // line 语义收敛：line 只表示线路；CF/ESA 的代理开关走 proxied（兼容旧 cloudflare/aliyunesa.proxied 与 line:'0'/'1'）
@@ -805,7 +844,10 @@ router.put('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
     const previousRecord = hasWorkflowSubscribers()
       ? await dnsAdapter.getDomainRecordInfo(recordId).catch(() => null)
       : null;
-    const success = await dnsAdapter.updateDomainRecord(recordId, name, type, value, effectiveLine, ttl, mx, weight, remark);
+    const updateCapability = account ? providerCapability(account.type) : null;
+    const updateRemarkSupported = updateCapability ? updateCapability.remark !== false : true;
+    const updateWeightSupported = updateCapability ? updateCapability.weight !== false : true;
+    const success = await dnsAdapter.updateDomainRecord(recordId, name, type, value, effectiveLine, ttl, mx, updateWeightSupported ? weight : undefined, updateRemarkSupported ? remark : undefined);
     if (!success) {
       sendError(res, 'Failed to update record');
       return;
@@ -935,6 +977,14 @@ router.put('/:recordId/status', authMiddleware, requireTokenDomainPermission('do
   if (status !== 0 && status !== 1) {
     sendError(res, 'status must be 0 or 1');
     return;
+  }
+  {
+    const account = await DnsAccountOperations.getById(access.domain.account_id) as DnsAccount | undefined;
+    const capability = account ? providerCapability(account.type) : null;
+    if (capability && !capability.status) {
+      sendError(res, `提供商 "${account!.type}" 不支持启用/禁用记录`);
+      return;
+    }
   }
   try {
     const dnsAdapter = await getAdapterForDomain(access.domain);
