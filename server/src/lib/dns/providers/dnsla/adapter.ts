@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine } from '../internal';
 
 const log = createProviderAdapterLogger('Dnsla');
 interface DnslaConfig {
@@ -174,7 +174,7 @@ export class DnslaAdapter extends BaseAdapter {
         host: name,
         data: value,
         ttl: toNumber(ttl, 600),
-        lineId: line || '0',
+        lineId: resolveProviderLine(line, '0'),
       };
 
       if (type === 'MX') {
@@ -217,7 +217,7 @@ export class DnslaAdapter extends BaseAdapter {
         host: name,
         data: value,
         ttl: toNumber(ttl, 600),
-        lineId: line || '0',
+        lineId: resolveProviderLine(line, '0'),
       };
 
       if (type === 'MX') {
@@ -265,13 +265,16 @@ export class DnslaAdapter extends BaseAdapter {
   async getRecordLines(): Promise<Array<{ id: string; name: string }>> {
     try {
       if (!this.config.domain) {
-        return this.getDefaultLines();
+        this.error = '线路查询失败（dnsla）';
+        throw new Error(this.error);
       }
       const data = await this.request<Array<{ id: string; value: string; pid?: string; order: number }>>('GET', '/api/availableLine', { domain: this.config.domain });
       const sorted = (data || []).sort((a, b) => a.order - b.order);
-      return sorted.map((row) => ({ id: row.id === '0' ? '' : row.id, name: row.value }));
+      // 默认线路在 API 里可能是 '0'，保持与 defaultLine 一致（此前映射成 '' 会让「选默认」与「不传」落到不同值）
+      return sorted.map((row) => ({ id: row.id, name: row.value }));
     } catch (e) {
-      return this.getDefaultLines();
+      this.error = '线路查询失败（dnsla）';
+        throw new Error(this.error);
     }
   }
 
@@ -321,15 +324,6 @@ export class DnslaAdapter extends BaseAdapter {
     return this.typeList[typeId] || 'A';
   }
 
-  private getDefaultLines(): Array<{ id: string; name: string }> {
-    return [
-      { id: '', name: '默认' },
-      { id: 'ct', name: '电信' },
-      { id: 'cnc', name: '联通' },
-      { id: 'cmcc', name: '移动' },
-      { id: 'edu', name: '教育网' },
-    ];
-  }
 
   private mapRecord(row: Dict): DnsRecord {
     return {

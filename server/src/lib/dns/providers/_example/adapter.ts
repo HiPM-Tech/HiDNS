@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, fetchWithFallback, resolveDomainIdHelper, normalizeRrName, safeString, toNumber, Dict } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, fetchWithFallback, resolveDomainIdHelper, normalizeRrName, safeString, toNumber, Dict, resolveProviderLine } from '../internal';
 /**
  * Example DNS Provider Adapter - 示例 DNS 提供商适配器
  *
@@ -430,7 +430,7 @@ export class ExampleAdapter implements DnsAdapter {
       '10=1': 'unicom',
       '10=3': 'mobile',
     };
-    return lineMap[line || '0'] || 'default';
+    return lineMap[resolveProviderLine(line, '0')] || 'default';
   }
 
   /**

@@ -1,4 +1,4 @@
-import {createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveCreatedRecordId } from '../internal';
+import {createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveCreatedRecordId, resolveProviderLine } from '../internal';
 import crypto from 'node:crypto';
 
 const log = createProviderAdapterLogger('Bt');
@@ -197,7 +197,7 @@ export class BtAdapter extends BaseAdapter {
         record: name,
         value,
         ttl: toNumber(ttl, 600),
-        view_id: toNumber(line, 0),
+        view_id: toNumber(resolveProviderLine(line, '0'), 0),
         remark,
         mx: type === 'MX' ? toNumber(mx, 1) : toNumber(weight, 1),
       };
@@ -235,7 +235,7 @@ export class BtAdapter extends BaseAdapter {
         record: name,
         value,
         ttl: toNumber(ttl, 600),
-        view_id: toNumber(line, 0),
+        view_id: toNumber(resolveProviderLine(line, '0'), 0),
         remark,
         mx: type === 'MX' ? toNumber(mx, 1) : toNumber(weight, 1),
       };

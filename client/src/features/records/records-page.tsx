@@ -79,6 +79,10 @@ export function RecordsPage() {
 
   // 代理开关由能力位决定（此前硬编码 cloudflare/aliyunesa，和能力模型脱节）
   const providers = useProviders();
+  const providerDefaultLine = useMemo(
+    () => (providers.data ?? []).find((item) => item.type === providerType)?.defaultLine,
+    [providers.data, providerType],
+  );
   const proxyCapable = useMemo(() => {
     const provider = (providers.data ?? []).find((item) => item.type === providerType);
     return Boolean(provider?.capabilities.dns?.proxiable);
@@ -291,6 +295,7 @@ export function RecordsPage() {
                 lines={lines.data ?? EMPTY_LINES}
                 lineEditable={providerType !== 'huawei'}
                 proxyCapable={proxyCapable}
+                defaultLine={providerDefaultLine}
                 record={editing}
               />
       )}

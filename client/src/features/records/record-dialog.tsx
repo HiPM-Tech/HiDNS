@@ -41,10 +41,12 @@ export interface RecordDialogProps {
   lineEditable?: boolean;
   /** 该提供商是否支持代理（Cloudflare / AliyunESA） */
   proxyCapable?: boolean;
+  /** 提供商声明的默认线路（来自 registry）；缺省时退化为列表首项 */
+  defaultLine?: string;
   record?: DnsRecordRow | null;
 }
 
-export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines, lineEditable = true, proxyCapable = false, record }: RecordDialogProps) {
+export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines, lineEditable = true, proxyCapable = false, defaultLine, record }: RecordDialogProps) {
   const isEdit = Boolean(record);
   const save = useSaveRecord(domainId);
 
@@ -67,7 +69,7 @@ export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines,
     const defaultType = recordTypes.includes('A') ? 'A' : (recordTypes[0] ?? 'A');
     const def = getRecordTypeDef(defaultType);
     return {
-      name: '@', type: defaultType, value: '', ttl: '600', line: lines[0]?.id ?? '', remark: '', proxied: false,
+      name: '@', type: defaultType, value: '', ttl: '600', line: defaultLine ?? lines[0]?.id ?? '', remark: '', proxied: false,
       extras: Object.fromEntries((def?.extraFields ?? []).map((field) => [field.key, String(field.defaultValue ?? '')])),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只取挂载时的快照

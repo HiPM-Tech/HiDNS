@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, safeString, toNumber, toRecordStatus, uuid, fetchWithFallback } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, safeString, toNumber, toRecordStatus, uuid, fetchWithFallback, resolveProviderLine } from '../internal';
 import crypto from 'node:crypto';
 
 const log = createProviderAdapterLogger('Baidu');
@@ -281,7 +281,7 @@ export class BaiduAdapter extends BaseAdapter {
         rr: name,
         type: this.convertType(type),
         value: value,
-        line: line || 'default',
+        line: resolveProviderLine(line, 'default'),
         ttl: ttl,
         description: remark,
       };
@@ -325,7 +325,7 @@ export class BaiduAdapter extends BaseAdapter {
         rr: name,
         type: this.convertType(type),
         value: value,
-        line: line || 'default',
+        line: resolveProviderLine(line, 'default'),
         ttl: ttl,
         description: remark,
       };
@@ -384,7 +384,7 @@ export class BaiduAdapter extends BaseAdapter {
 
   async getRecordLines(): Promise<Array<{ id: string; name: string }>> {
     return [
-      { id: '0', name: '默认' },
+      { id: 'default', name: '默认' },
       { id: 'ct', name: '电信' },
       { id: 'cnc', name: '联通' },
       { id: 'cmnet', name: '移动' },

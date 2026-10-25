@@ -290,6 +290,12 @@
     - 能力位必须在执行点校验：`recordTypes`（记录类型）、`proxiable`（代理开关）由路由层校验；其余能力位（`status`/`remark`/`redirect`/`weight`）在接入前必须有执行点，只声明不执行视为缺陷。
     - 读接口 fail-closed：适配器读失败不得折叠成空列表；`DnsProviderService` 用 `clearError()+getError()` 判定，空结果 + 有错误时抛错。
 
+2.2 线路模型（2.3.1 起强制）
+    - 每个 ProviderDefinition 必须声明 `lineSource: 'builtin' | 'dynamic'` 与 `defaultLine: string`；**二选一，不允许「动态 + 内置兜底」**。
+    - `builtin`：`getRecordLines()` 返回代码内静态表，不得发起网络请求；`defaultLine` 必须在表内。
+    - `dynamic`：`getRecordLines()` 必须请求上游，失败必须抛错（不得回退静态列表）。
+    - 未指定线路（`undefined` / `''` / 历史哨兵 `'0'` 且默认非 `'0'`）时，适配器必须使用 `defaultLine`；代理型提供商未指定代理状态时统一 `proxied=false`。
+    - 契约测试：`server/src/lib/dns/__tests__/adapter-contract.test.ts`；模型说明见 `docs/providers/line-model.md`。
 3. 基础适配器类
     - `BaseAdapter`（`common.ts`）：所有适配器的抽象基类，提供 `getError()` 实现。
     - `AliyunRpcAdapter`（`common.ts`）：阿里云 RPC 风格 API 的抽象基类，封装了 RPC 签名逻辑。

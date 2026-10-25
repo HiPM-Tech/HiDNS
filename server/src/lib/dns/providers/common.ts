@@ -37,6 +37,21 @@ export async function resolveCreatedRecordId(
   }
 }
 
+/**
+ * 线路归一化（唯一执行点）。
+ *
+ * 规则（2.3.1 起）：
+ * - 未指定（undefined/空串）→ 提供商的 defaultLine（每家适配器必须显式声明）；
+ * - 历史哨兵 '0'：只有默认线路本身就是 '0' 时才保留，否则回落 defaultLine（华为云等）；
+ * - 其它值原样透传，由上游校验。
+ */
+export function resolveProviderLine(line: string | undefined, defaultLine: string): string {
+  const trimmed = typeof line === 'string' ? line.trim() : '';
+  if (!trimmed) return defaultLine;
+  if (trimmed === '0' && defaultLine !== '0') return defaultLine;
+  return trimmed;
+}
+
 export function safeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }

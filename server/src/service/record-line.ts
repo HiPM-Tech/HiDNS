@@ -46,7 +46,8 @@ export function resolveLineInput(providerType: string, input: LineInput): Resolv
     ?? (input.line === '1' ? true : input.line === '0' ? false : undefined);
 
   if (proxied === undefined) {
-    return { line: normalizeLineId(input.line) };
+    // 未显式指定代理状态时统一按「不代理」处理（线路交给适配器的 defaultLine）
+    return { line: normalizeLineId(input.line), proxied: false };
   }
   return { line: proxied ? '1' : '0', proxied };
 }

@@ -23,6 +23,9 @@ export interface ProviderConfigField {
 export interface ProviderInfo {
   type: string;
   name: string;
+  /** 线路来源与默认线路（registry 声明） */
+  lineSource?: 'builtin' | 'dynamic';
+  defaultLine?: string;
   capabilities: {
     dns: { export?: string; recordTypes?: string[]; proxiable?: boolean } | null;
     log?: boolean;

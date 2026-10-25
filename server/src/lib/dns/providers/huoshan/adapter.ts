@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine } from '../internal';
 import crypto from 'node:crypto';
 
 const log = createProviderAdapterLogger('Huoshan');
@@ -268,7 +268,7 @@ export class HuoshanAdapter extends BaseAdapter {
         Host: name,
         Type: this.convertType(type),
         Value: type === 'MX' ? `${mx} ${value}` : value,
-        Line: line || '0',
+        Line: resolveProviderLine(line, '0'),
         TTL: toNumber(ttl, 600),
         Remark: remark,
       };
@@ -302,7 +302,7 @@ export class HuoshanAdapter extends BaseAdapter {
         Host: name,
         Type: this.convertType(type),
         Value: type === 'MX' ? `${mx} ${value}` : value,
-        Line: line || '0',
+        Line: resolveProviderLine(line, '0'),
         TTL: toNumber(ttl, 600),
         Remark: remark,
       };
@@ -343,7 +343,8 @@ export class HuoshanAdapter extends BaseAdapter {
     try {
       const domainInfo = await this.getDomainInfo();
       if (!domainInfo) {
-        return this.getDefaultLines();
+        this.error = '线路查询失败（huoshan）';
+        throw new Error(this.error);
       }
 
       const tradeInfo = this.getTradeInfo(safeString(domainInfo.TradeCode));
@@ -367,7 +368,8 @@ export class HuoshanAdapter extends BaseAdapter {
 
       return list;
     } catch (e) {
-      return this.getDefaultLines();
+      this.error = '线路查询失败（huoshan）';
+        throw new Error(this.error);
     }
   }
 
@@ -418,15 +420,6 @@ export class HuoshanAdapter extends BaseAdapter {
     return tradeCodeList[tradeCode] || tradeCodeList.free_inner;
   }
 
-  private getDefaultLines(): Array<{ id: string; name: string }> {
-    return [
-      { id: '0', name: '默认' },
-      { id: 'telecom', name: '电信' },
-      { id: 'unicom', name: '联通' },
-      { id: 'mobile', name: '移动' },
-      { id: 'edu', name: '教育网' },
-    ];
-  }
 
   private mapRecord(row: Dict): DnsRecord {
     let value = safeString(row.Value);

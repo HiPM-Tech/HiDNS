@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, Dict, normalizeRrName, safeString, TencentCloudAdapter, toNumber, toRecordStatus } from '../internal';
+import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, asArray, Dict, normalizeRrName, safeString, TencentCloudAdapter, toNumber, toRecordStatus, resolveProviderLine } from '../internal';
 
 const log = createProviderAdapterLogger('Dnspod');
 export class DnspodAdapter extends TencentCloudAdapter {
@@ -211,7 +211,7 @@ export class DnspodAdapter extends TencentCloudAdapter {
         SubDomain: normalizeRrName(name),
         RecordType: this.convertType(type),
         Value: value,
-        RecordLine: line || '0',
+        RecordLine: resolveProviderLine(line, '0'),
         RecordLineId: this.convertLineCode(line),
         TTL: ttl,
         MX: type === 'MX' ? mx : undefined,
@@ -250,7 +250,7 @@ export class DnspodAdapter extends TencentCloudAdapter {
         SubDomain: normalizeRrName(name),
         RecordType: this.convertType(type),
         Value: value,
-        RecordLine: line || '0',
+        RecordLine: resolveProviderLine(line, '0'),
         RecordLineId: this.convertLineCode(line),
         TTL: ttl,
         MX: type === 'MX' ? mx : undefined,
@@ -360,8 +360,9 @@ export class DnspodAdapter extends TencentCloudAdapter {
       });
     }
 
-    log.warn('getRecordLines fallback to default', { domain: this.domain });
-    return [{ id: '0', name: '默认' }];
+    // 动态线路不允许内置兜底：两次上游都失败时按失败处理
+    this.error = '线路查询失败（dnspod）';
+    throw new Error(this.error);
   }
 
   async getMinTTL(): Promise<number> {

@@ -8,6 +8,7 @@ import {
   safeString,
   resolveDomainIdHelper,
   Dict,
+  resolveProviderLine,
 } from '../internal';
 import { authenticatedRequest, type HidnsV2AuthConfig } from './auth';
 
@@ -268,7 +269,7 @@ export class HidnsV2Adapter implements DnsAdapter {
         name: normalizeRrName(name),
         type,
         value,
-        line: line || '0',
+        line: resolveProviderLine(line, '0'),
         ttl,
         remark,
         domainType: parsed.domainType,
@@ -311,7 +312,7 @@ export class HidnsV2Adapter implements DnsAdapter {
         name: normalizeRrName(name),
         type,
         value,
-        line: line || '0',
+        line: resolveProviderLine(line, '0'),
         ttl,
         remark,
       };
@@ -414,7 +415,7 @@ export class HidnsV2Adapter implements DnsAdapter {
       Name: normalizeRrName(safeString(r.name)),
       Type: safeString(r.type).toUpperCase(),
       Value: safeString(r.value),
-      Line: r.line || '0',
+      Line: resolveProviderLine(r.line, '0'),
       TTL: r.ttl ?? 600,
       MX: r.mx ?? r.priority ?? 0,
       Status: r.status === 1 ? 1 : 0,

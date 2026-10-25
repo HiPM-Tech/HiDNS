@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine } from '../internal';
 import crypto from 'node:crypto';
 
 const log = createProviderAdapterLogger('Qingcloud');
@@ -256,7 +256,7 @@ export class QingcloudAdapter extends BaseAdapter {
       const params: Dict = {
         zone_name: domainId,
         domain_name: name,
-        view_id: toNumber(line, 0),
+        view_id: toNumber(resolveProviderLine(line, '0'), 0),
         type,
         ttl: toNumber(ttl, 600),
         record: JSON.stringify(record),
@@ -320,7 +320,7 @@ export class QingcloudAdapter extends BaseAdapter {
       const params: Dict = {
         zone_name: domainId,
         domain_name: name,
-        view_id: toNumber(line, 0),
+        view_id: toNumber(resolveProviderLine(line, '0'), 0),
         type,
         ttl: toNumber(ttl, 600),
         record: JSON.stringify(record),
@@ -405,13 +405,15 @@ export class QingcloudAdapter extends BaseAdapter {
     try {
       const domainId = await this.resolveDomainId();
       if (!domainId) {
-        return this.getDefaultLines();
+        this.error = '线路查询失败（qingcloud）';
+        throw new Error(this.error);
       }
 
       const data = await this.request<{ zone_views: Array<{ id: string; name: string }> }>('GET', '/v1/zone/view/', { zone_name: domainId, type: 'GET_FULL' });
       return (data.zone_views || []).map((row) => ({ id: row.id, name: row.name === '*' ? '默认' : row.name }));
     } catch (e) {
-      return this.getDefaultLines();
+      this.error = '线路查询失败（qingcloud）';
+        throw new Error(this.error);
     }
   }
 
@@ -436,13 +438,4 @@ export class QingcloudAdapter extends BaseAdapter {
     return `${name}.${this.config.domain}.`;
   }
 
-  private getDefaultLines(): Array<{ id: string; name: string }> {
-    return [
-      { id: '0', name: '默认' },
-      { id: '1', name: '电信' },
-      { id: '2', name: '联通' },
-      { id: '3', name: '移动' },
-      { id: '4', name: '教育网' },
-    ];
-  }
 }

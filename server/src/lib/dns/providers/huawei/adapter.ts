@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, resolveDomainIdHelper, safeString, toNumber, toRecordStatus, uuid, fetchWithFallback } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, resolveDomainIdHelper, safeString, toNumber, toRecordStatus, uuid, fetchWithFallback, resolveProviderLine } from '../internal';
 import crypto from 'node:crypto';
 
 const log = createProviderAdapterLogger('Huawei');
@@ -290,7 +290,7 @@ export class HuaweiAdapter extends BaseAdapter {
         type: this.convertType(type),
         records: records,
         // 华为云线路 ID 没有 '0'：未指定时用官方默认线路 default_view
-        line: line && line !== '0' ? line : 'default_view',
+        line: resolveProviderLine(line, 'default_view'),
         ttl: ttl,
         description: remark,
       };

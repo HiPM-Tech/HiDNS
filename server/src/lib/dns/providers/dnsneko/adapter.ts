@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, normalizeRrName, safeString, toNumber, resolveDomainIdHelper, Dict } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, normalizeRrName, safeString, toNumber, resolveDomainIdHelper, Dict, resolveProviderLine } from '../internal';
 import { buildAuthHeaders, authenticatedRequest, type DnsnekoAuthConfig } from './auth';
 
 const log = createProviderAdapterLogger('Dnsneko');
@@ -380,7 +380,7 @@ export class DnsnekoAdapter implements DnsAdapter {
       '0': 'default',
       '1': 'default',
     };
-    return lineMap[line || ''] || line || 'default';
+    return lineMap[line || ''] || resolveProviderLine(line, 'default');
   }
 
   private mapRecord(r: DnsnekoRecord): DnsRecord {
@@ -390,7 +390,7 @@ export class DnsnekoAdapter implements DnsAdapter {
       Name: normalizeRrName(safeString(r.name)),
       Type: safeString(r.type).toUpperCase(),
       Value: safeString(r.value),
-      Line: r.line || 'default',
+      Line: resolveProviderLine(r.line, 'default'),
       TTL: r.ttl ?? 600,
       MX: r.priority ?? 0,
       Status: r.status === 1 ? 1 : 0,

@@ -12,6 +12,13 @@
 - **读失败 fail-closed**：`DnsProviderService.getRecords` 调用前 `clearError()`，空结果且本次有错误时抛错，不再把上游失败伪装成「0 条记录」。
 - **工厂别名归一化**：`createAdapter()` 入口做 `normalizeProviderType()`，历史库中的 `alidns`/`aliesa`/`edgeone` 等别名可正常创建适配器。
 
+### 线路模型（默认线路 + 内置/动态二选一）
+
+- 每个提供商在 `registry.ts` 显式声明 `lineSource`（builtin/dynamic）与 `defaultLine`；**不允许动态提供商再内置兜底**。
+- 动态提供商（阿里云、宝塔、DNSPod、DNS.LA、DNS Neko、HiDNS v2、华为云、火山、京东云、青云）失败时抛错；内置提供商（百度、彩虹、Cloudflare、DNSHE、Gcore、HiDNS、NameSilo、PowerDNS、雨云、Spaceship、EdgeOne、虚拟、VPS8、西部数码、DigitalPlat 反向、阿里云 ESA）不发起网络请求。
+- 未指定线路 / 历史哨兵 `0` → 适配器统一回落 `defaultLine`（`resolveProviderLine`）；代理型提供商未指定代理状态 → `proxied=false`。
+- 新增契约测试：声明完整性、内置不联网、动态不兜底、适配器引用 defaultLine；文档 `docs/providers/line-model.md`。
+
 ### 华为云线路（合并上游 PR #39）
 
 - 合并 `sylingd/HiDNS#39`（merge commit `3d560152`，head `e17c3449`）：线路选项改为官方 `ListSystemLines` 返回的系统线路，删除阿里云式 `0–4` 假线路；`UpdateRecordSets` 不再发送 `line`（线路创建后不可改）。

@@ -28,8 +28,9 @@ describe('resolveLineInput', () => {
     expect(resolveLineInput('cloudflare', { line: '0' })).toEqual({ line: '0', proxied: false });
   });
 
-  it('代理型提供商：什么都没传时 line 未指定', () => {
-    expect(resolveLineInput('cloudflare', {})).toEqual({ line: undefined });
+  it('代理型提供商：什么都没传时 = 默认线路 + 不代理', () => {
+    expect(resolveLineInput('cloudflare', {})).toEqual({ line: undefined, proxied: false });
+    expect(resolveLineInput('aliyunesa', { line: '0' })).toEqual({ line: '0', proxied: false });
   });
 
   it('非代理型提供商：proxied 一律忽略，线路按 ID 归一', () => {

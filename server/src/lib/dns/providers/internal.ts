@@ -48,6 +48,7 @@ export {
   toRecordStatus,
   resolveDomainIdHelper,
   resolveCreatedRecordId,
+  resolveProviderLine,
   uuid,
   isSrv,
   parseSrvValue,

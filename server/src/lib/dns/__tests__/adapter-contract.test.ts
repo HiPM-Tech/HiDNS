@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DnsProviderService } from '../../../service/dns-provider-service';
 import { proxyCapabilityError } from '../../../routes/records';
+import { resolveProviderLine } from '../providers/common';
+import { providerDefinitions } from '../providers/registry';
 
 const PROVIDERS_DIR = path.resolve(__dirname, '..', 'providers');
 
@@ -72,5 +74,63 @@ describe('读失败 fail-closed', () => {
       getError: vi.fn(() => ''),
     }));
     await expect(DnsProviderService.getRecords(1)).resolves.toEqual({ list: [], total: 0 });
+  });
+});
+
+describe('线路来源声明（2.3.1 线路模型）', () => {
+  it('每个提供商都必须声明 lineSource 与 defaultLine', () => {
+    const missing = providerDefinitions
+      .filter((definition) => !definition.lineSource || definition.defaultLine === undefined)
+      .map((definition) => definition.type);
+    expect(missing).toEqual([]);
+    expect(providerDefinitions.every((definition) => ['builtin', 'dynamic'].includes(definition.lineSource))).toBe(true);
+  });
+
+  it('内置线路不得请求上游；动态线路不得内置兜底', () => {
+    const violations: string[] = [];
+    for (const definition of providerDefinitions) {
+      const file = path.join(PROVIDERS_DIR, definition.type, 'adapter.ts');
+      if (!fs.existsSync(file)) continue;
+      const source = fs.readFileSync(file, 'utf8');
+      const start = source.indexOf('async getRecordLines');
+      const end = source.indexOf('\n  async ', start + 20);
+      const rawBody = source.slice(start, end < 0 ? source.length : end);
+      // 注释里的示例代码不算实现（gcore 的注释掉的分支）
+      const body = rawBody.split('\n').filter((line) => !line.trim().startsWith('//')).join('\n');
+      const hitsNetwork = /\.(rpcCall|request|call)\b|fetchWithFallback/.test(body);
+      const hasFallback = /getDefaultLines/.test(body) || /catch[\s\S]*?return\s+\[/.test(body);
+      if (definition.lineSource === 'builtin' && hitsNetwork) violations.push(definition.type + ':builtin-but-network');
+      if (definition.lineSource === 'dynamic' && !hitsNetwork) violations.push(definition.type + ':dynamic-but-static');
+      if (definition.lineSource === 'dynamic' && hasFallback) violations.push(definition.type + ':dynamic-fallback');
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('每个适配器显式引用自己的 defaultLine（resolveProviderLine 第二参数）', () => {
+    const missing = providerDefinitions
+      .filter((definition) => {
+        const file = path.join(PROVIDERS_DIR, definition.type, 'adapter.ts');
+        if (!fs.existsSync(file)) return false;
+        const source = fs.readFileSync(file, 'utf8');
+        return !source.includes(`'${definition.defaultLine}'`);
+      })
+      .map((definition) => definition.type);
+    expect(missing).toEqual([]);
+  });
+});
+
+describe('resolveProviderLine（默认线路归一化）', () => {
+  it('未指定或空串落到 defaultLine', () => {
+    expect(resolveProviderLine(undefined, 'default_view')).toBe('default_view');
+    expect(resolveProviderLine('', 'DEFAULT')).toBe('DEFAULT');
+  });
+
+  it('哨兵 0：默认是 0 的提供商保留，否则回落 defaultLine', () => {
+    expect(resolveProviderLine('0', '0')).toBe('0');
+    expect(resolveProviderLine('0', 'default_view')).toBe('default_view');
+  });
+
+  it('真实线路原样保留', () => {
+    expect(resolveProviderLine('Dianxin', 'default_view')).toBe('Dianxin');
   });
 });

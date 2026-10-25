@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, uuid, fetchWithFallback } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, uuid, fetchWithFallback, resolveProviderLine } from '../internal';
 import crypto from 'node:crypto';
 
 const log = createProviderAdapterLogger('Jdcloud');
@@ -249,7 +249,7 @@ export class JdcloudAdapter extends BaseAdapter {
         hostRecord: name,
         type: this.convertType(type),
         hostValue: value,
-        viewValue: toNumber(line, 0),
+        viewValue: toNumber(resolveProviderLine(line, '0'), 0),
         ttl: toNumber(ttl, 600),
       };
 
@@ -299,7 +299,7 @@ export class JdcloudAdapter extends BaseAdapter {
         hostRecord: name,
         type: this.convertType(type),
         hostValue: value,
-        viewValue: toNumber(line, 0),
+        viewValue: toNumber(resolveProviderLine(line, '0'), 0),
         ttl: toNumber(ttl, 600),
       };
 
@@ -360,12 +360,14 @@ export class JdcloudAdapter extends BaseAdapter {
     try {
       const domainInfo = await this.getDomainInfo();
       if (!domainInfo) {
-        return this.getDefaultLines();
+        this.error = '线路查询失败（jdcloud）';
+        throw new Error(this.error);
       }
 
       const domainId = await this.resolveDomainId();
       if (!domainId) {
-        return this.getDefaultLines();
+        this.error = '线路查询失败（jdcloud）';
+        throw new Error(this.error);
       }
 
       const packId = domainInfo.packId;
@@ -374,7 +376,8 @@ export class JdcloudAdapter extends BaseAdapter {
       this.processLineList(list, data.data || [], null);
       return list;
     } catch (e) {
-      return this.getDefaultLines();
+      this.error = '线路查询失败（jdcloud）';
+        throw new Error(this.error);
     }
   }
 
@@ -432,15 +435,6 @@ export class JdcloudAdapter extends BaseAdapter {
     }
   }
 
-  private getDefaultLines(): Array<{ id: string; name: string }> {
-    return [
-      { id: '0', name: '默认' },
-      { id: '1', name: '电信' },
-      { id: '2', name: '联通' },
-      { id: '3', name: '移动' },
-      { id: '4', name: '教育网' },
-    ];
-  }
 
   private mapRecord(row: Dict): DnsRecord {
     let value = safeString(row.hostValue);

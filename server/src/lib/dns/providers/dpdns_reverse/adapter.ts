@@ -111,7 +111,8 @@ export class DpdnsReverseAdapter extends BaseAdapter {
   }
 
   async getRecordLines(): Promise<Array<{ id: string; name: string }>> {
-    return [];
+    // 反向代理只支持默认线路（builtin），显式声明而不是返回空数组
+    return [{ id: '0', name: '默认' }];
   }
 
   async getMinTTL(): Promise<number> {
