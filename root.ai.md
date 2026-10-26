@@ -719,6 +719,48 @@ func updateDDNS(apiToken, baseURL, domain, subDomain, ip string) error {
     - 安全策略管理（密码长度、会话超时、登录尝试限制）。
     - 登录限制（IP/设备信任）。
 
+## 文档规范
+
+1. 真源与分级（强制）
+    - 本项目只有三处真源：`root.ai.md`（工程规范）、`docs/api.md`（对外 API 契约）、**代码本体**（`server/src/api/index.ts` 的模块清单、`server/src/lib/dns/providers/registry.ts` 的提供商定义、三个 `package.json` 的版本与 `engines`、`LICENSE`）。
+    - 其余文档一律是对真源的展开或解释。与真源冲突时**改文档，不改真源**；确认是真源本身过期时，先修真源，再让其余文档跟上。
+    - `docs/README.md` 是唯一的文档索引，负责声明哪份权威、哪份是历史归档。新增文档必须在同一提交内于该索引登记。
+2. 单一真源（禁止复制）
+    - 禁止在非权威文档复制条文、端点表、字段表、操作模块清单。需要引用时给「文件 + 章节号」，例：`见 root.ai.md §数据库 7`、`见 docs/api.md §18`。
+    - 同一事实只允许有一处完整表述。发现重复时，在下一次改动中收敛，而不是两处同时维护。
+3. 数值型事实必须取真源（禁止凭记忆）
+    - 版本号、DNS 提供商数量、API 模块数量、`*Operations` 数量、Node 版本、许可证，一律从真源读取后写入。
+    - 禁止「最新」「约」「20+」这类无法核对的表述；给不出确切值就删掉该句。
+    - 当前基线（2026-10 核对）：版本 2.3.0；提供商 26（`virtual` 不计入可用）；API 模块 23；`*Operations` 38；Node ≥ 24.22.1；许可证 GPL-3.0。
+4. 禁止虚构
+    - 文档出现的包名、SDK、CLI、文件路径、配置项、开关名，必须能在本仓库 HEAD 上验证。
+    - 反例（已修）：README 曾教 `from hidns import HiDNSClient`（不存在的 Python SDK）、「多语言 10+ 支持」（i18n 框架已删除）、`DnsHelper.ts` 的 `DNS_PROVIDERS` 映射表（从未存在）。
+5. 路径与链接必须可达
+    - 现行文档引用的源码路径必须在 HEAD 上存在；文档内链接必须能解析。
+    - docsify 以 `docs/` 为站点根，指向仓库根文件的链接必须用绝对地址（`https://github.com/HiPM-Tech/HiDNS/blob/main/...`），不能用 `../`。
+6. 历史归档（不删，但要标）
+    - 过程记录、方案稿、一次性审查报告属于历史，不删除，但必须在 `docs/README.md` 的归档清单登记，并写明「以哪份为准」。
+    - 归档文档里的旧路径、旧结论**不回写**；`docs/CHANGELOG.md` 同此——它记录的是当时状态。
+    - 归档区不得再新增内容。需要新方案时另写文档，并登记为「参考」或「权威」。
+7. 文档变更的提交义务
+    - 新增 / 修改 / 废弃 API：同一提交内更新 `docs/api.md`（见 §外部应用集成 API）。
+    - 调整数据库结构、日志规范、路由注册、提供商清单、客户端目录：同一提交内更新 `root.ai.md` 对应章节。
+    - 纯文档改动单独提交，类型 `docs`，正文写清「改了哪几份、依据是什么」。
+8. 提交前校验
+    ```bash
+    # 现行文档是否引用了不存在的源码路径（归档文档会命中，属预期）
+    grep -rhoE '\b(server|client)/src/[A-Za-z0-9_./-]+\.(ts|tsx)' docs | sort -u |
+      while read -r p; do [ -e "$p" ] || echo "MISS $p"; done
+
+    # 版本一致性：三处 package.json 与 CHANGELOG 顶部
+    node -e "for (const p of ['package.json','server/package.json','client/package.json']) console.log(p, require('./'+p).version)"
+    head -5 docs/CHANGELOG.md
+    ```
+9. 违规判定
+    - 文档与真源冲突、文档教了已删除的 API / 依赖 / 路径：按 §代码审核团 记 **P1**。
+    - 文档写错许可证、虚构第三方 SDK、把未实现功能写成已实现：按 **P0** 上报（对外承诺与事实不符）。
+    - 只改文档不影响构建，因此**不能**用「门禁通过」证明文档正确；文档正确性只能靠上面第 8 条的校验与人工比对。
+
 ## 版本发布流程
 
 ### 版本号规范
