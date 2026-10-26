@@ -390,7 +390,7 @@
 1. 路由架构
     - 业务路由器实现集中在 `server/src/routes/`；**注册集中在 `server/src/api/index.ts`（唯一注册点）**。
     - 每个 API 模块声明 `id / prefix / router / service? / middlewares? / exemptFromInitGate? / closedStateProbes? / description`，由 `api/registry.ts` 校验：`id` 与 `prefix` 唯一（同前缀二次挂载会让后者被永久遮蔽）、前缀格式、探测路径必须归属自身前缀。
-    - `service` 表示 API 令牌 `allowed_services` 的归属（DNS 数据面用 `dns`，MCP 用 `mcp`）；由 `api/mount.ts` 统一挂 `requireServicePermission(service)`，路由不得自行维护服务白名单；会话 JWT 不受此约束。
+    - `service` 表示 API 令牌 `allowed_services` 的归属（DNS 数据面用 `dns`，MCP 用 `mcp`）；由 `api/mount.ts` 统一挂 `requireServicePermission(service)`，路由不得自行维护服务白名单；会话 JWT 不受此约束。令牌权限面与工作流动作权限面的分离要求见 §安全规范 4。
     - **禁止在 `app.ts` 直接 `app.use` 业务路由**；新增端点只能向模块清单添加条目。`app.ts` 只保留：门禁、`/api/docs`、`apiLayer.mount(app)`。
     - 初始化门禁由 `api/init-gate.ts` 实现**三态**：`initialized` 全放行；`uninitialized` 只放行声明了 `exemptFromInitGate` 的模块（当前仅 `/api/init`、`/api/rdap`）；`unreachable`（数据库不可达）**初始化面一并关闭**，只放行模块声明的 `closedStateProbes` 只读探测（当前为 `/api/init/status`、`/api/init/db-config`）。
     - 门禁路径比较**必须不区分大小写**：Express 路由本身大小写不敏感，历史实现用 `startsWith('/api/')` 做敏感比较，`GET /API/mcp/status` 可绕过 503。
@@ -718,6 +718,14 @@ func updateDDNS(apiToken, baseURL, domain, subDomain, ip string) error {
     - 运行时密钥轮换（SecretOperations）。
     - 安全策略管理（密码长度、会话超时、登录尝试限制）。
     - 登录限制（IP/设备信任）。
+4. API Token 权限面（强制）
+    - **对内与对外是两套独立命名空间，不得复用、不得互相 import**：
+      - 对内：工作流 Principal 的动作权限清单（`AVAILABLE_SERVICES`，取值是 `domains.read` / `records.write` / `network.fetch` 这类**动作名**），受 `server/src/types/namespace.ts` 的顶级前缀封闭枚举约束，供工作流执行期 `authorize()` 使用。
+      - 对外：API 令牌的 `allowed_services`，取值只有 `dns` / `mcp` 两个**服务归属**，由 `api/mount.ts` 统一校验（见 §路由 1）。
+    - 两者的变更节奏与威胁模型不同：内部动作随功能增长、由可信主体执行；对外令牌是外部可持有物、必须收敛。共用命名空间会把内部动作面（信息）与对外可授予面（权限）连成一片，扩大横向攻击面。
+    - **禁止**在 `server/src/types/token.ts` 同时存放两份权限清单；工作流侧清单归属于 `server/src/workflow/`，令牌侧只保留数据面操作类型。
+    - **新增内部动作默认不获得对外可授予资格**：要开放须单独安全评审，并在 PR 中说明攻击面变化；`system.*`、`network.*`、`notify.*`、`workflow.*` 等内部动作不得出现在令牌可授予清单中。
+    - **CI 守卫**：断言工作流动作清单与令牌操作清单的交集为空（或仅剩显式登记的白名单项），非空即失败。
 
 ## 文档规范
 
