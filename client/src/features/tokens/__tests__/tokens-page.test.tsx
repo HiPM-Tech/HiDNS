@@ -24,8 +24,8 @@ vi.mock('../../session/use-session', () => ({
 }));
 
 const tokens = [
-  { id: 1, name: 'DDNS-家庭', allowed_domains: [3, 4], allowed_services: ['dns'], max_role: 1, is_active: true, last_used_at: new Date().toISOString() },
-  { id: 2, name: 'CI 脚本', allowed_domains: [3], allowed_services: ['dns', 'mcp'], max_role: 2, is_active: 0 },
+  { id: 1, name: 'DDNS-家庭', allowed_domains: [3, 4], allowed_services: { dns: ['records.read'] }, max_role: 1, is_active: true, last_used_at: new Date().toISOString() },
+  { id: 2, name: 'CI 脚本', allowed_domains: [3], allowed_services: { dns: ['*'], mcp: ['*'] }, max_role: 2, is_active: 0 },
 ];
 
 function renderPage() {
@@ -53,6 +53,8 @@ describe('TokensPage', () => {
     expect(await screen.findByText('DDNS-家庭')).toBeTruthy();
     expect(screen.getByText('CI 脚本')).toBeTruthy();
     expect(screen.getAllByText('dns').length).toBeGreaterThan(0);
+    expect(screen.getByTitle('dns：records.read')).toBeTruthy();
+    expect(screen.getByTitle('mcp：全部权限')).toBeTruthy();
     expect(screen.getByText('已启用')).toBeTruthy();
     expect(screen.getByText('已停用')).toBeTruthy();
     expect(screen.getByText('2 个')).toBeTruthy();
@@ -62,7 +64,7 @@ describe('TokensPage', () => {
     const user = userEvent.setup();
     vi.mocked(listTokens).mockResolvedValue([]);
     vi.mocked(createToken).mockResolvedValue({
-      code: 0, msg: 'success', data: { token: 'dnsmgr_abc', tokenData: { id: 9, name: 'x', allowed_domains: [3], allowed_services: ['dns'] } },
+      code: 0, msg: 'success', data: { token: 'dnsmgr_abc', tokenData: { id: 9, name: 'x', allowed_domains: [3], allowed_services: { dns: ['*'] } } },
     } as never);
     renderPage();
 
@@ -79,10 +81,45 @@ describe('TokensPage', () => {
     expect(vi.mocked(createToken).mock.calls[0][0]).toMatchObject({
       name: '家庭 DDNS',
       allowed_domains: [3],
-      allowed_services: ['dns'],
+      allowed_services: { dns: ['*'] },
       max_role: 2,
     });
     expect(await screen.findByText('dnsmgr_abc')).toBeTruthy();
+  });
+
+  it('展开选择细粒度权限并提交对象；MCP 仅提交通配权限', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listTokens).mockResolvedValue([]);
+    vi.mocked(createToken).mockResolvedValue({ code: 0, msg: 'success', data: {
+      token: 'hidns_scoped', tokenData: { id: 10, name: 'scoped', allowed_domains: [3], allowed_services: { dns: ['records.read'] } },
+    } });
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: /新增令牌/ }));
+    await user.type(screen.getByLabelText('名称'), '细粒度令牌');
+    await user.click(screen.getByRole('checkbox', { name: /example.com/ }));
+    await user.click(screen.getByRole('button', { name: '展开 dns 权限' }));
+    await user.click(screen.getByRole('button', { name: 'records.read' }));
+    await user.click(screen.getByRole('button', { name: 'records.write' }));
+    await user.click(screen.getByRole('button', { name: 'mcp 服务' }));
+    await user.click(screen.getByRole('button', { name: '创建令牌' }));
+    await waitFor(() => expect(createToken).toHaveBeenCalledWith(expect.objectContaining({
+      allowed_services: { dns: ['records.read', 'records.write'], mcp: ['*'] },
+    })));
+  });
+
+  it('取消全部服务显式提交空对象，不触发后端默认全权限', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listTokens).mockResolvedValue([]);
+    vi.mocked(createToken).mockResolvedValue({ code: 0, msg: 'success', data: {
+      token: 'hidns_empty', tokenData: { id: 11, name: 'empty', allowed_domains: [3], allowed_services: {} },
+    } });
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: /新增令牌/ }));
+    await user.type(screen.getByLabelText('名称'), '无服务权限');
+    await user.click(screen.getByRole('checkbox', { name: /example.com/ }));
+    await user.click(screen.getByRole('button', { name: 'dns 服务' }));
+    await user.click(screen.getByRole('button', { name: '创建令牌' }));
+    await waitFor(() => expect(createToken).toHaveBeenCalledWith(expect.objectContaining({ allowed_services: {} })));
   });
 
   it('删除令牌需要二次确认', async () => {

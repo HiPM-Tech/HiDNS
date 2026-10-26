@@ -138,11 +138,13 @@ export function TokensPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          {(token.allowed_services ?? []).slice(0, 3).map((service) => (
-                            <Badge key={service} variant="secondary">{service}</Badge>
+                          {Object.entries(token.allowed_services ?? {}).filter(([, permissions]) => permissions.length > 0).map(([service, permissions]) => (
+                            <Badge key={service} variant="secondary" title={`${service}：${permissions.includes('*') ? '全部权限' : permissions.join(', ')}`}>
+                              {service}
+                            </Badge>
                           ))}
-                          {(token.allowed_services ?? []).length > 3 && (
-                            <span className="text-xs text-muted-foreground">+{(token.allowed_services ?? []).length - 3}</span>
+                          {!Object.values(token.allowed_services ?? {}).some(permissions => permissions.length > 0) && (
+                            <span className="text-xs text-muted-foreground">无服务权限</span>
                           )}
                         </div>
                       </TableCell>
