@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { TokenOperations, DomainOperations } from '../db/bal/business-adapter';
-import { UserToken, UserTokenCreate, UserTokenResponse, TokenPayload } from '../types/token';
+import { UserToken, UserTokenCreate, UserTokenResponse, TokenPayload, AllowedServices, DnsTokenPermission } from '../types/token';
+import { parseAllowedServices, readAllowedServices } from './token-permissions';
 import { isAdmin } from '../utils/roles';
 
 const TOKEN_PREFIX = 'hidns_';
@@ -36,7 +37,7 @@ export async function createUserToken(
     name: data.name,
     token_hash: tokenHash,
     allowed_domains: JSON.stringify(data.allowed_domains),
-    allowed_services: JSON.stringify(data.allowed_services),
+    allowed_services: JSON.stringify(parseAllowedServices(data.allowed_services)),
     start_time: data.start_time || null,
     end_time: data.end_time || null,
     max_role: data.max_role,
@@ -89,13 +90,20 @@ export async function verifyToken(plainToken: string): Promise<TokenPayload | nu
     return value;
   };
 
+  let allowedServices: AllowedServices;
+  try {
+    allowedServices = readAllowedServices(result.allowed_services);
+  } catch {
+    return null;
+  }
+
   return {
     type: 'token',
     tokenId: result.id,
     userId: result.user_id,
     maxRole: result.max_role,
     allowedDomains: parseJson(result.allowed_domains) as number[],
-    allowedServices: parseJson(result.allowed_services) as string[],
+    allowedServices,
   };
 }
 
@@ -121,7 +129,7 @@ export async function getUserTokens(userId: number): Promise<UserTokenResponse[]
       id: t.id,
       name: t.name,
       allowed_domains: parseJson(t.allowed_domains) as number[],
-      allowed_services: parseJson(t.allowed_services) as string[],
+      allowed_services: readAllowedServices(t.allowed_services),
       start_time: t.start_time,
       end_time: t.end_time,
       max_role: t.max_role,
@@ -151,20 +159,20 @@ export async function updateTokenPermissions(
   data: {
     name?: string;
     allowed_domains?: number[];
-    allowed_services?: string[];
+    allowed_services?: AllowedServices;
     start_time?: string | null;
     end_time?: string | null;
   }
 ): Promise<void> {
-  // Convert empty string or undefined to null for datetime fields
-  const startTime = !data.start_time || data.start_time === '' ? null : data.start_time;
-  const endTime = !data.end_time || data.end_time === '' ? null : data.end_time;
+  // Permission-only edits must not silently remove the token's validity window.
+  const startTime = data.start_time === undefined ? undefined : data.start_time || null;
+  const endTime = data.end_time === undefined ? undefined : data.end_time || null;
 
   // Use business adapter to update token
   await TokenOperations.updateByUser(tokenId, userId, {
     name: data.name,
     allowed_domains: data.allowed_domains !== undefined ? JSON.stringify(data.allowed_domains) : undefined,
-    allowed_services: data.allowed_services !== undefined ? JSON.stringify(data.allowed_services) : undefined,
+    allowed_services: data.allowed_services !== undefined ? JSON.stringify(parseAllowedServices(data.allowed_services)) : undefined,
     start_time: startTime,
     end_time: endTime,
   });
@@ -172,8 +180,13 @@ export async function updateTokenPermissions(
 
 // Check if token has permission for a service
 export function hasServicePermission(tokenPayload: TokenPayload, service: string): boolean {
-  return tokenPayload.allowedServices.includes(service) || 
-         tokenPayload.allowedServices.includes('*');
+  if (service !== 'dns' && service !== 'mcp') return false;
+  return (tokenPayload.allowedServices[service]?.length ?? 0) > 0;
+}
+
+export function hasDnsPermission(tokenPayload: TokenPayload, permission: DnsTokenPermission): boolean {
+  const permissions = tokenPayload.allowedServices.dns;
+  return !!permissions && (permissions.includes('*') || permissions.includes(permission));
 }
 
 // Check if token has permission for a domain

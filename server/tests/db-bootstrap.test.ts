@@ -1,6 +1,9 @@
 import { describe, expect, it, afterAll } from 'vitest';
 import { getConnection } from '../src/db/connection';
 import { setupTestDb, type TestDbHandle } from './helpers/test-db';
+import { TokenOperations } from '../src/db/bal/business-adapter';
+import { initializeDSM } from '../src/db/dsm/init-dsm';
+import { hashToken, verifyToken } from '../src/service/token';
 
 /**
  * 数据库引导冒烟测试。
@@ -35,6 +38,33 @@ describe('数据库引导', () => {
     );
     const rows = await conn.query<{ username: string }>('SELECT username FROM users WHERE username = ?', ['bootstrap-user']);
     expect(rows).toHaveLength(1);
+  });
+
+  it('已有 DSM 数据库在升级时迁移旧 Token，dry-run 不写入且重复初始化不扩大权限', async () => {
+    const user = await getConnection().get<{ id: number }>('SELECT id FROM users WHERE username = ?', ['bootstrap-user']);
+    expect(user).toBeDefined();
+    const tokens = [
+      { plain: 'hidns_migration_dns', old: ['dns'], expected: { dns: ['*'] } },
+      { plain: 'hidns_migration_mcp', old: ['mcp'], expected: { mcp: ['*'] } },
+      { plain: 'hidns_migration_all', old: ['*'], expected: { dns: ['*'], mcp: ['*'] } },
+      { plain: 'hidns_migration_empty', old: [], expected: {} },
+    ];
+    for (const token of tokens) {
+      await TokenOperations.create({ user_id: user!.id, name: token.plain, token_hash: hashToken(token.plain),
+        allowed_domains: '[]', allowed_services: JSON.stringify(token.old), max_role: 1 });
+    }
+    await initializeDSM(true);
+    expect((await TokenOperations.getByTokenHash(hashToken(tokens[0].plain)))?.allowed_services).toBe('["dns"]');
+    await initializeDSM();
+    for (const token of tokens) {
+      const stored = await TokenOperations.getByTokenHash(hashToken(token.plain));
+      expect(JSON.parse(stored!.allowed_services as string)).toEqual(token.expected);
+      expect((await verifyToken(token.plain))?.allowedServices).toEqual(token.expected);
+    }
+    const first = await TokenOperations.getByTokenHash(hashToken(tokens[0].plain));
+    await TokenOperations.updateByUser(Number(first!.id), user!.id, { allowed_services: '{"dns":["records.read"]}' });
+    await initializeDSM();
+    expect((await verifyToken(tokens[0].plain))?.allowedServices).toEqual({ dns: ['records.read'] });
   });
 
   afterAll(async () => {

@@ -2,7 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { JwtPayload } from '../types';
 import { isAdmin, normalizeRole } from '../utils/roles';
-import { verifyToken, hasServicePermission, hasDomainPermission } from '../service/token';
+import { verifyToken, hasServicePermission, hasDomainPermission, hasDnsPermission } from '../service/token';
+import { dnsPermissionForRoute } from '../api/token-permissions';
 import { TokenPayload } from '../types/token';
 import { sendError } from '../utils/http';
 import { getJwtSecret, signToken } from '../service/jwt';
@@ -40,6 +41,11 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   // Try to verify as user token
   const tokenPayload = await verifyToken(token);
   if (tokenPayload) {
+    const permission = dnsPermissionForRoute(req.baseUrl, req.method, req.route?.path ?? '');
+    if (permission && !hasDnsPermission(tokenPayload, permission)) {
+      sendError(res, 'Token does not have permission for dns:' + permission, 403);
+      return;
+    }
     // Convert token payload to user payload
     req.user = {
       userId: tokenPayload.userId,
@@ -192,5 +198,4 @@ export function requireTokenDomainPermission(paramName: string = 'id') {
     next();
   };
 }
-
 

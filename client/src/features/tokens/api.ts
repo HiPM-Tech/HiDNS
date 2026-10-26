@@ -1,10 +1,11 @@
 import { http } from '../../lib/http';
+import type { AllowedServices } from './permissions';
 
 export interface TokenRow {
   id: number;
   name: string;
   allowed_domains: number[];
-  allowed_services: string[];
+  allowed_services: AllowedServices;
   max_role?: number;
   start_time?: string | null;
   end_time?: string | null;
@@ -22,10 +23,10 @@ export interface TokenDomainOption {
 export interface TokenPayload {
   name: string;
   allowed_domains: number[];
-  allowed_services?: string[];
+  allowed_services: AllowedServices;
   max_role?: number;
-  start_time?: string;
-  end_time?: string;
+  start_time?: string | null;
+  end_time?: string | null;
 }
 
 export interface CreatedToken {

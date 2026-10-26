@@ -4,6 +4,7 @@ import {
   generateToken,
   hashToken,
   hasServicePermission,
+  hasDnsPermission,
   hasDomainPermission,
 } from './token';
 import type { TokenPayload } from '../types/token';
@@ -80,29 +81,30 @@ describe('Token Service', () => {
       tokenId: 1,
       userId: 1,
       allowedDomains: [],
-      allowedServices: ['domains.read', 'records.write'],
+      allowedServices: { dns: ['domains.read', 'records.write'] },
       maxRole: 1,
     };
 
     it('should allow access to explicitly permitted service', () => {
-      assert.strictEqual(hasServicePermission(basePayload, 'domains.read'), true);
-      assert.strictEqual(hasServicePermission(basePayload, 'records.write'), true);
+      assert.strictEqual(hasServicePermission(basePayload, 'dns'), true);
+      assert.strictEqual(hasDnsPermission(basePayload, 'records.write'), true);
     });
 
     it('should deny access to non-permitted service', () => {
-      assert.strictEqual(hasServicePermission(basePayload, 'domains.write'), false);
-      assert.strictEqual(hasServicePermission(basePayload, 'records.read'), false);
+      assert.strictEqual(hasServicePermission(basePayload, 'mcp'), false);
+      assert.strictEqual(hasDnsPermission(basePayload, 'records.read'), false);
     });
 
     it('should allow all services when wildcard is present', () => {
-      const wildcardPayload = { ...basePayload, allowedServices: ['*'] };
-      assert.strictEqual(hasServicePermission(wildcardPayload, 'any.service'), true);
-      assert.strictEqual(hasServicePermission(wildcardPayload, 'domains.read'), true);
+      const wildcardPayload: TokenPayload = { ...basePayload, allowedServices: { dns: ['*'], mcp: ['*'] } };
+      assert.strictEqual(hasServicePermission(wildcardPayload, 'mcp'), true);
+      assert.strictEqual(hasDnsPermission(wildcardPayload, 'domains.read'), true);
+      assert.strictEqual(hasServicePermission(wildcardPayload, 'future-service'), false);
     });
 
     it('should deny access when no services are allowed', () => {
-      const emptyPayload = { ...basePayload, allowedServices: [] };
-      assert.strictEqual(hasServicePermission(emptyPayload, 'domains.read'), false);
+      const emptyPayload = { ...basePayload, allowedServices: {} };
+      assert.strictEqual(hasServicePermission(emptyPayload, 'dns'), false);
     });
   });
 
@@ -112,7 +114,7 @@ describe('Token Service', () => {
       tokenId: 1,
       userId: 1,
       allowedDomains: [1, 2, 3],
-      allowedServices: ['*'],
+      allowedServices: { dns: ['*'], mcp: ['*'] },
       maxRole: 1,
     };
 

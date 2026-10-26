@@ -5,12 +5,12 @@ import {
   Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Label,
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../../ui';
-import { cn } from '../../ui/cn';
 import { useCreateToken, useTokenDomains, useUpdateToken } from './use-tokens';
 import type { CreatedToken, TokenDomainOption, TokenRow } from './api';
+import type { AllowedServices } from './permissions';
+import { TokenServicePicker } from './token-service-picker';
 
 const EMPTY_DOMAINS: TokenDomainOption[] = [];
-const SERVICE_PRESETS = ['dns', 'mcp'];
 
 const ROLE_OPTIONS = [
   { value: '0', label: '普通用户（只读）' },
@@ -39,8 +39,7 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
   const [name, setName] = useState(token?.name ?? '');
   const [keyword, setKeyword] = useState('');
   const [selected, setSelected] = useState<number[]>(token?.allowed_domains ?? []);
-  const [services, setServices] = useState<string[]>(token?.allowed_services?.length ? token.allowed_services : ['dns']);
-  const [customService, setCustomService] = useState('');
+  const [services, setServices] = useState<AllowedServices>(token?.allowed_services ?? { dns: ['*'] });
   const [maxRole, setMaxRole] = useState(String(token?.max_role ?? Math.min(currentRoleLevel, 2)));
   const [startTime, setStartTime] = useState(token?.start_time ?? '');
   const [endTime, setEndTime] = useState(token?.end_time ?? '');
@@ -59,17 +58,6 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
     setSelected((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
-  const toggleService = (service: string) => {
-    setServices((prev) => (prev.includes(service) ? prev.filter((item) => item !== service) : [...prev, service]));
-  };
-
-  const addCustomService = () => {
-    const value = customService.trim();
-    if (!value) return;
-    if (!services.includes(value)) setServices((prev) => [...prev, value]);
-    setCustomService('');
-  };
-
   const submit = async () => {
     setError(null);
     if (!name.trim()) {
@@ -80,6 +68,9 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
       setError('至少选择一个域名');
       return;
     }
+    const allowedServices: AllowedServices = {};
+    if (services.dns?.length) allowedServices.dns = services.dns;
+    if (services.mcp?.length) allowedServices.mcp = services.mcp;
     if (editing && token) {
       try {
         await update.mutateAsync({
@@ -87,9 +78,9 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
           payload: {
             name: name.trim(),
             allowed_domains: selected,
-            allowed_services: services.length > 0 ? services : undefined,
-            start_time: startTime || undefined,
-            end_time: endTime || undefined,
+            allowed_services: allowedServices,
+            start_time: startTime || null,
+            end_time: endTime || null,
           },
         });
         onSaved?.();
@@ -103,7 +94,7 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
       const envelope = await create.mutateAsync({
         name: name.trim(),
         allowed_domains: selected,
-        allowed_services: services.length > 0 ? services : undefined,
+        allowed_services: allowedServices,
         max_role: Number(maxRole),
         start_time: startTime ? new Date(startTime).toISOString() : undefined,
         end_time: endTime ? new Date(endTime).toISOString() : undefined,
@@ -121,7 +112,7 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(94vw,40rem)]">
+      <DialogContent className="max-h-[90dvh] w-[min(94vw,40rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{editing ? '编辑 API 令牌' : '新增 API 令牌'}</DialogTitle>
           <DialogDescription>
@@ -156,45 +147,7 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
 
           <div className="space-y-1.5 sm:col-span-2">
             <Label>服务权限</Label>
-            <div className="flex flex-wrap items-center gap-2">
-              {SERVICE_PRESETS.map((service) => (
-                <button
-                  key={service}
-                  type="button"
-                  onClick={() => toggleService(service)}
-                  className={cn(
-                    'rounded-full border px-3 py-1 text-xs transition-colors',
-                    services.includes(service)
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border text-muted-foreground hover:bg-accent',
-                  )}
-                >
-                  {service}
-                </button>
-              ))}
-              {services.filter((service) => !SERVICE_PRESETS.includes(service)).map((service) => (
-                <button
-                  key={service}
-                  type="button"
-                  onClick={() => toggleService(service)}
-                  className="rounded-full border border-primary bg-primary/10 px-3 py-1 text-xs text-primary"
-                  title="点击移除"
-                >
-                  {service} ×
-                </button>
-              ))}
-              <div className="flex items-center gap-1">
-                <Input
-                  className="h-8 w-32"
-                  placeholder="自定义服务"
-                  value={customService}
-                  onChange={(event) => setCustomService(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomService(); } }}
-                  aria-label="自定义服务"
-                />
-                <Button type="button" variant="outline" size="sm" onClick={addCustomService}>添加</Button>
-              </div>
-            </div>
+            <TokenServicePicker value={services} onChange={setServices} />
           </div>
 
           <div className="space-y-1.5">

@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { authMiddleware, noTokenAuth } from '../middleware/auth';
 import { createUserToken, getUserTokens, deleteUserToken, toggleTokenStatus, updateTokenPermissions } from '../service/token';
 import { normalizeTokenDomains, resolveTokenPolicy } from '../service/token-policy';
+import { parseAllowedServices } from '../service/token-permissions';
+import type { AllowedServices } from '../types/token';
 import { DomainOperations, TeamOperations } from '../db/bal/business-adapter';
 import { sendError } from '../utils/http';
 import { logAuditOperation } from '../service/audit';
@@ -44,9 +46,11 @@ const router = Router();
  *                         items:
  *                           type: number
  *                       allowed_services:
- *                         type: array
- *                         items:
- *                           type: string
+ *                         type: object
+ *                         additionalProperties:
+ *                           type: array
+ *                           items:
+ *                             type: string
  *                       start_time:
  *                         type: string
  *                         nullable: true
@@ -100,6 +104,13 @@ router.get('/', authMiddleware, noTokenAuth('token management'), async (req: Req
  *                 items:
  *                   type: number
  *                 description: List of allowed domain IDs (empty array means all domains)
+ *               allowed_services:
+ *                 type: object
+ *                 additionalProperties:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 example: { dns: [records.read, records.write], mcp: ['*'] }
  *               start_time:
  *                 type: string
  *                 format: date-time
@@ -135,7 +146,7 @@ router.post('/', authMiddleware, noTokenAuth('token management'), async (req: Re
   const { name, allowed_domains, allowed_services, start_time, end_time, max_role } = req.body as {
     name?: string;
     allowed_domains?: Array<number | string>;
-    allowed_services?: string[];
+    allowed_services?: unknown;
     start_time?: string;
     end_time?: string;
     max_role?: number;
@@ -363,10 +374,12 @@ router.patch('/:id/status', authMiddleware, noTokenAuth('token management'), asy
  *                   type: number
  *                 description: List of allowed domain IDs (empty array means all domains)
  *               allowed_services:
- *                 type: array
- *                 items:
- *                   type: string
- *                 description: List of allowed services
+ *                 type: object
+ *                 additionalProperties:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 description: Service groups mapped to operation permissions; mcp only supports ['*']
  *               start_time:
  *                 type: string
  *                 format: date-time
@@ -392,11 +405,21 @@ router.put('/:id', authMiddleware, noTokenAuth('token management'), async (req: 
     return;
   }
 
+  let services: AllowedServices | undefined;
+  if (allowed_services !== undefined) {
+    try {
+      services = parseAllowedServices(allowed_services);
+    } catch (error) {
+      sendError(res, (error as Error).message, 400);
+      return;
+    }
+  }
+
   try {
     await updateTokenPermissions(tokenId, req.user!.userId, {
       name,
       allowed_domains,
-      allowed_services,
+      allowed_services: services,
       start_time,
       end_time,
     });

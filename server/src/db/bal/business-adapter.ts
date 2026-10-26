@@ -1592,6 +1592,15 @@ export const TokenOperations = {
     return getInternal('SELECT * FROM user_tokens WHERE token_hash = ?', [tokenHash], { operation: 'Token.getByTokenHash', table: 'user_tokens' });
   },
 
+  /** Keyset-paginated startup migration; includes inactive tokens. */
+  async getServicePermissionBatch(afterId: number): Promise<QueryResult[]> {
+    return queryInternal(
+      'SELECT id, user_id, allowed_services FROM user_tokens WHERE id > ? ORDER BY id LIMIT 200',
+      [afterId],
+      { operation: 'Token.getServicePermissionBatch', table: 'user_tokens' }
+    );
+  },
+
   /** 创建令牌 */
   async create(data: {
     user_id: number;
