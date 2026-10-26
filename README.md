@@ -22,7 +22,7 @@
 
 ## Features
 
-- **Multi-provider Support**: Manage DNS records across 22+ providers:
+- **Multi-provider Support**: Manage DNS records across 26 providers:
   - **Domestic (China)**: Aliyun (阿里云), DNSPod (腾讯云), Huawei Cloud (华为云), Baidu Cloud (百度云)
     Volcengine (火山引擎), JD Cloud (京东云), West Digital (西部数码), Qingcloud (青云)
     BT Panel (宝塔), Aliyun ESA (阿里云 ESA), Tencent EdgeOne (腾讯 EdgeOne), Rainyun (雨云), VPS8
@@ -44,7 +44,7 @@
 
 - **Multi-user & Team Management**: Role-based access (admin/member), team-based domain sharing
 - **Full DNS Record Management**: CRUD for all record types (A, AAAA, CNAME, MX, TXT, SRV, CAA, etc.)
-- **Modern UI**: React 18 + TailwindCSS with responsive design
+- **Modern UI**: React 19 + TailwindCSS with responsive design
 - **API Documentation**: Swagger UI at `/api/docs`
 - **Extensible Architecture**: Abstract DNS interface makes adding new providers easy
 
@@ -97,33 +97,29 @@ HiDNS/
 │   └── src/
 │       ├── lib/dns/ # DNS provider adapters (abstract interface)
 │       ├── routes/  # REST API routes
-│       ├── middleware/ # Auth (JWT), validation
-│       ├── service/ # Business logic services
-│       │   ├── whoisService.ts      # WHOIS query service
-│       │   ├── whoisScheduler.ts    # WHOIS scheduler
-│       │   ├── renewalScheduler.ts  # Domain renewal scheduler
+│       ├── middleware/ # auth, errorHandler, rateLimit, requestLogger
+│       ├── service/ # business services & schedulers
+│       │   ├── whois/               # WHOIS submodule (lookup/checker/cache/scheduler)
+│       │   ├── renewalScheduler.ts  # domain renewal scheduling
 │       │   ├── nsMonitorJob.ts      # NS monitoring task
-│       │   ├── failover.ts          # Failover service
-│       │   ├── taskManager.ts       # Task manager
-│       │   ├── notification.ts      # Notification service
-│       │   ├── audit.ts             # Audit service
-│       │   ├── token.ts             # API Token service
-│       │   └── session.ts           # Session management
-│       └── db/      # Three-layer database architecture
-│           ├── business-adapter.ts  # Business adapter layer (functional API)
-│           ├── core/                # Database abstraction layer
-│           ├── drivers/             # Database drivers (MySQL/PostgreSQL/SQLite)
-│           └── schemas/             # Database schemas
-└── client/          # React + Vite + TailwindCSS frontend
-    └── src/
-        ├── pages/   # All UI pages
-        │   ├── NSMonitor.tsx        # NS monitoring page
-        │   ├── Tokens.tsx           # API Token management
-        │   ├── Tunnels.tsx          # Tunnel management
-        │   ├── Security.tsx         # Security settings
-        │   └── OAuthCallback.tsx    # OAuth callback
-        ├── components/ # Reusable components
-        └── api/     # API client
+│       │   ├── serviceMonitorJob.ts # service monitor + dns_failover task
+│       │   ├── taskManager.ts       # task manager (concurrency/timeout/dedupe)
+│       │   ├── dns-provider-service.ts, audit.ts, token.ts, session.ts
+│       │   └── systemState.ts       # single source of truth for init state
+│       └── db/      # four-layer database architecture
+│           ├── bal/                 # business adapter layer (business-adapter.ts, only SQL exit)
+│           ├── dal/                 # abstraction layer (connection pool, builder, compiler, types)
+│           ├── dl/                  # drivers (sqlite / mysql / postgresql, BaseDriver)
+│           └── dsm/                 # declarative schema, reconciler, migrations, backup
+└── client/          # React 19 + Vite 8 + TailwindCSS
+     └── src/
+         ├── app/      # app-shell, protected-shell, require-admin, realtime, nav
+         ├── features/ # all page code lives here (api.ts + use-*.ts + page + tests)
+         ├── ui/       # design-system primitives (Radix + CVA + tailwind-merge)
+         ├── lib/      # http.ts (typed fetch + ensureOk), theme.tsx, format.ts
+         ├── copy/     # Simplified-Chinese copy
+         ├── components/ # ErrorBoundary only (no global toast)
+         └── App.tsx   # route table declared in one place
 ```
 
 ### Database Architecture (Multi-Layer Design)
@@ -138,11 +134,11 @@ Routes/Service Layer → Business Adapter Layer(BAL) → Core Layer(DAC) → Dri
 
 **Layer 1: Business Adapter Layer** (`server/src/db/bal/`)
 - Functional API: `query()`, `get()`, `execute()`, `insert()`, `run()`
-- Business operation modules: `UserOperations`, `DnsAccountOperations`, etc. (24+ modules)
+- Business operation modules: 38 `*Operations` objects (`UserOperations`, `DnsAccountOperations`, …) — the full list is §数据库 7 of `root.ai.md`
 - All database operations MUST go through this layer
 - Automatic logging and performance monitoring
 
-**Layer 2: Database Abstraction Layer** (`server/src/db/core/`)
+**Layer 2: Database Abstraction Layer** (`server/src/db/dal/`)
 - Unified type definitions
 - Connection manager (singleton pattern)
 - Database configuration management
@@ -151,7 +147,7 @@ Routes/Service Layer → Business Adapter Layer(BAL) → Core Layer(DAC) → Dri
 **Layer 3: Driver Layer** (`server/src/db/dl/`)
 - MySQL driver (connection pool)
 - PostgreSQL driver (connection pool)
-- SQLite driver (better-sqlite3)
+- SQLite driver (Node.js built-in `node:sqlite`)
 - Common SQL compilation logic unified in `BaseDriver` base class
 
 **Layer 4: Declarative Schema Management** (`server/src/db/dsm/`)
@@ -328,13 +324,11 @@ After starting the server, visit: `http://localhost:3001/api/docs`
   - If `cloudflare.proxied` is provided, it is used.
   - Otherwise, fallback to `line` (`'1'` = proxied, `'0'` = DNS only).
 
-## Adding a New DNS Provider
+## The DnsAdapter Contract
 
-1. Create a new adapter in `server/src/lib/dns/providers/myprovider.ts` implementing `DnsAdapter`
-2. Register it in `server/src/lib/dns/DnsHelper.ts` (add to `DNS_PROVIDERS` map)
-3. Export it in `server/src/lib/dns/providers/index.ts`
+Registration steps are in **Adding New DNS Providers** below. Providers are directory-based adapters declared in `providers/registry.ts` — there is no `DnsHelper.ts` switch and no `DNS_PROVIDERS` map (that section of older docs is wrong).
 
-The adapter must implement the `DnsAdapter` interface:
+The adapter must implement the `DnsAdapter` interface (`server/src/lib/dns/DnsInterface.ts`):
 
 ```typescript
 interface DnsAdapter {
@@ -352,25 +346,24 @@ interface DnsAdapter {
 ## Tech Stack
 
 **Backend:**
-- Node.js + TypeScript
+- Node.js ≥ 24.22.1 + TypeScript
 - Express.js
-- SQLite (better-sqlite3), MySQL (mysql2), PostgreSQL (pg)
+- SQLite (Node.js built-in `node:sqlite`, requires Node 24), MySQL (mysql2), PostgreSQL (pg)
 - JWT authentication
 - Swagger/OpenAPI documentation
 - node-cron / node-schedule: Task scheduling
 - nodemailer: Email sending
 - @simplewebauthn/server: WebAuthn support
-- speakeasy: TOTP generation and verification
-- axios: HTTP client
+- otplib: TOTP generation and verification
+- HTTP client: built-in `fetch` via `server/src/lib/proxy-http.ts` (no axios)
 
 **Frontend:**
-- React 18 + TypeScript
-- Vite
-- TailwindCSS v3
-- React Router v6
-- @tanstack/react-query
-- Axios
-- lucide-react
+- React 19 + TypeScript
+- Vite 8
+- TailwindCSS v3.4
+- React Router 7
+- @tanstack/react-query 5
+- lucide-react (the only icon set; no UI component library)
 - react-hook-form: Form management
 - zod: Data validation
 - date-fns: Date handling
@@ -378,29 +371,27 @@ interface DnsAdapter {
 
 ## License
 
-MIT
+GPL-3.0 — see [LICENSE](LICENSE).
 
-## Internationalization (i18n) & Contribution
+## Language Policy
 
-HiDNS uses `react-i18next` for internationalization. The current supported languages are English, Simplified Chinese, Spanish, and Japanese.
+HiDNS UI ships in **Simplified Chinese only**. The i18next stack and every `client/src/i18n/**` / `client/src/pages/**` file were removed in the 2026-10 frontend rebuild — there is no language selector, no `resources` map, and no translation keys to extend.
 
-We welcome community contributions for new languages! Here's how to add one:
+- User-facing copy lives in `client/src/copy/zh-CN.ts` and inside each `client/src/features/<domain>/` module.
+- Adding a language is not a supported contribution path today; a reintroduced i18n framework would be an architecture change and is explicitly forbidden by `root.ai.md` §客户端架构.
 
-1. Copy an existing language file (e.g., `client/src/i18n/locales/en.ts`) to a new file like `fr.ts` (for French).
-2. Translate the string values in your new file.
-3. Import and add your new language to the `resources` object in `client/src/i18n/index.ts`.
-4. Update the language selector in `client/src/pages/Settings.tsx` to include your new language option.
-
-**Tip:** We recommend using the [i18n-ally](https://marketplace.visualstudio.com/items?itemName=Lokalise.i18n-ally) VS Code extension. The project already includes the `.vscode/settings.json` configuration for it, which helps you easily find missing translations and manage keys.
+See [`root.ai.md`](root.ai.md) §客户端架构 for the authoritative client rules.
 
 ## Adding New DNS Providers
 
-We support multiple DNS providers out of the box (Cloudflare, AliYun, TencentCloud, HuaweiCloud, DNSPod, GoDaddy). If your provider is not supported, you can easily add it:
+Providers are class-based adapters under `server/src/lib/dns/providers/<provider>/` and are declared — not switched on. The authoritative steps live in [`root.ai.md`](root.ai.md) §DNS提供商适配器; short version:
 
-1. **Implement the Adapter**: Create a new file in `server/src/lib/dns/providers/` implementing the `DnsAdapter` interface.
-2. **Register the Adapter**: Add your adapter to the switch case in `server/src/lib/dns/DnsHelper.ts`.
-3. **Update Frontend**: Add your provider to the `PROVIDERS` list in `client/src/pages/Accounts.tsx` with its required configuration fields.
-4. **Submit a PR**: We welcome pull requests! Ensure your code follows the existing style and passes the tests.
+1. **Implement the adapter**: `providers/<name>/adapter.ts` implementing `DnsAdapter` (`server/src/lib/dns/DnsInterface.ts`), plus `auth.ts` and `index.ts`. Extend `BaseAdapter` from `providers/common.ts`.
+2. **Route HTTP through the proxy layer**: use `requestJson` / `requestXml` (`providers/http.ts`) or `fetchWithFallback`. Native `fetch` is forbidden — it hangs behind a proxy.
+3. **Register the definition**: add the provider to `PROVIDERS` in `providers/registry.ts` (name, capabilities, config fields, `lineSource` + `defaultLine`, `capabilities.redirect`). Named-export the adapter class from `providers/index.ts`; `adapterFactory` in `registry.ts` does the wiring.
+4. **Respect the adapter invariants**: real upstream `RecordId`, throwing `getRecordLines()` on failure, capability bits enforced at the call site (§DNS接口定义 2.1–2.3).
+5. **Contract tests**: `server/src/lib/dns/__tests__/adapter-contract.test.ts` must pass — it checks `DEFAULT_LINE` against the registry `defaultLine`.
+6. **No frontend edit needed**: the account form is generated from `ProviderConfigField[]`; there is no hard-coded provider list in the client.
 
 ---
 
@@ -411,7 +402,7 @@ HiDNS adopts a strict AI code review mechanism to ensure code quality and projec
 ### Code Review Standards
 
 - **P0 Level** (Must Fix): Database standards, security vulnerabilities, functional defects
-- **P1 Level** (Recommended Fix): Code quality, performance optimization, i18n completeness
+- **P1 Level** (Recommended Fix): Code quality, performance, layering violations (§数据库 2), missing log rate-limiting (§日志 9)
 - **P2 Level** (Optional Optimization): Code comments, naming conventions, abstraction reuse
 
 ### Core Requirements
@@ -420,14 +411,14 @@ HiDNS adopts a strict AI code review mechanism to ensure code quality and projec
 2. ✅ JWT authentication uses dual-key structure
 3. ✅ Complete logging (requests, responses, errors, business operations)
 4. ✅ OAuth2/OIDC standard support
-5. ✅ Complete i18n multi-language support
+5. ✅ Declarative schema (DSM) with automatic reconciliation, no ad-hoc DDL
 
 ### Documentation
 
-- [Development Standards](docs/DEVELOPMENT.md) - Code standards, database standards, development process
-- [AI Censorship](ai-censorship/root.md) - Code review standards and checklist
-- [Architecture Documentation](docs/architecture/overview.md) - System architecture design
-- [API Documentation](docs/api-reference.md) - Complete RESTful API reference
+- [Project Standards](root.ai.md) — **authoritative**: database layers, logging, routing, providers, client structure, gates, release process, review process
+- [API Reference](docs/api.md) — **authoritative**: endpoints, parameters, auth, token permission mapping
+- [Documentation Index](docs/README.md) — which doc is authoritative, which is historical
+- [Architecture Overview](docs/architecture/overview.md) — explanatory, follows the two sources above
 
 ## Star History
 
@@ -441,7 +432,7 @@ HiDNS adopts a strict AI code review mechanism to ensure code quality and projec
 
 ## Community & Support
 
-- **GitHub Repository**: https://github.com/HiPM-Tech/DNSMgr
+- **GitHub Repository**: https://github.com/HiPM-Tech/HiDNS
 - **Telegram Group**: https://t.me/HiDNSManager
 - **License**: GPL-3.0
 

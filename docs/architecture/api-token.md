@@ -1,8 +1,10 @@
-# API Token (SOK) 架构
+# API Token 架构
 
 ## 概述
 
-SOK (Secure API Key) 是 DNSMgr 的 API 访问令牌系统，允许用户创建和管理用于程序化访问的令牌。令牌权限与创建者用户权限相同，支持细粒度的域名访问控制。
+HiDNS 的 API 访问令牌系统，允许用户创建和管理用于程序化访问的令牌（前缀 `hidns_`，兼容旧的 `dnsmgr_`）。令牌权限继承创建者角色，可限制到特定域名，并受服务级门禁约束。
+
+> 代码里**没有** SOK 这个概念，旧文档里的「SOK (Secure API Key)」「DNSMgr」都是历史命名，不要按它检索代码。
 
 ## 设计理念
 
@@ -82,12 +84,21 @@ interface TokenPayload {
 ### 3. 权限检查
 
 ```typescript
-// 检查服务权限
+// 服务级：allowed_services 数组包含该服务，或包含 '*'
 export function hasServicePermission(tokenPayload: TokenPayload, service: string): boolean
 
-// 检查域名权限
+// 域名级：令牌白名单 ∩ 创建者对域名的实际权限
 export async function hasDomainPermission(tokenPayload: TokenPayload, domainId: number): Promise<boolean>
 ```
+
+**当前只有服务级 + 域名级两层粒度**，没有「读记录 / 写记录」这种操作级权限；`AVAILABLE_SERVICES` 是工作流动作的命名空间，与令牌无关。
+
+门禁落点只有一个：`api/mount.ts` 的 `buildServiceGate()`，在模块声明了 `service` 时插入。`middleware/auth.ts` 里的 `requireServicePermission()` 目前**没有任何路由调用**——不要以为它生效。
+
+已知边界（当前实现的真实行为，不是遗漏）：
+
+1. 门禁只读 `Authorization: Bearer`。携带 UserToken 的 **cookie** 请求绕过服务级门禁，只经过路由的 `authMiddleware`。
+2. 服务级门禁在前，路由级 `authMiddleware` 在后，两者都对同一个令牌做一次 `verifyToken`（每请求两次查库，属已知开销）。
 
 ## API 端点
 
@@ -339,56 +350,30 @@ GET /api/tokens
 
 ### 认证中间件流程
 
-```typescript
-// middleware/auth.ts
-export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.replace('Bearer ', '');
-  
-  if (!token) {
-    return res.status(401).json({ code: 401, msg: 'No token provided' });
-  }
-  
-  // 1. 尝试验证为 JWT（用户登录）
-  const jwtPayload = await verifyJwtToken(token);
-  if (jwtPayload) {
-    req.user = jwtPayload;
-    return next();
-  }
-  
-  // 2. 尝试验证为 API Token
-  const apiTokenPayload = await verifyToken(token);
-  if (apiTokenPayload) {
-    req.user = {
-      userId: apiTokenPayload.userId,
-      role: apiTokenPayload.maxRole,
-      // ... 其他字段
-    };
-    req.tokenPayload = apiTokenPayload;  // 用于后续权限检查
-    return next();
-  }
-  
-  return res.status(401).json({ code: 401, msg: 'Invalid token' });
-}
-```
+实际顺序（`server/src/middleware/auth.ts`）：
+
+1. **先看 cookie** `req.cookies.token`，没有再取 `Authorization: Bearer`。
+2. 先按 JWT 验签（会话）；失败才走 `verifyToken()`（API Token）。
+3. `verifyToken()` 依次校验：前缀（`hidns_` / 旧 `dnsmgr_`）→ 哈希查库 → `is_active` → `start_time` / `end_time` 时间窗 → 更新 `last_used_at`。
+4. 通过后把 `{ userId, username: 'token:<id>', role: maxRole }` 写进 `req.user`，并把完整 payload 放到 `(req as any).tokenPayload`，供 `requireDomainPermission` / `requireTokenDomainPermission` 使用。
+5. 失败统一 `sendError(res, 'Unauthorized', 401)` / `'Invalid or expired token', 401`，信封为 `{ code, data, msg }`。
+
+注意：`req.tokenPayload` 是挂在请求对象上的自定义字段（TS 里用 `as any` / 断言访问），不是 Express 官方属性。
 
 ### 数据库表结构
 
-```sql
-CREATE TABLE user_tokens (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  user_id INT NOT NULL,
-  name VARCHAR(255) NOT NULL,
-  token_hash VARCHAR(64) NOT NULL UNIQUE,  -- SHA-256 哈希
-  allowed_domains TEXT NOT NULL,           -- JSON 数组
-  allowed_services TEXT NOT NULL,          -- JSON 数组
-  start_time DATETIME NULL,
-  end_time DATETIME NULL,
-  max_role INT NOT NULL DEFAULT 1,
-  is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  last_used_at DATETIME NULL,
-  INDEX idx_user_id (user_id),
-  INDEX idx_token_hash (token_hash)
-);
-```
+**表结构的唯一真源是 `server/src/db/dsm/schemas/complete-schema.ts` 里的 `user_tokens` 声明**（DSM 声明式管理，禁止手写 DDL）。字段要点：
+
+| 列 | DSM 类型 | 说明 |
+|---|---|---|
+| `id` | `id` / 自增主键 | |
+| `user_id` | `integer` NOT NULL | 外键 → `users.id`，`ON DELETE CASCADE` |
+| `name` | `string(500)` | |
+| `token_hash` | `string(500)` UNIQUE | SHA-256 十六进制（64 字符，字段留了余量） |
+| `allowed_domains` | `json` NOT NULL | JSON 数组；**空数组 = 不限制域名**（兼容 ddns-go） |
+| `allowed_services` | `json` NOT NULL | JSON 数组，如 `["dns"]` / `["*"]` |
+| `start_time` / `end_time` | `datetime` NULL | 有效窗口 |
+| `max_role` | `integer` 默认 1 | 令牌角色上限 |
+| `is_active` | `integer` 默认 1 | |
+
+`json` 列在各驱动下的实际形态不同：SQLite 为 TEXT，MySQL / PostgreSQL 可能直接返回对象。读写两端都要兼容（`typeof value === 'string' ? JSON.parse(value) : value`）。索引为 `idx_user_tokens_user_id`、`idx_user_tokens_token_hash`。

@@ -20,7 +20,7 @@
 
 ## 功能特性
 
-- **多服务商支持**: 可管理 22+ DNS 服务商的解析记录：
+- **多服务商支持**: 可管理 26 个 DNS 服务商的解析记录：
   - **国内**：阿里云 (Aliyun), DNSPod (腾讯云), 华为云 (Huawei Cloud), 百度云 (Baidu Cloud)
     火山引擎 (Volcengine), 京东云 (JD Cloud), 西部数码 (West Digital), 青云 (Qingcloud)
     宝塔面板 (BT Panel), 阿里云 ESA (Aliyun ESA), 腾讯 EdgeOne (Tencent EdgeOne), 雨云 (Rainyun), VPS8
@@ -42,7 +42,7 @@
 
 - **多用户与团队管理**: 基于角色的访问控制（admin/member），团队共享域名
 - **完整的 DNS 记录管理**: 支持所有记录类型的增删改查（A、AAAA、CNAME、MX、TXT、SRV、CAA 等）
-- **现代化 UI**: React 18 + TailwindCSS，响应式设计
+- **现代化 UI**: React 19 + TailwindCSS，响应式设计
 - **API 文档**: Swagger UI 位于 `/api/docs`
 - **可扩展架构**: 抽象 DNS 接口，易于添加新服务商
 
@@ -66,33 +66,29 @@ HiDNS/
 │   ├── src/
 │   │   ├── lib/dns/ # DNS 服务商适配器（抽象接口）
 │   │   ├── routes/  # REST API 路由
-│   │   ├── middleware/ # 认证（JWT）、校验
-│   │   ├── service/ # 业务逻辑服务
-│   │   │   ├── whoisService.ts      # WHOIS 查询服务
-│   │   │   ├── whoisScheduler.ts    # WHOIS 调度器
-│   │   │   ├── renewalScheduler.ts  # 域名续期调度器
+│   │   ├── middleware/ # 鉴权、错误处理、限流、请求日志
+│   │   ├── service/ # 业务服务与调度
+│   │   │   ├── whois/               # WHOIS 子模块（lookup/checker/cache/scheduler）
+│   │   │   ├── renewalScheduler.ts  # 域名续期调度
 │   │   │   ├── nsMonitorJob.ts      # NS 监测任务
-│   │   │   ├── failover.ts          # 故障转移服务
-│   │   │   ├── taskManager.ts       # 任务管理器
-│   │   │   ├── notification.ts      # 通知服务
-│   │   │   ├── audit.ts             # 审计服务
-│   │   │   ├── token.ts             # API Token 服务
-│   │   │   └── session.ts           # 会话管理
-│   │   └── db/      # 三层数据库架构
-│   │       ├── business-adapter.ts  # 业务适配器层（函数式 API）
-│   │       ├── core/                # 数据库抽象层
-│   │       ├── drivers/             # 数据库驱动（MySQL/PostgreSQL/SQLite）
-│   │       └── schemas/             # 数据库 Schema
-├── client/          # React + Vite + TailwindCSS 前端
+│   │   │   ├── serviceMonitorJob.ts # 服务监控 + dns_failover 任务
+│   │   │   ├── taskManager.ts       # 任务管理器（并发/超时/同 ID 去重）
+│   │   │   ├── dns-provider-service.ts、audit.ts、token.ts、session.ts
+│   │   │   └── systemState.ts       # 初始化状态唯一来源
+│   │   └── db/      # 四层数据库架构
+│   │       ├── bal/                 # 业务适配器层（business-adapter.ts，唯一 SQL 出口）
+│   │       ├── dal/                 # 抽象层（连接池、查询构建器、编译器、类型）
+│   │       ├── dl/                  # 驱动层（sqlite / mysql / postgresql，BaseDriver）
+│   │       └── dsm/                 # 声明式 Schema、协调器、迁移、备份
+├── client/          # React 19 + Vite 8 + TailwindCSS 前端
     └── src/
-        ├── pages/   # 页面
-        │   ├── NSMonitor.tsx        # NS 监测页面
-        │   ├── Tokens.tsx           # API Token 管理
-        │   ├── Tunnels.tsx          # Tunnel 管理
-        │   ├── Security.tsx         # 安全设置
-        │   └── OAuthCallback.tsx    # OAuth 回调
-        ├── components/ # 复用组件
-        └── api/     # API 客户端
+        ├── app/      # app-shell、protected-shell、require-admin、realtime、nav
+        ├── features/ # 页面代码只放这里（api.ts + use-*.ts + 页面 + 用例）
+        ├── ui/       # 设计系统原语（Radix + CVA + tailwind-merge）
+        ├── lib/      # http.ts（类型化 fetch + ensureOk）、theme.tsx、format.ts
+        ├── copy/     # 简体中文文案
+        ├── components/ # 仅 ErrorBoundary（无全局 Toast）
+        └── App.tsx   # 路由集中声明
 ```
 
 ### 数据库架构（四层设计）
@@ -107,11 +103,11 @@ HiDNS 实现了严格的多层数据库架构：
 
 **第一层：业务适配器层** (`server/src/db/bal/`)
 - 函数式 API：`query()`、`get()`、`execute()`、`insert()`、`run()`
-- 业务操作模块：`UserOperations`、`DnsAccountOperations` 等 24+ 个模块
+- 业务操作模块：38 个 `*Operations`（`UserOperations`、`DnsAccountOperations` …），完整清单见 `root.ai.md` §数据库 7
 - 所有数据库操作必须通过此层
 - 自动日志记录和性能监控
 
-**第二层：数据库抽象层** (`server/src/db/core/`)
+**第二层：数据库抽象层** (`server/src/db/dal/`)
 - 统一类型定义
 - 连接管理器（单例模式）
 - 数据库配置管理
@@ -120,7 +116,7 @@ HiDNS 实现了严格的多层数据库架构：
 **第三层：驱动层** (`server/src/db/dl/`)
 - MySQL 驱动（连接池）
 - PostgreSQL 驱动（连接池）
-- SQLite 驱动（better-sqlite3）
+- SQLite 驱动（Node.js 内置 `node:sqlite`）
 - 通用 SQL 编译逻辑在基类 `BaseDriver` 中统一实现
 
 **第四层：声明式模式管理层** (`server/src/db/dsm/`)
@@ -299,9 +295,14 @@ cp server/.env.example server/.env
 
 ## 添加新的 DNS 服务商
 
-1. 在 `server/src/lib/dns/providers/myprovider.ts` 中创建新的适配器并实现 `DnsAdapter`
-2. 在 `server/src/lib/dns/DnsHelper.ts` 中注册（加入 `DNS_PROVIDERS` 映射）
-3. 在 `server/src/lib/dns/providers/index.ts` 中导出
+提供商是类驱动适配器，按目录落地、在 `registry.ts` 声明，**不存在** `DnsHelper.ts` 里的 switch / `DNS_PROVIDERS` 映射表。完整规范见 [`root.ai.md`](root.ai.md) §DNS提供商适配器，要点：
+
+1. **实现适配器**：`server/src/lib/dns/providers/<name>/` 下建 `adapter.ts`（实现 `DnsAdapter`，继承 `providers/common.ts` 的 `BaseAdapter`）、`auth.ts`、`index.ts`。
+2. **HTTP 必须走代理通道**：`requestJson` / `requestXml`（`providers/http.ts`）或 `fetchWithFallback`。**禁止原生 `fetch`**，代理环境下会挂死。
+3. **注册定义**：在 `providers/registry.ts` 的 `PROVIDERS` 中补齐名称、能力位、`ProviderConfigField[]`、`lineSource` + `defaultLine`、`capabilities.redirect`；适配器类在 `providers/index.ts` 具名导出，装配由 `registry.ts` 的 `adapterFactory` 负责。
+4. **守约**：`RecordId` 必须是上游真实 ID（或 `null`，不得用 `'success'`/`0` 兜底）；`getRecordLines()` 失败必须抛错；能力位必须在执行点校验（§DNS接口定义 2.1–2.3）。
+5. **契约测试**：`server/src/lib/dns/__tests__/adapter-contract.test.ts`、`line-normalizer.test.ts` 必须通过（校验 `DEFAULT_LINE` 与 registry 的 `defaultLine` 一致）。
+6. **前端不用改**：账户表单由 `ProviderConfigField[]` 生成，客户端没有硬编码的提供商列表。
 
 适配器需要实现 `DnsAdapter` 接口：
 
@@ -350,25 +351,24 @@ interface DnsAdapter {
 ## 技术栈
 
 **后端:**
-- Node.js + TypeScript
+- Node.js ≥ 24.22.1 + TypeScript
 - Express.js
-- SQLite (better-sqlite3)、MySQL (mysql2)、PostgreSQL (pg)
+- SQLite（Node.js 内置 `node:sqlite`，需 Node 24）、MySQL (mysql2)、PostgreSQL (pg)
 - JWT 认证
 - Swagger/OpenAPI 文档
 - node-cron / node-schedule: 定时任务调度
 - nodemailer: 邮件发送
 - @simplewebauthn/server: WebAuthn 支持
-- speakeasy: TOTP 生成验证
-- axios: HTTP 客户端
+- otplib: TOTP 生成校验
+- HTTP 客户端：原生 `fetch` + `server/src/lib/proxy-http.ts`（无 axios）
 
 **前端:**
-- React 18 + TypeScript
-- Vite
-- TailwindCSS v3
-- React Router v6
-- @tanstack/react-query
-- Axios
-- lucide-react
+- React 19 + TypeScript
+- Vite 8
+- TailwindCSS v3.4
+- React Router 7
+- @tanstack/react-query 5
+- lucide-react（唯一图标集，不引入 UI 组件库）
 - react-hook-form: 表单管理
 - zod: 数据验证
 - date-fns: 日期处理
@@ -376,29 +376,18 @@ interface DnsAdapter {
 
 ## License
 
-MIT
+GPL-3.0，详见 [LICENSE](LICENSE)。
 
-## 多语言支持 (i18n) 与贡献指南
+## 语言策略
 
-HiDNS 使用 `react-i18next` 进行国际化（i18n）支持。目前已支持的语言包括：英文、简体中文、西班牙语和日语。
+界面**只有简体中文**。i18next 相关依赖与 `client/src/i18n/**`、`client/src/pages/**` 已在 2026-10 前端重构中全部删除——没有语言切换器、没有 `resources` 映射、没有待翻译的键。
 
-我们非常欢迎社区参与多语言的共建！如果你想添加新的语言支持，请参考以下步骤：
+- 文案位置：`client/src/copy/zh-CN.ts` 与各 `client/src/features/<domain>/` 模块内部。
+- 新增语言目前不是受支持的贡献路径；重新引入 i18n 框架属于架构变更，`root.ai.md` §客户端架构 明确禁止。
 
-1. 复制现有的语言文件（例如 `client/src/i18n/locales/zh-CN.ts`）并重命名为新的语言代码，如 `fr.ts`（法语）。
-2. 将文件中的对应字符串翻译为目标语言。
-3. 在 `client/src/i18n/index.ts` 中引入你的新文件，并添加到 `resources` 对象中。
-4. 在 `client/src/pages/Settings.tsx` 中的语言选择器里添加你的新语言选项。
+## 提交 PR
 
-**提示：** 我们强烈推荐使用 VS Code 插件 [i18n-ally](https://marketplace.visualstudio.com/items?itemName=Lokalise.i18n-ally)。本项目已经内置了 `.vscode/settings.json` 配置，你可以利用它直接在编辑器中查看翻译缺失情况并高效管理多语言键值。
-
-## 添加新的 DNS 提供商
-
-我们开箱即支持多个 DNS 提供商（Cloudflare, 阿里云, 腾讯云, 华为云, DNSPod, GoDaddy）。如果你使用的提供商尚未支持，你可以很方便地自行添加：
-
-1. **实现适配器**：在 `server/src/lib/dns/providers/` 下创建一个新文件，实现 `DnsAdapter` 接口。
-2. **注册适配器**：在 `server/src/lib/dns/DnsHelper.ts` 的工厂方法中添加你的适配器。
-3. **更新前端**：在 `client/src/pages/Accounts.tsx` 的 `PROVIDERS` 列表中添加你的提供商及其所需的配置字段。
-4. **提交 PR**：我们非常欢迎 Pull Requests！请确保你的代码符合现有的代码风格并能通过测试。
+新增提供商、接口或表结构前，先读 [`root.ai.md`](root.ai.md)：它是唯一的工程规范。提交信息按 §提交信息格式 写（首行 `type(scope): 描述`，正文 `详细描述：` 分段）。
 
 ---
 
@@ -409,7 +398,7 @@ HiDNS 项目采用严格的 AI 代码审核机制，确保代码质量和项目�
 ### 审核标准
 
 - **P0 级别**（必须修复）：数据库规范、安全漏洞、功能缺陷
-- **P1 级别**（建议修复）：代码质量、性能优化、i18n 完整性
+- **P1 级别**（建议修复）：代码质量、性能优化、跨层调用（§数据库 2）、日志未限流（§日志 9）
 - **P2 级别**（可选优化）：代码注释、命名规范、抽象复用
 
 ### 核心要求
@@ -418,14 +407,15 @@ HiDNS 项目采用严格的 AI 代码审核机制，确保代码质量和项目�
 2. ✅ JWT 认证使用双层密钥结构
 3. ✅ 完整的日志记录（请求、响应、错误、业务操作）
 4. ✅ 支持 OAuth2/OIDC 标准
-5. ✅ 完整的 i18n 多语言支持
+5. ✅ Schema 声明式管理（DSM），禁止散落 DDL
 
 ### 文档链接
 
 - [开发规范](docs/DEVELOPMENT.md) - 代码规范、数据库规范、开发流程
-- [AI 审核团](ai-censorship/root.md) - 代码审核标准和审查清单
+- [项目规范 root.ai.md](root.ai.md) —— **权威**：数据库分层、日志、路由、提供商、客户端结构、门禁、发布与审核流程
+- [文档中心](docs/README.md) —— 哪份文档权威、哪份是历史归档
 - [架构文档](docs/architecture/overview.md) - 系统架构设计
-- [API 文档](docs/api-reference.md) - 完整的 RESTful API 参考
+- [API 文档](docs/api.md) —— **权威**：端点、参数、鉴权、令牌权限映射
 
 ## Star History
 
@@ -439,7 +429,7 @@ HiDNS 项目采用严格的 AI 代码审核机制，确保代码质量和项目�
 
 ## 社区与支持
 
-- **GitHub 仓库**: https://github.com/HiPM-Tech/DNSMgr
+- **GitHub 仓库**: https://github.com/HiPM-Tech/HiDNS
 - **Telegram 群组**: https://t.me/HiDNSManager
 - **开源协议**: GPL-3.0
 

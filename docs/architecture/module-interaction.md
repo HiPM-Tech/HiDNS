@@ -185,7 +185,7 @@ graph TB
 ```
 用户请求 
   → Rdap Routes (/api/rdap/:domain)
-  → WHOIS Service (whoisService.ts)
+  → WHOIS Service (whois/lookup.ts)
   → WHOIS Scheduler (调度器接口)
   → DNS Provider WHOIS API
   → 第三方 WHOIS/RDAP (fallback)
@@ -196,7 +196,7 @@ graph TB
 **后台定时刷新:**
 ```
 Task Manager (定时触发)
-  → whoisJob.ts
+  → whois/scheduler.ts
   → 查询 pinned_domains
   → WHOIS Service
   → 更新 whois_cache
@@ -205,9 +205,9 @@ Task Manager (定时触发)
 
 **关键文件:**
 - `server/src/routes/rdap.ts`
-- `server/src/service/whoisService.ts`
-- `server/src/service/whoisScheduler.ts`
-- `server/src/service/whoisJob.ts`
+- `server/src/service/whois/lookup.ts`
+- `server/src/service/whois/scheduler.ts`
+- `server/src/service/whois/scheduler.ts`
 
 ### 域名续期数据流
 
@@ -253,7 +253,7 @@ Task Manager (每 5 分钟触发)
 
 **关键文件:**
 - `server/src/service/nsMonitorJob.ts`
-- `server/src/service/failover.ts`
+- `server/src/service/serviceMonitor.ts`
 - `server/src/service/notification.ts`
 
 ### 定时任务数据流
@@ -271,20 +271,20 @@ Task Manager
 
 **关键文件:**
 - `server/src/service/taskManager.ts`
-- `server/src/service/whoisJob.ts`
+- `server/src/service/whois/scheduler.ts`
 - `server/src/service/domainRenewalJob.ts`
 - `server/src/service/nsMonitorJob.ts`
-- `server/src/service/failoverJob.ts`
+- `server/src/service/serviceMonitorJob.ts`
 
 ## 关键模块职责说明
 
 | 模块 | 文件位置 | 职责 | 依赖 |
 |------|---------|------|------|
 | **Task Manager** | `service/taskManager.ts` | 统一管理后台任务并发与优先级 | node-cron, Database |
-| **WHOIS Service** | `service/whoisService.ts` | WHOIS 查询与缓存管理 | WHOIS Scheduler, Database |
+| **WHOIS Service** | `service/whois/lookup.ts` | WHOIS 查询与缓存管理 | WHOIS Scheduler, Database |
 | **Renewal Service** | `service/renewalScheduler.ts` | 域名续期调度与执行 | Renewal Scheduler, Database |
 | **NS Monitor Job** | `service/nsMonitorJob.ts` | NS 记录监测与告警 | Task Manager, Failover Service |
-| **Failover Service** | `service/failover.ts` | 故障转移逻辑执行 | DNS Helper, Notification Service |
+| **Failover Service** | `service/serviceMonitor.ts` | 故障转移逻辑执行 | DNS Helper, Notification Service |
 | **Audit Service** | `service/audit.ts` | 审计日志记录与导出 | Database, File System |
 | **Notification Service** | `service/notification.ts` | 邮件/Webhook 通知 | SMTP, Database |
 | **Token Service** | `service/token.ts` | API Token 管理 | Database, Crypto |

@@ -1,234 +1,94 @@
 # HiDNS 文档中心
 
-> 🚀 现代化的 DNS 聚合管理平台 | 支持 19+ DNS 服务商 | v1.4.3
+> **单一真源原则**：文档与代码冲突时，以本页「真源」表为准；本目录其余文档都是对真源的展开或解释，冲突即改它。
 
-<p align="center">
-  <a href="api-reference.md">🔌 API 文档</a> •
-  <a href="development/quick-start.md">🚀 快速开始</a> •
-  <a href="architecture/overview.md">🏗️ 架构设计</a> •
-  <a href="CHANGELOG.md">📋 更新日志</a>
-</p>
+## 一、真源（冲突时以此为准）
 
----
+| 层级 | 文件 | 管什么 |
+|---|---|---|
+| 1 | [`root.ai.md`](https://github.com/HiPM-Tech/HiDNS/blob/main/root.ai.md)（仓库根） | 全部工程规范：数据库四层与调用链、日志、路由注册、DNS 提供商接入、客户端结构、门禁命令、发布流程、代码审核团 |
+| 2 | [`docs/api.md`](api.md) | 对外 API 唯一权威：端点、参数、返回、鉴权、权限映射 |
+| 3 | 代码本身 | `server/src/api/index.ts`（模块清单与挂载顺序）、`server/src/lib/dns/providers/registry.ts`（提供商定义）、三个 `package.json`（版本 / engines）、`LICENSE` |
 
-## 📚 文档导航
+改文档前先看这三处；改代码后先回写这两处（`root.ai.md` / `docs/api.md`），其余文档按需跟进。
 
-### 📖 项目概述
-- [项目概览](README.md) - 项目基本信息和功能特性
-- [中文介绍](README_zh.md) - 中文版项目介绍
-- [更新日志](CHANGELOG.md) - 版本更新记录
+## 二、当前事实（从真源推导，禁止手写近似值）
 
-### 🔌 API 文档
-- [API 参考](api-reference.md) - 完整的 RESTful API 文档
-- [API Token 认证](architecture/api-token.md) - API Token 使用指南
-- [错误码说明](api-error-codes.md) - 完整错误码参考
+| 项 | 值 | 来源 |
+|---|---|---|
+| 版本 | 2.3.0 | 根 / `server` / `client` 的 `package.json` |
+| DNS 提供商 | 26 个（`virtual` 不计入可用提供商） | `providers/registry.ts` 的 `PROVIDERS` |
+| API 模块 | 23 个 | `api/index.ts` 的 `buildApiModules()` |
+| Node.js | ≥ 24.22.1 | 根 `package.json` 的 `engines` |
+| 数据库 | SQLite（默认）/ MySQL / PostgreSQL；四层 DL → DAL → BAL → DSM | `root.ai.md` §代码规范·数据库 |
+| 前端 | React 19 + Vite 8 + React Router 7 + TanStack Query 5 + Tailwind 3.4 | `client/package.json` |
+| 语言 | 单一简体中文（无 i18n 框架，2026-10 已移除） | `root.ai.md` §客户端架构 |
+| 协议 | GPL-3.0 | `LICENSE` |
 
-### 🚀 快速开始
-- [环境搭建](development/quick-start.md) - 环境搭建和开发流程
-- [Docker 部署](development/docker-deploy.md) - Docker 部署指南
-- [配置指南](development/configuration.md) - 系统配置说明
+## 三、文档分级
 
-### 🏗️ 架构设计
-- [架构概览](architecture/overview.md) - 系统整体架构
-- [业务适配器层](architecture/business-adapter.md) - 核心数据访问层（SQL 集中管理）
-- [数据库层架构](architecture/database-layer.md) - 三层数据库架构
-- [DNS 核心层](architecture/dns-core.md) - DNS 服务商适配器架构
-- [认证与授权](architecture/authentication.md) - 安全认证体系
-- [API 路由](architecture/api-routes.md) - RESTful API 设计
-- [模块说明](architecture/modules.md) - 前后端模块结构
+### 3.1 权威文档（必须随代码同步）
 
-### 🔄 流程文档
-- [用户认证流程](flow/authentication-flow.md) - 登录认证完整流程
-- [OAuth 登录流程](flow/oauth-flow.md) - OAuth 登录完整流程
-- [OAuth 绑定流程](flow/oauth-bind-flow.md) - OAuth 账号绑定流程
-- [DNS 记录管理流程](flow/dns-record-flow.md) - 记录操作业务流程
-- [数据库初始化流程](flow/database-init-flow.md) - 数据库初始化流程
+| 文档 | 说明 |
+|---|---|
+| [API 参考](api.md) | 端点、参数、鉴权、权限映射。**新增或修改接口必须同一提交内更新** |
+| [开发规范](DEVELOPMENT.md) | 仅作 `root.ai.md` 的导读与历史差异说明；规范条文以根 `root.ai.md` 为准 |
+| [错误码](api-error-codes.md) | 错误码与信封约定 |
+| [数据库层](architecture/database-layer.md) | DL / DAL / BAL / DSM 四层与调用链 |
+| [API 路由](architecture/api-routes.md) | 模块清单、挂载顺序、服务归属与守卫（方法级细节见 `api.md`） |
+| [认证与授权](architecture/authentication.md) | JWT / API Token / WebAuthn / OAuth |
+| [API Token 认证](architecture/api-token.md) | 令牌模型、服务门禁、域名白名单 |
+| [DNS 核心层](architecture/dns-core.md) | 提供商适配器与 registry |
+| [提供商接入](providers/MIGRATION_GUIDE.md) | 新增提供商的落地步骤（以 `registry.ts` 为准） |
 
-### 🛡️ 审核与规范
-- [开发规范](DEVELOPMENT.md) - 代码规范、数据库规范、开发流程
-- [AI 审核团](../ai-censorship/root.md) - 代码审核标准和审查清单
+### 3.2 参考文档（解释性，允许滞后于代码，但不得与真源矛盾）
 
----
+- [架构概览](architecture/overview.md)、[模块说明](architecture/modules.md)、[模块交互](architecture/module-interaction.md)
+- [业务适配器层](architecture/business-adapter.md)、[DSM 完整分析](architecture/dsm-complete-analysis.md)、[声明式 Schema 设计](DECLARATIVE_SCHEMA_DESIGN.md)
+- [虚拟 DNS 提供商](VIRTUAL_PROVIDER.md)、[加密回退](ENCRYPTION_FALLBACK.md)
+- 流程类：`flow/` 下 7 篇
+- 开发类（现行）：`development/quick-start.md`、`docker-deploy.md`、`configuration.md`、`task-manager.md`、`domain-list-api-format.md`
+- 专题：`RESOURCE_MONITOR_DESIGN.md`、`WORKFLOW_ENGINE_DESIGN.md`（设计意图，实现以代码为准）
 
-## 🎯 项目特点
+### 3.3 历史归档（**不作为实现依据**，仅供考古）
 
-HiDNS 是一个现代化的 DNS 聚合管理平台，具有以下特点：
-
-| 特性 | 说明 |
-|------|------|
-| 🌐 **19+ DNS 服务商** | 阿里云、腾讯云、华为云、Cloudflare、VPS8 等 |
-| 🏗️ **三层数据库架构** | 业务适配器层 → 数据库抽象层 → 驱动层 |
-| 📝 **SQL 集中管理** | 所有 SQL 语句集成在业务适配器层 |
-| 💾 **多数据库支持** | SQLite、MySQL、PostgreSQL |
-| 🔐 **完整权限系统** | RBAC 角色权限 + 域名级权限控制 |
-| 📊 **审计日志** | 完整的操作审计和导出功能 |
-| 🔔 **多通知渠道** | 邮件、Webhook、Telegram、钉钉 |
-| 🌍 **多语言支持** | 10+ 语言，包括 Mesugaki 风格 |
-| 🔌 **完整 API** | RESTful API + API Token 认证 |
-| 🛡️ **AI 审核团** | 严格的代码审核机制 |
-
----
-
-## 🏛️ 架构亮点
-
-### 业务适配器层（核心创新）
-
-业务适配器层是 HiDNS 的核心设计，所有 SQL 语句都集中管理在此层：
-
-```typescript
-// 业务代码只能通过 API 调用
-import { UserOperations, DomainOperations } from '../db';
-
-const user = await UserOperations.getById(1);
-const domains = await DomainOperations.getByAccountId(accountId);
-```
-
-**设计原则**：
-1. ✅ SQL 语句集中管理，便于维护和优化
-2. ✅ 业务代码禁止直接编写 SQL
-3. ✅ 自动日志记录和性能监控
-4. ✅ 类型安全的 TypeScript 支持
-
-### 三层数据库架构
+以下文档是某一时点的过程记录或方案稿。读它们之前先问：结论是否已落进代码或上面的权威文档？
 
 ```
-路由/Service层 → 业务适配器层 → 数据库抽象层 → 驱动层 → 数据库
+refactor/00-PLAN.md            refactor/04-AUDIT-2.3.0.md
+MCP_IMPLEMENTATION_PLAN.md     MCP_PROGRESS.md
+WORKFLOW_ENGINE_NAMESPACE_PLAN.md   WORKFLOW_ORIGIN_GROUP_ACCOUNT_FIRST.md
+RELEASE_NOTES_v1.7.2.md        FIXES.md        KNOWN_ISSUES.md
+development/dsm-*.md（5 篇，含 dsm-review-summary）
+development/websocket-*.md（4 篇）
+development/sqlite-enabled-migration-audit.md
+development/database-enabled-migration-comparison.md
+development/audit-log-enhancement.md
+review/（历史审查记录）
 ```
 
-- **业务适配器层**：封装所有业务 SQL 操作
-- **数据库抽象层**：统一连接管理和类型定义
-- **驱动层**：MySQL/PostgreSQL/SQLite 具体实现
+> 这些文件里引用的源码路径多半已在 2026-10 重构中失效：前端 `client/src/pages/`、`client/src/i18n/`、`client/src/hooks/` 已删除，后端 `server/src/db/` 的平铺结构已拆到 `dl/`、`dal/`、`bal/`、`dsm/`。引用其中代码片段前，先确认路径在 HEAD 上仍然存在。
+>
+> `CHANGELOG.md` 同理：它是历史记录，条目里出现的旧路径反映当时状态，**不随重构回写**。这也是上节死链自检会持续报出这些文件的原因——它们不是待修的 bug，是已归档的史料。
 
----
-
-## 🔌 API Token 快速接入
-
-### 1. 创建 API Token
-
-```http
-POST /api/tokens
-Authorization: Bearer <user-jwt>
-Content-Type: application/json
-
-{
-  "name": "CI/CD Token",
-  "allowed_domains": [1, 2, 3]
-}
-```
-
-### 2. 使用 Token 调用 API
+## 四、本地校验
 
 ```bash
-curl -X GET "https://hidns.example.com/api/domains" \
-  -H "Authorization: Bearer hidns_xxx..."
+# 客户端与服务端门禁（与 CI 同一套，缺一不可）
+(cd client && npx tsc -b && npx vitest run && npx vite build && npx eslint .)
+(cd server && npx tsc --noEmit && npx vitest run && npx eslint . --max-warnings=0)
+
+# 文档死链自检：列出文档中引用但不存在的源码路径
+grep -rhoE '\b(server|client)/src/[A-Za-z0-9_./-]+\.(ts|tsx)' docs | sort -u |
+  while read -r p; do [ -e "$p" ] || echo "MISS $p"; done
 ```
 
-### 3. Python SDK 示例
+## 五、改文档的三条规矩
 
-```python
-from hidns import HiDNSClient
-
-client = HiDNSClient('https://hidns.example.com', 'hidns_xxx...')
-domains = client.get_domains()
-```
-
-👉 [查看完整 API 文档](api-reference.md)
+1. **只写可核对的数字**：版本、提供商数量、模块数量、Node 版本这类值，从真源取，不要凭记忆写。写"最新"这类词没有意义——要么给具体值，要么删掉。
+2. **不复制方法级 API 表**：端点细节只存在于 `docs/api.md`。其它文档要提接口，用链接，不复制表格，否则一定会分叉。
+3. **过期就标，不要删**：确认失效的文档移到 3.3 清单，并说明"以哪份为准"。历史记录有价值，虚假的现状没有。
 
 ---
 
-## 🚀 快速部署
-
-### Docker 一键部署
-
-```bash
-docker run -d \
-  --name hidns \
-  -p 3001:3001 \
-  -v $(pwd)/data:/app/data \
-  ghcr.io/hipm-tech/hidns:latest
-```
-
-### 开发环境
-
-```bash
-# 克隆仓库
-git clone https://github.com/HiPM-Tech/HiDNS.git
-cd HiDNS
-
-# 安装依赖
-pnpm install
-
-# 启动开发服务器
-pnpm dev
-```
-
-👉 [查看详细部署指南](development/quick-start.md)
-
----
-
-## 🌍 多语言支持
-
-HiDNS 支持以下语言：
-
-| 语言 | 代码 | 状态 |
-|------|------|------|
-| 简体中文 | zh-CN | ✅ 完整 |
-| 简体中文 (Mesugaki) | zh-CN-Mesugaki | ✅ 完整 |
-| English | en | ✅ 完整 |
-| 日本語 | ja | ✅ 完整 |
-| 한국어 | ko | ✅ 完整 |
-| Français | fr | ✅ 完整 |
-| Deutsch | de | ✅ 完整 |
-| Español | es | ✅ 完整 |
-| Português | pt | ✅ 完整 |
-| Русский | ru | ✅ 完整 |
-| العربية | ar | ✅ 完整 |
-
----
-
-## 📊 系统要求
-
-| 组件 | 最低要求 | 推荐配置 |
-|------|----------|----------|
-| Node.js | 18.x | 20.x LTS |
-| 内存 | 512MB | 1GB+ |
-| 存储 | 100MB | 1GB+ |
-| 数据库 | SQLite | MySQL/PostgreSQL |
-
----
-
-## 🛡️ AI 审核团
-
-HiDNS 项目采用严格的 AI 代码审核机制，确保代码质量和项目规范：
-
-### 审核标准
-
-- **P0 级别**（必须修复）：数据库规范、安全漏洞、功能缺陷
-- **P1 级别**（建议修复）：代码质量、性能优化、i18n 完整性
-- **P2 级别**（可选优化）：代码注释、命名规范、抽象复用
-
-### 核心要求
-
-1. ✅ 所有数据库操作必须通过业务适配器层
-2. ✅ JWT 认证使用双层密钥结构
-3. ✅ 完整的日志记录（请求、响应、错误、业务操作）
-4. ✅ 支持 OAuth2/OIDC 标准
-5. ✅ 完整的 i18n 多语言支持
-
-👉 [查看完整审核标准](../ai-censorship/root.md)
-
----
-
-## 🔗 相关链接
-
-- [GitHub 仓库](https://github.com/HiPM-Tech/HiDNS)
-- [问题反馈](https://github.com/HiPM-Tech/HiDNS/issues)
-- [MIT 协议](../LICENSE)
-
----
-
-<p align="center">
-  Made with ❤️ by HiPM Tech
-</p>
-
-*最后更新：2025年4月*
+*本页是文档索引，不是项目介绍。项目介绍见[仓库 README](../README.md)。*

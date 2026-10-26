@@ -200,7 +200,7 @@ graph TB
 
 **添加 whois_cache 表:**
 ```typescript
-// server/src/db/schemas/sqlite.ts
+// server/src/db/dsm/schemas/generate-sql.ts（sqliteSchema）
 conn.exec(`
   CREATE TABLE IF NOT EXISTS whois_cache (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

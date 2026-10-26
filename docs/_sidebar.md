@@ -9,7 +9,8 @@
   - [配置指南](development/configuration.md)
 
 - 🔌 **API 文档**
-  - [API 参考](api-reference.md)
+  - [API 参考（权威）](api.md)
+  - [API 索引 / 旧版归档](api-reference.md)
   - [API Token 认证](architecture/api-token.md)
   - [错误码说明](api-error-codes.md)
 
@@ -35,8 +36,9 @@
   - [定时任务流程](flow/scheduled-tasks-flow.md)
 
 - 🛠️ **开发指南**
-  - [开发规范](DEVELOPMENT.md)
+  - [开发规范导读（条文见 root.ai.md）](DEVELOPMENT.md)
   - [数据库迁移](development/database-migration-improvements.md)
+  - [项目规范 root.ai.md（GitHub）](https://github.com/HiPM-Tech/HiDNS/blob/main/root.ai.md)
 
 - 🧩 **提供商指南**
   - [DNS 提供商迁移](providers/MIGRATION_GUIDE.md)

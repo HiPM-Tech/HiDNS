@@ -77,38 +77,45 @@
      - 查询构建器（`server/src/db/dal/query/builder.ts`）提供链式调用构建 SQL 查询的接口。
      - SQL 编译器（`server/src/db/dal/query/compiler.ts`）负责将抽象查询语法转换为具体数据库查询语句。
      - 标识符处理（`server/src/db/dal/query/identifier.ts`）处理表名、列名的转义。
-7. 数据库操作模块列表
-    - `UserOperations`：用户管理操作
-    - `DnsAccountOperations`：DNS 账户操作
-    - `DomainOperations`：域名操作
-    - `TeamOperations`：团队管理操作
-    - `SettingsOperations`：系统设置操作
+7. 数据库操作模块列表（真源：`server/src/db/bal/business-adapter.ts` 的 `export const *Operations`，当前 38 个；`AuditRuleOperations` 与 `AuditRulesOperations` 为历史重复，同列一行）
+    - 新增、合并或删除操作模块时，同一提交内更新本表；本表与代码不一致时以代码为准。
+    - `AuditExportOperations`：审计导出操作
+    - `AuditLogOperations`：审计日志查询操作
     - `AuditOperations`：审计日志操作
-    - `TokenOperations`：API 令牌操作
+    - `AuditRuleOperations` / `AuditRulesOperations`：审计规则操作（两者都在，历史重复；合并前不要新增第三个）
+    - `DnsAccountOperations`：DNS 账户操作
+    - `DomainExpiryOperations`：域名到期相关操作
+    - `DomainOperations`：域名操作
+    - `DomainPermissionOperations`：域名级权限操作
+    - `EmailTemplateOperations`：邮件模板操作
+    - `FailoverOperations`：故障转移操作
+    - `GroupedDomainsCacheOperations`：域名分组缓存操作
+    - `LoginLimitOperations`：登录限制操作
+    - `McpOperations`：MCP 操作
+    - `NSMonitorOperations`：NS 监控操作
+    - `NotificationOperations`：通知操作
+    - `OAuthOperations`：OAuth 认证操作
+    - `RdapCacheOperations`：RDAP 缓存操作
+    - `RecordOperations`：解析记录操作
+    - `RenewableDomainOperations`：可续期域名操作
     - `SecretOperations`：运行时密钥操作
     - `SecurityPolicyOperations`：安全策略操作
-    - `TrustedDeviceOperations`：信任设备操作
-    - `UserPreferencesOperations`：用户偏好操作
+    - `ServiceMonitorOperations`：服务监控操作
     - `SessionOperations`：会话管理操作
-    - `LoginLimitOperations`：登录限制操作
-    - `FailoverOperations`：故障转移操作
-    - `AuditExportOperations`：审计导出操作
+    - `SettingsOperations`：系统设置操作
+    - `SmtpOperations`：SMTP 配置操作
+    - `SystemCacheOperations`：系统缓存操作
+    - `SystemOperations`：系统级操作
     - `TOTPOperations`：TOTP 二次认证操作
-    - `WorkflowOperations`：自动化工作流与运行记录操作（`workflows` / `workflow_runs` 两表，运行记录保留最近 500 条/工作流）
+    - `TeamOperations`：团队管理操作
+    - `TokenOperations`：API 令牌操作
+    - `TrustedDeviceOperations`：信任设备操作
+    - `TwoFAOperations`：双因素认证操作
+    - `UserOperations`：用户管理操作
+    - `UserPreferencesOperations`：用户偏好操作
     - `WebAuthnOperations`：WebAuthn 操作
-     - `SmtpOperations`：SMTP 配置操作
-     - `WhoisOperations`：WHOIS 查询操作
-     - `AuditRulesOperations`：审计规则操作
-     - `AuditLogOperations`：审计日志查询操作
-     - `OAuthOperations`：OAuth 认证操作
-     - `TwoFAOperations`：双因素认证操作
-     - `TransactionOperations`：事务管理操作
-     - `NSMonitorOperations`：NS 监控操作
-     - `RdapCacheOperations`：RDAP 缓存操作
-     - `SystemCacheOperations`：系统缓存操作
-     - `RenewableDomainOperations`：可续期域名操作
-     - `PasswordResetOperations`：密码重置操作
-     - `McpOperations`：MCP 操作
+    - `WhoisOperations`：WHOIS 查询操作
+    - `WorkflowOperations`：自动化工作流与运行记录操作（`workflows` / `workflow_runs` 两表，运行记录保留最近 500 条/工作流）
 8. 数据库初衷
     - 数据库是用户实例数据存储的根本原因，需要确保数据的安全性和可靠性。
     - 因此在设计初期使用多层架构将数据库职责拆分，减少数据库驱动层的直接调用，提高数据库操作的可维护性和可扩展性。
