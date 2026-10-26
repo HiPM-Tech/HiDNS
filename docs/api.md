@@ -772,11 +772,46 @@ Content-Type: `application/rdap+json`
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/tokens` | 列出用户 API Token |
-| POST | `/api/tokens` | 创建 Token `{ name, allowed_domains, allowed_services?, max_role?, start_time?, end_time? }`；`allowed_services` 未传默认 `["*"]`（与创建者同权限），`max_role` 不得高于创建者角色（超出返回 403、非法值 400） |
-| PUT | `/api/tokens/:id` | 更新 Token `{ name?, allowed_domains?, start_time?, end_time? }` |
+| POST | `/api/tokens` | 创建 Token `{ name, allowed_domains, allowed_services?, max_role?, start_time?, end_time? }`；`allowed_services` 未传默认 `{"dns":["*"],"mcp":["*"]}`，`max_role` 不得高于创建者角色（超出返回 403、非法值 400） |
+| PUT | `/api/tokens/:id` | 更新 Token `{ name?, allowed_domains?, allowed_services?, start_time?, end_time? }`；未传 `allowed_services` 时保留原权限 |
 | DELETE | `/api/tokens/:id` | 删除 Token |
 | PATCH | `/api/tokens/:id/status` | 切换 Token 状态 `{ is_active }` |
 | GET | `/api/tokens/domains` | 获取用户可访问的域名列表 |
+
+### 服务与操作权限
+
+`allowed_services` 在创建、更新及列表响应中均为对象，不再是字符串数组：
+
+```json
+{
+  "allowed_services": {
+    "dns": ["domains.read", "records.read", "records.write"],
+    "mcp": ["*"]
+  }
+}
+```
+
+- 缺少服务键即禁止该服务。`{}` 无服务权限；`{"dns":[]}` 无 DNS 权限。
+- `dns:["*"]` 允许当前 DNS 服务内的全部操作；写权限不隐含读权限。
+- MCP 暂不细分，仅接受 `mcp:["*"]` 或不配置 `mcp`。MCP 工具仍使用专用 API Key / OAuth 认证，UserToken 不因此获得工具调用凭据。
+- 新建/更新传入旧数组、未知服务、未知权限或错误类型返回 400。
+- 数据库仍保存 JSON；启动时将旧数组迁移为对象：`["dns"]` → `{"dns":["*"]}`，`["mcp"]` → `{"mcp":["*"]}`，`["*"]` → `{"dns":["*"],"mcp":["*"]}`。历史读取亦兼容数组，不赋予未来新增服务权限。
+- 操作权限与现有角色、团队资源权限、域名白名单取交集，不取代它们。禁止 API Token 的端点仍要求 JWT。
+- 仅更新操作权限不会清除原有有效期；`start_time` / `end_time` 未传时保留，显式传 `null` 或空字符串才清除对应时间限制。
+
+| DNS 权限 | 对应接口 |
+|---|---|
+| `accounts.read` / `accounts.write` | `/api/accounts` 的读取 / 写入（提供商列表除外） |
+| `domains.read` / `domains.write` | `/api/domains` 的读取 / 写入，含同步、WHOIS 刷新、续期等写操作 |
+| `records.read` / `records.write` | `/api/domains/:domainId/records` 的读取及导出 / 创建、修改、删除、状态修改和批量导入 |
+| `records.read` | `/api/domains/:id/lines`、`/api/domains/:id/record-types` |
+| `providers.read` | `/api/providers/*`、`/api/accounts/providers` |
+| `email-templates.read` | `/api/domains/email-templates/*`（含预览） |
+| `ns-monitor.read` / `ns-monitor.write` | `/api/ns-monitor` 的读取 / 写入；`POST /resolve-ns` 按读取校验，手动检查按写入校验 |
+| `servicemonitor.read` / `servicemonitor.write` | `/api/servicemonitor` 的读取 / 写入及手动检查 |
+| `workflow.read` / `workflow.write` / `workflow.run` | 工作流的读取 / 写入 / 手动运行及测试；写入、运行和测试仍额外要求 JWT，不能通过 UserToken 执行 |
+
+读取包括 GET/HEAD；其余方法默认按写入处理（上表明确列出的例外除外）。权限不足返回 403。未声明服务归属的其他 API 模块继续执行各自原有认证与授权规则，不受本表的 DNS 操作权限控制。
 
 ---
 

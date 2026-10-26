@@ -5,6 +5,7 @@ import { SchemaVersionManager } from './migration-manager';
 import { sqliteSchema } from './schemas/generate-sql';
 import { getConnection } from '../dal/connection';
 import { createLogger } from '../../lib/logger';
+import { migrateTokenServicePermissions } from '../../service/token-migration';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -42,6 +43,8 @@ export async function initializeDSM(dryRun = false): Promise<void> {
       } else {
         log.info( 'New database detected. Skipping data migrations.');
       }
+
+      await migrateTokenServicePermissions();
 
       log.info( 'Running integrity check...');
       const check = await reconciler.verify(COMPLETE_SCHEMA);
