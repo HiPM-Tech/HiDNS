@@ -1,5 +1,12 @@
 # 更新日志
 
+## [2.3.2] - 2026-10-26
+
+### 调整：默认背景图源更换
+
+- 默认背景图由 `t.alcy.cc/moez` 换成 `https://t.hinswu.top/pixiv`：`client/src/ui/tokens.css` 的 `--app-bg-image` 与落地页 `<img>` 同步更新。
+- 设置页「背景图地址」的说明文案跟着改；`VITE_DEFAULT_BACKGROUND=none` 关闭外连、自定义 http(s) 地址覆盖的行为不变。
+- 同步更新 `root.ai.md` §客户端架构 5 的默认图源描述（CSS 变量与落地页引用同一地址）。
 ## [2.3.1] - 2026-10-26
 
 ### 修复：登录页在已有有效会话时仍停留在表单

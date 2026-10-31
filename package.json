@@ -1,6 +1,6 @@
 {
   "name": "dnsmgr",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "private": true,
   "description": "DNS Aggregation Management Platform",
   "license": "GPL-3.0",
