@@ -78,7 +78,7 @@ export function LandingPage() {
           {/* 右列：把默认背景图当成构图元素，而不是整页铺满（正文压图必然牺牲可读性） */}
           <div className="hidden aspect-[376/608] overflow-hidden rounded-xl border border-border/60 shadow-lg lg:block" aria-hidden>
             {SHOW_REMOTE_BG && (
-              <img src="https://t.alcy.cc/moez" alt="" className="h-full w-full object-cover" loading="lazy" />
+              <img src="https://t.hinswu.top/pixiv" alt="" className="h-full w-full object-cover" loading="lazy" />
             )}
           </div>
         </section>

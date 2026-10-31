@@ -618,7 +618,7 @@
 5. 主题与背景
     - `lib/theme.tsx` 的 `ThemeProvider` 是唯一来源，包裹整个应用（含 `/login`、`/setup`、`/oauth/*`）。
     - 存储键 `theme`，取值 `light` / `dark` / `auto`（`auto` = 跟随系统）；`index.html` 内联脚本在首屏前应用，避免深色用户白闪。
-    - 背景图默认取第三方随机图源（`t.alcy.cc/moez`）：控制台经 `html[data-surface='console']` 加强蒙层当底纹，公开页按黄金分割分栏展示。
+    - 背景图默认取第三方随机图源（`https://t.hinswu.top/pixiv`）：控制台经 `html[data-surface='console']` 加强蒙层当底纹，公开页按黄金分割分栏展示；CSS 变量在 `client/src/ui/tokens.css` 的 `--app-bg-image`，落地页 `<img>` 单独引用同一地址。
     - **自托管/内网**：构建期设 `VITE_DEFAULT_BACKGROUND=none` 即可完全不请求第三方图源（`lib/theme.tsx` 与落地页共用同一开关）；运行期用户可在「设置 → 偏好 → 背景图地址」填 `none` 关闭或填自定义 http(s) 地址覆盖（服务端只存字符串，前端做协议白名单 + 转义，防 CSS 注入）。
 
 6. 门禁（客户端与服务端，两者都必须跑）

@@ -321,7 +321,7 @@ function PreferencesCard({ loading, data, onError, onSaved }: {
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  仅接受 http(s) 地址；留空表示使用默认背景（t.alcy.cc/moez），保存后立即生效。
+                  仅接受 http(s) 地址；留空表示使用默认背景（t.hinswu.top/pixiv），保存后立即生效。
                 </p>
                 {backgroundImage && backgroundImage !== 'none' && /^https?:\/\//.test(backgroundImage) && (
                   <div className="mt-1.5 h-[54px] w-24 overflow-hidden rounded-md border border-border">

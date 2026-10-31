@@ -66,7 +66,7 @@
     --shell-h: 100dvh;
 
     /* ── 背景图分层（L1 图 / L2 蒙层 / L3 结构面 / L4 内容面） ── */
-    --app-bg-image: url('https://t.alcy.cc/moez');
+    --app-bg-image: url('https://t.hinswu.top/pixiv');
     --scrim-rgb: 255 255 255;
     /* 0.72：背景图是彩色的实拍/插画，0.56 时正文区仍会被图案抢注意力（实测截图） */
     --scrim-alpha: 0.72;

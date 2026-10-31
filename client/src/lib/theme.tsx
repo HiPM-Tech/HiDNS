@@ -121,7 +121,7 @@ export function applyBackgroundPreference(raw: string | undefined | null): void 
 }
 
 /**
- * 默认背景图来自第三方随机图源（t.alcy.cc），自托管/内网实例默认会外连。
+ * 默认背景图来自第三方随机图源（t.hinswu.top/pixiv），自托管/内网实例默认会外连。
  * 构建期可用 `VITE_DEFAULT_BACKGROUND=none` 关掉（不请求、不显示），
  * 运行期仍可在「设置 → 偏好 → 背景图地址」填 `none` 或自定义 URL。
  */
