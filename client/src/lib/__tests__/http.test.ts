@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, ensureOk, http, requestRaw } from '../http';
+import { ApiError, ensureOk, http, loginRedirectUrl, requestRaw } from '../http';
 
 function mockFetch(body: unknown, status = 200) {
   const spy = vi.fn(async () =>
@@ -49,3 +49,28 @@ describe('lib/http 契约', () => {
     expect(() => ensureOk({ code: 0, data: null, msg: 'success' })).not.toThrow();
   });
 });
+
+describe('会话失效后的登录页落点', () => {
+  it('带来源路径：登录完能回到原页面', () => {
+    expect(loginRedirectUrl('/dash/domains', '?page=2'))
+      .toBe('/login?return_to=' + encodeURIComponent('/dash/domains?page=2'));
+  });
+
+  it('已经在登录页：不再叠加 return_to', () => {
+    expect(loginRedirectUrl('/login', '?return_to=%2Fdash')).toBe('/login');
+    expect(loginRedirectUrl('/login/sso')).toBe('/login');
+  });
+
+  it('根路径与协议相对路径一律退回裸 /login（防开放重定向）', () => {
+    expect(loginRedirectUrl('/')).toBe('/login');
+    expect(loginRedirectUrl('//evil.example/x')).toBe('/login');
+  });
+
+  it('超长路径截断到 512 字符', () => {
+    const url = loginRedirectUrl('/' + 'a'.repeat(800));
+    expect(url.startsWith('/login?return_to=')).toBe(true);
+    expect(url.length).toBeLessThan(600);
+    expect(decodeURIComponent(url.split('return_to=')[1])).toHaveLength(512);
+  });
+});
+

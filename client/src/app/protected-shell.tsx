@@ -1,12 +1,14 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AppShell } from './app-shell';
 import { RealtimeProvider } from './realtime';
 import { useSession } from '../features/session/use-session';
+import { loginRedirectUrl } from '../lib/http';
 import { Button } from '../ui';
 
 /** /dash/* 的统一外壳：校验会话 → 渲染新 Shell → 内容区由子路由提供 */
 export function ProtectedShell() {
   const { user, isLoading, isError, error, refetch } = useSession();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -32,7 +34,8 @@ export function ProtectedShell() {
       </div>
     );
   }
-  if (!user) return <Navigate to="/login" replace />;
+  // 带上来源路径：会话失效被踢回登录页，登录后还能回到原页面
+  if (!user) return <Navigate to={loginRedirectUrl(location.pathname, location.search)} replace />;
   return (
     // 实时连接只在已登录区域建立：未登录时后端会拒绝 WS 握手，避免无意义的重连风暴
     <RealtimeProvider>

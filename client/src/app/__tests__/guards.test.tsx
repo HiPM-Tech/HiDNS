@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProtectedShell } from '../protected-shell';
@@ -20,15 +20,26 @@ vi.mock('../../features/session/use-session', () => ({
     Boolean(user) && (Number(user?.role_level ?? 0) >= 2 || String(user?.role ?? '').toLowerCase().includes('admin')),
 }));
 
+function LoginProbe() {
+  const location = useLocation();
+  return (
+    <div>
+      <span>LOGIN_PAGE</span>
+      <span data-testid="login-search">{location.search}</span>
+    </div>
+  );
+}
+
 function renderApp(initial: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[initial]}>
         <Routes>
-          <Route path="/login" element={<div>LOGIN_PAGE</div>} />
+          <Route path="/login" element={<LoginProbe />} />
           <Route element={<ProtectedShell />}>
             <Route path="/dash" element={<div>DASH_PAGE</div>} />
+            <Route path="/dash/domains" element={<div>DOMAINS_PAGE</div>} />
             <Route element={<RequireAdmin />}>
               <Route path="/dash/admin" element={<div>ADMIN_PAGE</div>} />
             </Route>
@@ -58,6 +69,13 @@ describe('路由守卫', () => {
     session.user = { id: 1, username: 'admin', role: 'admin', role_level: 2 };
     renderApp('/dash/admin');
     expect(screen.getByText('ADMIN_PAGE')).toBeTruthy();
+  });
+
+  it('会话失效被踢回登录页时带上来源路径（登录后能回到原页面）', () => {
+    renderApp('/dash/domains?page=2');
+    expect(screen.getByText('LOGIN_PAGE')).toBeTruthy();
+    expect(screen.getByTestId('login-search').textContent)
+      .toBe('?return_to=' + encodeURIComponent('/dash/domains?page=2'));
   });
 
   it('会话校验中不渲染页面也不跳转', () => {

@@ -1,5 +1,6 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { isAdminUser, useSession } from '../features/session/use-session';
+import { loginRedirectUrl } from '../lib/http';
 
 /**
  * 管理员路由守卫（新会话源的唯一判定）。
@@ -8,8 +9,9 @@ import { isAdminUser, useSession } from '../features/session/use-session';
  */
 export function RequireAdmin() {
   const { user, isLoading } = useSession();
+  const location = useLocation();
   if (isLoading) return null;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to={loginRedirectUrl(location.pathname, location.search)} replace />;
   if (!isAdminUser(user)) return <Navigate to="/dash" replace />;
   return <Outlet />;
 }

@@ -34,8 +34,15 @@ export function apiBaseUrl(): string {
   return `${window.location.protocol}//${window.location.host}/api`;
 }
 
+const LOGIN_PATH = '/login';
 const PUBLIC_PATHS = ['/login', '/', '/setup'];
-const AUTH_FREE_PATHS = ['/auth/login', '/auth/public-key', '/auth/password-reset'];
+/**
+ * 401 不触发整页跳转的端点：
+ * - 登录 / 公钥 / 重置密码：登录失败时本来就会 401，跳转会把用户从表单上踢走；
+ * - `/auth/me` 与 `/auth/logout`：前者是会话探测，401 由路由守卫做 SPA 跳转（不整页刷新、能带
+ *   return_to）；后者在会话已失效时必然 401，交给它自己的 finally 跳转。
+ */
+const AUTH_FREE_PATHS = ['/auth/login', '/auth/public-key', '/auth/password-reset', '/auth/me', '/auth/logout'];
 
 function shouldRedirectOn401(path: string): boolean {
   if (AUTH_FREE_PATHS.some((p) => path.startsWith(p))) return false;
@@ -43,6 +50,30 @@ function shouldRedirectOn401(path: string): boolean {
   if (PUBLIC_PATHS.includes(current)) return false;
   if (current.startsWith('/oauth/')) return false;
   return true;
+}
+
+/**
+ * 401 后要去的登录页地址：带上来源路径，登录完能回到原页面。
+ * - 只接受站内路径（`//evil.com` 之类一律退回裸 `/login`）；
+ * - 已经在登录页就不再叠加 return_to；
+ * - 路径截断到 512 字符，避免异常长的 query 撑爆地址栏。
+ */
+export function loginRedirectUrl(pathname: string, search = ''): string {
+  if (pathname === LOGIN_PATH || pathname.startsWith(`${LOGIN_PATH}/`)) return LOGIN_PATH;
+  const target = `${pathname}${search}`;
+  if (!target || target === '/' || target.startsWith('//')) return LOGIN_PATH;
+  return `${LOGIN_PATH}?return_to=${encodeURIComponent(target.slice(0, 512))}`;
+}
+
+/**
+ * 会话失效的统一出口：防并发重复导航（多个请求同时 401 时只跳一次），
+ * 用 replace 而不是 href —— 回退键不该回到已经失效的页面。
+ */
+let redirectingToLogin = false;
+function redirectToLogin(): void {
+  if (redirectingToLogin) return;
+  redirectingToLogin = true;
+  window.location.replace(loginRedirectUrl(window.location.pathname, window.location.search));
 }
 
 export interface RequestOptions extends Omit<RequestInit, 'body'> {
@@ -100,7 +131,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   if (response.status === 401 && shouldRedirectOn401(path)) {
-    window.location.href = '/login';
+    redirectToLogin();
   }
 
   if (!response.ok) {
