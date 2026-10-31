@@ -1,6 +1,23 @@
 # 更新日志
 
-## [2.3.1] - 未发布
+## [2.3.1] - 2026-10-26
+
+### 修复：登录页在已有有效会话时仍停留在表单
+
+- 新增路由守卫 `RedirectIfAuthed`：`/login` 在会话有效时直接进 `/dash`（或 `return_to` 指定的站内路径），不再要求二次登录。
+- 会话校验期间显示占位，避免先闪一下登录表单再跳走；用 `replace` 导航，回退键不会又弹回登录页。
+- `resolveReturnTo` 抽到 `features/auth/return-to.ts`，登录页与守卫共用同一份落点规则（仍只接受站内相对路径）。
+
+### 修复：会话失效后的落点与回跳地址
+
+- 401 统一跳转改为 `replace` 并带 `return_to`（当前来源路径），登录后回到原页面；并发多个 401 只导航一次。
+- `/auth/me`、`/auth/logout` 的 401 不再触发整页跳转：会话探测交给路由守卫做 SPA 跳转（不整页刷新），登出交给自身 `finally`。
+- `ProtectedShell` / `RequireAdmin` 未登录跳转同样带上来源路径。
+
+### 修复：WHOIS 状态在部分返回格式下未翻译
+
+- EPP 状态分隔符兼容空格与连字符（如 `client Transfer Prohibited`、`client-transfer-prohibited`），归一后再翻译；此前这类值会原样透出英文。
+- 补对应单测。
 
 ### 修复：域名列表分页状态在进入记录页后丢失
 
