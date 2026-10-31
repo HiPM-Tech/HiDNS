@@ -11,6 +11,10 @@ import { copy } from '../../copy/zh-CN';
 import { ApiError } from '../../lib/http';
 import { encryptPassword } from '../../utils/rsaEncrypt';
 import { authApi, type AuthUser, type OAuthStatus } from './api';
+import { resolveReturnTo } from './return-to';
+
+/** 兼容既有引用：实现已抽到 ./return-to.ts（路由守卫复用同一份落点规则） */
+export { resolveReturnTo };
 
 const credentialsSchema = z.object({
   username: z.string().trim().min(1, copy.auth.usernameRequired),
@@ -37,17 +41,6 @@ type ResetConfirmForm = z.infer<typeof resetConfirmSchema>;
 export interface LoginPageProps {
   /** 登录成功后的动作；默认跳回 return_to（站内路径）或 /dash */
   onSuccess?: (user: AuthUser | undefined) => void;
-}
-
-/**
- * 登录后的落点：优先 return_to（MCP 授权页等会带），但只接受站内相对路径，
- * 防止被构造成 //evil.com 或 https://… 的外跳。
- */
-export function resolveReturnTo(search: string): string {
-  const raw = new URLSearchParams(search).get('return_to');
-  if (!raw) return '/dash';
-  if (!raw.startsWith('/') || raw.startsWith('//')) return '/dash';
-  return raw;
 }
 
 export function LoginPage({ onSuccess }: LoginPageProps) {

@@ -5,6 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ThemeProvider } from './lib/theme';
 import { RequireAdmin } from './app/require-admin';
 import { ProtectedShell } from './app/protected-shell';
+import { RedirectIfAuthed } from './app/redirect-if-authed';
 // 首屏直达的两个页面保持同步加载：落地页与登录页是冷启动必经路径，
 // 再套一层 lazy 只会让首屏多一次往返。
 import { LandingPage } from './features/marketing/landing-page';
@@ -58,7 +59,8 @@ function App() {
           <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/" element={<LandingPage />} />
-              <Route path="/login" element={<LoginPage />} />
+              {/* 已登录时直接进面板（含 return_to 落点），不再停留在登录页 */}
+              <Route path="/login" element={<RedirectIfAuthed><LoginPage /></RedirectIfAuthed>} />
               <Route path="/setup" element={<SetupPage />} />
               <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
               <Route path="/oauth/authorize" element={<McpConsentPage />} />
