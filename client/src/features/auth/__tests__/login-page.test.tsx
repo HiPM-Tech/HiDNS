@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoginPage } from '../login-page';
 import { authApi } from '../api';
-import { encryptPassword } from '../../../utils/rsaEncrypt';
+import { encryptPassword, PasswordEncryptionUnavailableError } from '../../../utils/rsaEncrypt';
 import { copy } from '../../../copy/zh-CN';
 
 vi.mock('../api', () => ({
@@ -21,9 +21,10 @@ vi.mock('../api', () => ({
 vi.mock('@simplewebauthn/browser', () => ({
   startAuthentication: vi.fn(async () => ({ id: 'cred-1', response: { clientDataJSON: 'x' } })),
 }));
-vi.mock('../../../utils/rsaEncrypt', () => ({
-  encryptPassword: vi.fn(async (password: string) => `enc:${password}`),
-}));
+vi.mock('../../../utils/rsaEncrypt', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../utils/rsaEncrypt')>();
+  return { ...actual, encryptPassword: vi.fn(async (password: string) => `enc:${password}`) };
+});
 
 const loginMock = vi.mocked(authApi.login);
 
@@ -164,6 +165,24 @@ describe('LoginPage', () => {
       username: 'ops', password: 'plain-secret', encrypted: false, totpCode: '123456',
     })));
     expect(onSuccess).toHaveBeenCalledWith({ id: 5, username: 'ops' });
+  });
+  it('重置密码在无法加密时只提示走 HTTPS：刻意不提供明文回退', async () => {
+    const user = userEvent.setup();
+    vi.mocked(authApi.requestPasswordReset).mockResolvedValue({ code: 0, msg: 'success', data: null });
+    vi.mocked(encryptPassword).mockImplementation(async () => { throw new PasswordEncryptionUnavailableError(); });
+
+    render(<LoginPage onSuccess={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: copy.auth.forgotPassword }));
+    await user.type(screen.getByLabelText(copy.auth.email), 'ops@example.com');
+    await user.click(screen.getByRole('button', { name: copy.auth.sendCode }));
+
+    await user.type(await screen.findByLabelText(copy.auth.code), '123456');
+    await user.type(screen.getByLabelText(copy.auth.newPassword), 'new-secret');
+    await user.click(screen.getByRole('button', { name: copy.auth.resetSubmit }));
+
+    expect(await screen.findByText(copy.auth.encryptionUnavailable)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: copy.auth.plaintextFallback })).toBeNull();
+    expect(authApi.confirmPasswordReset).not.toHaveBeenCalled();
   });
   it('服务端返回 -2 时进入两步验证，验证码随登录请求提交', async () => {
     const user = userEvent.setup();

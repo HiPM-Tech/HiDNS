@@ -9,7 +9,7 @@ import { startAuthentication } from '@simplewebauthn/browser';
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label } from '../../ui';
 import { copy } from '../../copy/zh-CN';
 import { ApiError } from '../../lib/http';
-import { encryptPassword } from '../../utils/rsaEncrypt';
+import { encryptPassword, PasswordEncryptionUnavailableError } from '../../utils/rsaEncrypt';
 import { authApi, type AuthUser, type OAuthStatus } from './api';
 import { resolveReturnTo } from './return-to';
 
@@ -238,7 +238,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       setNotice(copy.auth.resetSuccess);
       setStep('credentials');
     } catch (err) {
-      setError(describeError(err));
+      // 重置密码刻意不提供明文回退（密码替换必须走安全通道），但提示必须是人能看懂的
+      setError(err instanceof PasswordEncryptionUnavailableError ? copy.auth.encryptionUnavailable : describeError(err));
     }
   });
 

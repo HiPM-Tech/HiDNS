@@ -62,13 +62,26 @@ async function importPublicKey(pem: string): Promise<CryptoKey> {
 }
 
 /**
+ * 浏览器不提供 Web Crypto（HTTP 非安全上下文）时抛出。
+ *
+ * 调用方据此给出「请通过 HTTPS 访问」的可读提示，而不是把内部英文错误原文丢到界面上。
+ * 注意：登录页允许用户确认后降级明文；重置密码 / 修改密码**不**降级（密码替换必须走安全通道）。
+ */
+export class PasswordEncryptionUnavailableError extends Error {
+  constructor(message = 'Password encryption is unavailable (non-HTTPS context)') {
+    super(message);
+    this.name = 'PasswordEncryptionUnavailableError';
+  }
+}
+
+/**
  * Encrypt password using RSA public key
  * @param password - Plain text password
  * @returns Base64 encoded encrypted password
  */
 export async function encryptPassword(password: string): Promise<string> {
   if (!window.crypto?.subtle) {
-    throw new Error('Password encryption is unavailable (non-HTTPS context)');
+    throw new PasswordEncryptionUnavailableError();
   }
 
   try {
@@ -84,6 +97,7 @@ export async function encryptPassword(password: string): Promise<string> {
     const encryptedArray = new Uint8Array(encrypted);
     return btoa(String.fromCharCode(...encryptedArray));
   } catch (error) {
+    if (error instanceof PasswordEncryptionUnavailableError) throw error;
     console.error('Failed to encrypt password:', error);
     throw new Error(`Password encryption failed: ${error instanceof Error ? error.message : String(error)}`);
   }

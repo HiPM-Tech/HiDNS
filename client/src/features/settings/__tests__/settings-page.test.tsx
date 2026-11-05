@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPage } from '../settings-page';
 import { settingsApi } from '../api';
+import { copy } from '../../../copy/zh-CN';
+import { encryptPassword, PasswordEncryptionUnavailableError } from '../../../utils/rsaEncrypt';
 
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>();
@@ -30,9 +32,10 @@ vi.mock('../../session/use-session', () => ({
   }),
   isAdminUser: () => true,
 }));
-vi.mock('../../../utils/rsaEncrypt', () => ({
-  encryptPassword: vi.fn(async (password: string) => `enc:${password}`),
-}));
+vi.mock('../../../utils/rsaEncrypt', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../utils/rsaEncrypt')>();
+  return { ...actual, encryptPassword: vi.fn(async (password: string) => `enc:${password}`) };
+});
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -120,5 +123,19 @@ describe('SettingsPage', () => {
     await user.type(screen.getByLabelText('确认新密码'), 'newpass123');
     await user.click(screen.getByRole('button', { name: '更新密码' }));
     await waitFor(() => expect(settingsApi.changePassword).toHaveBeenCalledWith('enc:oldpass', 'enc:newpass123'));
+  });
+
+  it('HTTP 环境改密只提示走 HTTPS：不降级明文', async () => {
+    const user = userEvent.setup();
+    vi.mocked(encryptPassword).mockImplementation(async () => { throw new PasswordEncryptionUnavailableError(); });
+    renderPage();
+
+    await user.type(await screen.findByLabelText('当前密码'), 'oldpass');
+    await user.type(screen.getByLabelText('新密码'), 'newpass123');
+    await user.type(screen.getByLabelText('确认新密码'), 'newpass123');
+    await user.click(screen.getByRole('button', { name: '更新密码' }));
+
+    expect(await screen.findByText(copy.auth.encryptionUnavailable)).toBeTruthy();
+    expect(settingsApi.changePassword).not.toHaveBeenCalled();
   });
 });

@@ -7,7 +7,8 @@ import {
 } from '../../ui';
 import { useSession } from '../session/use-session';
 import { useThemeMode } from '../../lib/theme';
-import { encryptPassword } from '../../utils/rsaEncrypt';
+import { encryptPassword, PasswordEncryptionUnavailableError } from '../../utils/rsaEncrypt';
+import { copy } from '../../copy/zh-CN';
 import { settingsApi } from './api';
 import { useChangePassword, useOauthBindings, usePreferences, useUnbindOauth, useUpdatePreferences, useUpdateProfile } from './use-settings';
 
@@ -210,7 +211,10 @@ function PasswordCard({ onError, onSaved }: { onError: (message: string) => void
       setOldPassword(''); setNewPassword(''); setConfirm('');
       onSaved('密码已更新');
     } catch (err) {
-      onError(err instanceof Error ? err.message : '修改密码失败');
+      // 修改密码刻意不降级明文：HTTP 环境下直接告知需要 HTTPS，而不是抛出内部英文错误
+      onError(err instanceof PasswordEncryptionUnavailableError
+        ? copy.auth.encryptionUnavailable
+        : err instanceof Error ? err.message : '修改密码失败');
     }
   };
 
