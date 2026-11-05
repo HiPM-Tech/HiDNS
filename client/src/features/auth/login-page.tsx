@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { alertVariants } from '../../ui/alert';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -72,6 +72,12 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [oauth, setOauth] = useState<OAuthStatus | null>(null);
   const [passkeyPending, setPasskeyPending] = useState(false);
+  /** 浏览器不提供 Web Crypto（HTTP 非安全上下文）时，是否已由用户确认降级为明文提交
+   *  ref 供「确认后立即重试」使用：setState 是异步的，同步重试会读到旧闭包 */
+  const [plaintext, setPlaintext] = useState(false);
+  const plaintextRef = useRef(false);
+  /** 加密失败过一次，展示「知悉风险，改用明文继续」入口 */
+  const [needsPlaintext, setNeedsPlaintext] = useState(false);
 
   // 单点登录入口：只有服务端启用时才展示
   useEffect(() => {
@@ -81,6 +87,21 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       .catch(() => { if (!cancelled) setOauth(null); });
     return () => { cancelled = true; };
   }, []);
+
+  /**
+   * 取用于提交的密码：能加密就加密；浏览器不给 Web Crypto（HTTP 非安全上下文）时
+   * 不直接终止登录，而是把「是否接受明文传输」交给用户决定（服务端 encrypted=false 走明文校验）。
+   */
+  const preparePassword = async (raw: string): Promise<{ password: string; encrypted: boolean } | null> => {
+    if (plaintextRef.current) return { password: raw, encrypted: false };
+    try {
+      return { password: await encryptPassword(raw), encrypted: true };
+    } catch {
+      setNeedsPlaintext(true);
+      setError(copy.auth.encryptionUnavailable);
+      return null;
+    }
+  };
 
   /** 通行密钥登录：服务端仍要求密码，因此复用当前表单里的凭据 */
   const handlePasskeyLogin = async () => {
@@ -98,11 +119,12 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         return;
       }
       const assertion = await startAuthentication({ optionsJSON: optionsEnvelope.data.options as never });
-      const password = await encryptPassword(values.password);
+      const prepared = await preparePassword(values.password);
+      if (!prepared) return;
       const envelope = await authApi.login({
         username: values.username,
-        password,
-        encrypted: true,
+        password: prepared.password,
+        encrypted: prepared.encrypted,
         webauthnResponse: assertion,
       });
       if (envelope.code !== 0) {
@@ -139,16 +161,11 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
   const submitCredentials = credentialsForm.handleSubmit(async (values) => {
     setError(null);
-    let password: string;
-    try {
-      password = await encryptPassword(values.password);
-    } catch {
-      setError(copy.auth.encryptionUnavailable);
-      return;
-    }
+    const prepared = await preparePassword(values.password);
+    if (!prepared) return;
 
     try {
-      const envelope = await authApi.login({ username: values.username, password, encrypted: true });
+      const envelope = await authApi.login({ username: values.username, password: prepared.password, encrypted: prepared.encrypted });
       if (envelope.code === -2) {
         setPendingCredentials(values);
         setStep('2fa');
@@ -172,11 +189,12 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     }
     setError(null);
     try {
-      const password = await encryptPassword(pendingCredentials.password);
+      const prepared = await preparePassword(pendingCredentials.password);
+      if (!prepared) return;
       const envelope = await authApi.login({
         username: pendingCredentials.username,
-        password,
-        encrypted: true,
+        password: prepared.password,
+        encrypted: prepared.encrypted,
         totpCode: useBackupCode ? undefined : code,
         backupCode: useBackupCode ? code : undefined,
       });
@@ -224,6 +242,16 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     }
   });
 
+  /** 用户明确接受风险：此后本页一律明文提交，并立刻重试当前步骤（凭据 / 两步验证） */
+  const continueWithPlaintext = () => {
+    plaintextRef.current = true;
+    setPlaintext(true);
+    setNeedsPlaintext(false);
+    setError(null);
+    if (step === '2fa') void submitTwoFactor();
+    else void submitCredentials();
+  };
+
   const submitting = credentialsForm.formState.isSubmitting
     || twoFactorForm.formState.isSubmitting
     || resetRequestForm.formState.isSubmitting
@@ -269,6 +297,12 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {plaintext && (
+              <div role="status" className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                {copy.auth.plaintextInUse}
+              </div>
+            )}
+
             {notice && (
               <div role="status" className={alertVariants('success', 'mb-4')}>
                 {notice}
@@ -278,6 +312,16 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
             {error && (
               <div role="alert" className={alertVariants('error', 'mb-4')}>
                 {error}
+              </div>
+            )}
+
+            {/* HTTP 非安全上下文：浏览器不提供 Web Crypto。是否接受明文，交给用户明确确认 */}
+            {needsPlaintext && (
+              <div className="mb-4 space-y-2 rounded-lg border border-border bg-muted/40 p-3">
+                <p className="text-xs text-muted-foreground">{copy.auth.plaintextFallbackHint}</p>
+                <Button type="button" variant="outline" size="sm" className="w-full" onClick={continueWithPlaintext} disabled={submitting}>
+                  {copy.auth.plaintextFallback}
+                </Button>
               </div>
             )}
 

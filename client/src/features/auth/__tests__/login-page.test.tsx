@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoginPage } from '../login-page';
 import { authApi } from '../api';
 import { encryptPassword } from '../../../utils/rsaEncrypt';
@@ -28,6 +28,11 @@ vi.mock('../../../utils/rsaEncrypt', () => ({
 const loginMock = vi.mocked(authApi.login);
 
 describe('LoginPage', () => {
+  // 用例内可能替换 encryptPassword 的实现，统一在结束后还原，避免污染后续用例
+  afterEach(() => {
+    vi.mocked(encryptPassword).mockImplementation(async (password: string) => `enc:${password}`);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(authApi.oauthStatus).mockResolvedValue({ code: 0, msg: 'success', data: { enabled: false } });
@@ -103,6 +108,63 @@ describe('LoginPage', () => {
     expect(vi.mocked(encryptPassword)).toHaveBeenCalledWith('secret');
   });
 
+  it('HTTP 环境无法加密：先给风险提示，用户确认后才以明文提交', async () => {
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    // 显式替换实现而不是 once 队列：本用例内一律模拟「浏览器不提供 Web Crypto」
+    const encryptMock = vi.mocked(encryptPassword);
+    encryptMock.mockImplementation(async () => { throw new Error('Password encryption is unavailable (non-HTTPS context)'); });
+    loginMock.mockResolvedValue({ code: 0, msg: 'success', data: { user: { id: 4, username: 'ops' } } });
+
+    render(<LoginPage onSuccess={onSuccess} />);
+    await user.type(screen.getByLabelText(copy.auth.username), 'ops');
+    await user.type(screen.getByLabelText(copy.auth.password), 'plain-secret');
+    await user.click(screen.getByRole('button', { name: copy.auth.submit }));
+
+    // 第一次提交：只提示风险，不发登录请求
+    expect(await screen.findByText(copy.auth.encryptionUnavailable)).toBeTruthy();
+    expect(screen.getByText(copy.auth.plaintextFallbackHint)).toBeTruthy();
+    expect(loginMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: copy.auth.plaintextFallback }));
+
+    await waitFor(() => expect(loginMock).toHaveBeenCalledWith({
+      username: 'ops', password: 'plain-secret', encrypted: false,
+    }));
+    expect(onSuccess).toHaveBeenCalledWith({ id: 4, username: 'ops' });
+    expect(screen.queryByText(copy.auth.plaintextFallbackHint)).toBeNull();
+  });
+
+  it('两步验证阶段加密失败：确认后沿用明文继续验证', async () => {
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    // 第一次（凭据）加密成功，第二次（两步验证）模拟浏览器拿不到 Web Crypto
+    let encryptCalls = 0;
+    const encryptMock = vi.mocked(encryptPassword);
+    encryptMock.mockImplementation(async (password: string) => {
+      encryptCalls += 1;
+      if (encryptCalls === 1) return `enc:${password}`;
+      throw new Error('Password encryption is unavailable (non-HTTPS context)');
+    });
+    loginMock
+      .mockResolvedValueOnce({ code: -2, msg: '2FA required', data: { types: ['totp'] } })
+      .mockResolvedValueOnce({ code: 0, msg: 'success', data: { user: { id: 5, username: 'ops' } } });
+
+    render(<LoginPage onSuccess={onSuccess} />);
+    await user.type(screen.getByLabelText(copy.auth.username), 'ops');
+    await user.type(screen.getByLabelText(copy.auth.password), 'plain-secret');
+    await user.click(screen.getByRole('button', { name: copy.auth.submit }));
+    await screen.findByText(copy.auth.twoFactorTitle);
+    await user.type(screen.getByLabelText(copy.auth.totpCode), '123456');
+    await user.click(screen.getByRole('button', { name: copy.auth.verify }));
+
+    await user.click(await screen.findByRole('button', { name: copy.auth.plaintextFallback }));
+
+    await waitFor(() => expect(loginMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      username: 'ops', password: 'plain-secret', encrypted: false, totpCode: '123456',
+    })));
+    expect(onSuccess).toHaveBeenCalledWith({ id: 5, username: 'ops' });
+  });
   it('服务端返回 -2 时进入两步验证，验证码随登录请求提交', async () => {
     const user = userEvent.setup();
     const onSuccess = vi.fn();
