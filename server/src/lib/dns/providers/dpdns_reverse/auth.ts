@@ -154,6 +154,25 @@ export async function ensureCsrfToken(config: DpdnsAuthConfig): Promise<string |
   return config.csrfToken;
 }
 
+
+/** 读响应体：JSON 解析失败时保留原文，便于判断是不是代理返回的 HTML 错误页 */
+async function readJson(res: Response): Promise<{ json: any; raw: string }> {
+  const raw = await res.text().catch(() => '');
+  if (!raw) return { json: null, raw: '' };
+  try {
+    return { json: JSON.parse(raw), raw };
+  } catch {
+    return { json: null, raw };
+  }
+}
+
+/** 响应摘要：截断 + 压空白，避免日志/界面被整页 HTML 淹没 */
+function summarize(raw: string, max = 160): string {
+  const text = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return '(空)';
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
 /**
  * 用通行密钥换签：csrf → passkey/begin → 本地签名 → passkey/finish。
  * 成功后 config.sessionCookie 为完整 Cookie 串，并触发 onSession 持久化。
@@ -177,27 +196,32 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
   verifiedAt.delete(config);
 
   const csrf = await ensureCsrfToken(config);
-  if (!csrf) throw new Error('获取 CSRF token 失败，无法换签');
+  if (!csrf) throw new Error('通行密钥换签失败[csrf]：未能获取 CSRF token');
 
   const begin = await send(`${PANEL_API}/api/auth/passkey/begin`, config, {
     method: 'POST',
     body: JSON.stringify({ purpose: 'login' }),
   });
-  const beginBody = await begin.json().catch(() => null) as
-    | { ok?: boolean; options?: { challenge?: string }; request_id?: string; error?: string }
-    | null;
+  const { json: beginBody, raw: beginRaw } = await readJson(begin);
   if (!begin.ok || !beginBody?.ok || !beginBody.options?.challenge || !beginBody.request_id) {
-    throw new Error(beginBody?.error || `通行密钥挑战获取失败（HTTP ${begin.status}）`);
+    // 带上响应摘要：经过代理时可能拿到 HTML 错误页而不是 JSON，光看状态码分不出来
+    throw new Error(`通行密钥换签失败[begin]：HTTP ${begin.status}，响应 ${summarize(beginRaw)}`);
   }
 
-  const assertion = buildAssertion(credential, beginBody.options.challenge, DEFAULT_DPDNS_ORIGIN);
+  let assertion;
+  try {
+    assertion = buildAssertion(credential, beginBody.options.challenge, DEFAULT_DPDNS_ORIGIN);
+  } catch (e: unknown) {
+    throw new Error(`通行密钥换签失败[sign]：${e instanceof Error ? e.message : String(e)}`);
+  }
+
   const finish = await send(`${PANEL_API}/api/auth/passkey/finish`, config, {
     method: 'POST',
     body: JSON.stringify({ purpose: 'login', request_id: beginBody.request_id, credential: assertion }),
   });
-  const finishBody = await finish.json().catch(() => null) as { ok?: boolean; error?: string } | null;
+  const { json: finishBody, raw: finishRaw } = await readJson(finish);
   if (!finish.ok || !finishBody?.ok) {
-    throw new Error(finishBody?.error || `通行密钥换签失败（HTTP ${finish.status}）`);
+    throw new Error(`通行密钥换签失败[finish]：${finishBody?.error || `HTTP ${finish.status}，响应 ${summarize(finishRaw)}`}`);
   }
   const jar = resolveSessionJar(config);
   const rememberToken = jar.get('remember_token') ?? null;

@@ -46,9 +46,11 @@ export class DpdnsReverseAdapter extends BaseAdapter {
           ? '通行密钥无效或换签失败'
           : '旧会话已失效，请补充通行密钥');
       }
+      if (!valid) log.sub('Auth').tag('FAILED').warn('Credential check failed', { error: this.error });
       return valid;
     } catch (e: unknown) {
       this.error = e instanceof Error ? e.message : String(e);
+      log.sub('Auth').tag('FAILED').warn('Credential check threw', { error: this.error });
       return false;
     }
   }
