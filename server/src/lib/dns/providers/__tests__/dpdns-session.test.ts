@@ -94,11 +94,14 @@ describe('ensureSession 的升级兼容路径', () => {
     await ensureSession(config);
 
     expect(net.calls.some((u) => u.includes('/auth/me'))).toBe(false);
-    expect(net.calls.map((u) => u.split('/_panel_api')[1])).toEqual([
+    const paths = net.calls.map((u) => u.split('/_panel_api')[1]);
+    expect(paths.slice(0, 3)).toEqual([
       '/api/security/csrf',
       '/api/auth/passkey/begin',
       '/api/auth/passkey/finish',
     ]);
+    // 换签成功后会再取一次 CSRF（与服务端新会话配对）
+    expect(paths[3]).toBe('/api/security/csrf');
     expect(config.rememberToken).toBe('brand-new-token');
   });
   it('换签时保留并补齐 panel_csrf_token：header 与 cookie 必须是同一个值', async () => {
@@ -284,7 +287,7 @@ describe('CSRF 取值顺序与代理回退', () => {
     };
   }
 
-  it('以服务端下发的 cookie 为准，不用 body 覆盖（body 与 cookie 不同值时）', async () => {
+  it('body 与 cookie 不同值时以 body 为准，并同步回 cookie（header 与 cookie 同值）', async () => {
     net.queue.push(
       { body: { ok: true, csrf_token: 'BODY_TOKEN' }, headers: { 'set-cookie': 'panel_csrf_token=COOKIE_TOKEN' } },
       { body: { ok: true, options: { challenge: 'chal' }, request_id: 'rid' } },
@@ -295,8 +298,8 @@ describe('CSRF 取值顺序与代理回退', () => {
     await loginWithPasskey(config);
 
     const beginHeaders = net.requestHeaders[1];
-    expect(beginHeaders['X-CSRF-Token']).toBe('COOKIE_TOKEN');
-    expect(beginHeaders.Cookie).toContain('panel_csrf_token=COOKIE_TOKEN');
+    expect(beginHeaders['X-CSRF-Token']).toBe('BODY_TOKEN');
+    expect(beginHeaders.Cookie).toContain('panel_csrf_token=BODY_TOKEN');
   });
 
   it('代理没带回 Set-Cookie 时直连重试一次', async () => {
@@ -332,7 +335,7 @@ describe('Set-Cookie 合并串解析（fetch 的真实形态）', () => {
   it('逗号后没有空格时也能拿到第二个 cookie（panel_csrf_token）', async () => {
     net.queue.push(
       {
-        body: { ok: true, csrf_token: 'BODY' },
+        body: { ok: true, csrf_token: 'CSRF_COOKIE' },
         headers: { 'set-cookie': 'remember_token=rt; Path=/,panel_csrf_token=CSRF_COOKIE; Path=/' },
       },
       { body: { ok: true, options: { challenge: 'chal' }, request_id: 'rid' } },
@@ -349,7 +352,7 @@ describe('Set-Cookie 合并串解析（fetch 的真实形态）', () => {
   it('带 Expires 属性时不会被逗号误切', async () => {
     net.queue.push(
       {
-        body: { ok: true, csrf_token: 'BODY' },
+        body: { ok: true, csrf_token: 'CSRF2' },
         headers: {
           'set-cookie': 'remember_token=rt; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/, panel_csrf_token=CSRF2; Path=/',
         },

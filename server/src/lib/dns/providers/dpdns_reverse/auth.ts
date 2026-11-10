@@ -248,7 +248,10 @@ export async function ensureCsrfToken(config: DpdnsAuthConfig): Promise<string |
 
   const jar = resolveSessionJar(config);
   const cookieToken = jar.get('panel_csrf_token');
-  const token = cookieToken ?? body?.csrf_token;
+  // body 里的 token 才是「这次请求签发的那一份」；有会话时服务端可能只回 body、不重发 cookie，
+  // 此时若沿用旧 cookie 就会和服务端会话里的值对不上（renew 报 Invalid CSRF token）。
+  // 所以以 body 为准，并把它同步进 cookie，保证 header 与 cookie 始终同值。
+  const token = body?.csrf_token ?? cookieToken;
 
   csrfDiag.set(config, {
     cookieNames: pairs.map(([name]) => name),
@@ -259,7 +262,7 @@ export async function ensureCsrfToken(config: DpdnsAuthConfig): Promise<string |
   if (!token) return config.csrfToken;
 
   config.csrfToken = token;
-  if (!cookieToken) {
+  if (cookieToken !== token) {
     jar.set('panel_csrf_token', token);
     config.sessionCookie = buildCookieJar(jar);
   }
@@ -379,6 +382,9 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
   config.signCounter = signCounter;
   config.signCounterFor = credential.credentialId;
   verifiedAt.set(config, Date.now());
+  // 换签后用新会话再取一次 CSRF：finish 可能轮换了 token 但没有重发 cookie，
+  // 这一份才是与服务端会话配对的
+  await ensureCsrfToken(config);
   await config.onSession?.({
     sessionCookie: config.sessionCookie ?? '',
     rememberToken,
