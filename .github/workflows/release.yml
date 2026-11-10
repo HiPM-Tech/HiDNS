@@ -783,6 +783,10 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
+          # 构建指纹：启动日志会打印该 commit，便于确认实例版本
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.run_started_at }}
           # build-only 是「构建测试」，不应该往 ghcr.io 推任何东西
           push: ${{ inputs.release_type != 'build-only' }}
           tags: ${{ steps.docker-tags.outputs.tag }}
@@ -841,6 +845,9 @@ jobs:
         with:
           context: .
           platforms: linux/arm64
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.run_started_at }}
           push: ${{ inputs.release_type != 'build-only' }}
           tags: ${{ steps.docker-tags.outputs.tag }}
           labels: |

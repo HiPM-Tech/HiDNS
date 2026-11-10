@@ -234,6 +234,12 @@ import { checkForUpdate, downloadUpdate } from './service/autoUpdater';
 // 读取 package.json 获取版本信息
 import { readFileSync } from 'fs';
 let packageVersion = 'unknown';
+/**
+ * 构建指纹：镜像构建时由 CI 注入（Dockerfile ARG GIT_SHA → ENV HIDNS_BUILD_SHA）。
+ * 本地运行时为 unknown——用来一眼确认「跑的是不是最新提交」，避免靠猜。
+ */
+const buildCommit = (process.env.HIDNS_BUILD_SHA || 'unknown').slice(0, 12);
+const buildTime = process.env.HIDNS_BUILD_TIME || 'unknown';
 try {
   const packageJson = JSON.parse(readFileSync(path.join(APP_ROOT, 'package.json'), 'utf-8'));
   packageVersion = packageJson.version || 'unknown';
@@ -266,6 +272,7 @@ ${CYAN}║${RESET}   ${BOLD}${MAGENTA}HiDNS Manager${RESET}                     
 ${CYAN}║${RESET}                                                       ${CYAN}║${RESET}
 ${CYAN}║${RESET}   ${GRAY}Project:${RESET} HiDNS Manager                         ${CYAN}║${RESET}
 ${CYAN}║${RESET}   ${GRAY}Version:${RESET} ${packageVersion.padEnd(42)}${CYAN}║${RESET}
+${CYAN}║${RESET}   ${GRAY}Commit:${RESET}  ${buildCommit.padEnd(42)}${CYAN}║${RESET}
 ${CYAN}║${RESET}   ${GRAY}GitHub:${RESET}  https://github.com/HiPM-Tech/HiDNS    ${CYAN}║${RESET}
 ${CYAN}║${RESET}                                                       ${CYAN}║${RESET}
 ${CYAN}╚═══════════════════════════════════════════════════════════╝${RESET}
@@ -639,6 +646,7 @@ async function initializeApp() {
     printBanner(PORT);
 
     server.listen(PORT, () => {
+      log.info('Build info', { version: packageVersion, commit: buildCommit, builtAt: buildTime, node: process.version });
       log.info(`HiDNS running on http://localhost:${PORT}`);
       log.info(`API Docs: http://localhost:${PORT}/api/docs`);
       if (!isSystemInitialized()) {
@@ -693,6 +701,7 @@ async function initializeApp() {
     printBanner(PORT);
 
     server.listen(PORT, () => {
+      log.info('Build info', { version: packageVersion, commit: buildCommit, builtAt: buildTime, node: process.version });
       log.info(`HiDNS running on http://localhost:${PORT}`);
       log.info(`API Docs: http://localhost:${PORT}/api/docs`);
     });

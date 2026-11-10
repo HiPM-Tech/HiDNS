@@ -72,6 +72,11 @@ EXPOSE 3001
 ENV NODE_ENV=production
 ENV PORT=3001
 ENV CI_BUILD=${CI_BUILD}
+# 构建指纹：CI 传入 commit，启动横幅与日志会打印，便于确认实例跑的是哪个提交
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=unknown
+ENV HIDNS_BUILD_SHA=${GIT_SHA}
+ENV HIDNS_BUILD_TIME=${BUILD_TIME}
 # 发布镜像默认 debug 日志（CI 构建的版本用于排查现场问题）；
 # 生产稳态可用 -e HIDNS_LOG_LEVEL=info 覆盖，无需重建镜像。
 ENV HIDNS_LOG_LEVEL=debug
