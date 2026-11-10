@@ -240,7 +240,10 @@ export async function ensureCsrfToken(config: DpdnsAuthConfig): Promise<string |
     direct = true;
   }
 
-  if (!res.ok) return config.csrfToken;
+  if (!res.ok) {
+    log.sub('Auth').tag('CSRF').warn('获取 CSRF token 失败，沿用旧 token', { status: res.status });
+    return config.csrfToken;
+  }
   const body = await res.json().catch(() => null) as { csrf_token?: string } | null;
 
   const jar = resolveSessionJar(config);

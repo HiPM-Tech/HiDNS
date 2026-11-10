@@ -172,7 +172,20 @@ export async function renewFreeDomain(
       return renewFreeDomain(config, domainName, years, true);
     }
 
-    log.sub('API').tag('ERROR').error('Renewal failed', { domain: domainName, error: errMsg });
+    // 带上 CSRF 现场：header 里的 token 前缀 + 当前 cookie 名，用于判断两者是否同源
+    const cookieNames = Object.keys(Object.fromEntries(
+      (config.sessionCookie ?? '')
+        .split('; ')
+        .filter(Boolean)
+        .map((pair) => [pair.split('=')[0], 1]),
+    )).join(',');
+    log.sub('API').tag('ERROR').error('Renewal failed', {
+      domain: domainName,
+      error: errMsg,
+      status: response.status,
+      csrfHeader: config.csrfToken ? `${config.csrfToken.slice(0, 6)}…` : '(none)',
+      cookieNames: cookieNames || '(none)',
+    });
     throw new Error(errMsg);
   }
 
