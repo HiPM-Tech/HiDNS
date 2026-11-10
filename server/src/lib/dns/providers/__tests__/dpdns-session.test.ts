@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ensureSession, resolveSessionJar } from '../dpdns_reverse/auth';
+import { ensureSession, loginWithPasskey, resolveSessionJar } from '../dpdns_reverse/auth';
 
 /**
  * 会话视图是「新旧凭证共存」的关键：
@@ -32,13 +32,15 @@ describe('resolveSessionJar', () => {
 
 const net = vi.hoisted(() => ({
   calls: [] as string[],
+  requestHeaders: [] as Array<Record<string, string>>,
   queue: [] as Array<{ status?: number; body?: unknown; headers?: Record<string, string> }>,
 }));
 
 // setup.ts 全局 mock 了 fetchWithFallback（返回固定 {success:true}）；这里覆盖成可编排的假响应
 vi.mock('../../../proxy-http', () => ({
-  fetchWithFallback: async (url: string) => {
+  fetchWithFallback: async (url: string, init?: { headers?: Record<string, string> }) => {
     net.calls.push(String(url));
+    net.requestHeaders.push((init?.headers ?? {}) as Record<string, string>);
     const next = net.queue.shift() ?? {};
     return new Response(JSON.stringify(next.body ?? { ok: true, user: { id: 1 } }), {
       status: next.status ?? 200,
@@ -51,6 +53,7 @@ vi.mock('../../../proxy-http', () => ({
 describe('ensureSession 的升级兼容路径', () => {
   beforeEach(() => {
     net.calls.length = 0;
+    net.requestHeaders.length = 0;
     net.queue.length = 0;
   });
 
@@ -92,6 +95,32 @@ describe('ensureSession 的升级兼容路径', () => {
       '/api/auth/passkey/finish',
     ]);
     expect(config.rememberToken).toBe('brand-new-token');
+  });
+  it('换签时保留并补齐 panel_csrf_token：header 与 cookie 必须是同一个值', async () => {
+    const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const passkey = {
+      credentialId: '36d61772-b56f-47b4-9944-65c47be7f611',
+      keyValue: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+      rpId: 'dashboard.digitalplat.org',
+      userHandle: 'mEqCHdbXrHsyXlUjSh5Cvg-sd0U9qyzISZ1K_a3_2u0',
+    };
+    net.queue.push(
+      // csrf：只回 body token，不下发 Set-Cookie（用户环境正是这种）
+      { body: { ok: true, csrf_token: 'T1' } },
+      { body: { ok: true, options: { challenge: 'chal' }, request_id: 'rid' } },
+      { body: { ok: true, user: { id: 1 } }, headers: { 'set-cookie': 'remember_token=new; panel_session=s' } },
+    );
+
+    const config = {
+      passkey: JSON.stringify(passkey),
+      sessionCookie: 'remember_token=old; panel_csrf_token=stale',
+    };
+    await loginWithPasskey(config);
+
+    const beginHeaders = net.requestHeaders[1];
+    expect(beginHeaders['X-CSRF-Token']).toBe('T1');
+    expect(beginHeaders.Cookie).toContain('panel_csrf_token=T1');
+    expect(beginHeaders.Cookie ?? '').not.toContain('remember_token=old');
   });
   it('旧 rememberToken 失效且没有通行密钥：报错并提示补充', async () => {
     net.queue.push({ status: 401, body: { ok: false, error: 'Authentication required' } });

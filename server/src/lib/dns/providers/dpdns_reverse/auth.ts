@@ -156,7 +156,17 @@ export async function ensureCsrfToken(config: DpdnsAuthConfig): Promise<string |
   const res = await send(`${PANEL_API}/api/security/csrf`, config);
   if (!res.ok) return config.csrfToken;
   const body = await res.json().catch(() => null) as { csrf_token?: string } | null;
-  if (body?.csrf_token) config.csrfToken = body.csrf_token;
+  if (!body?.csrf_token) return config.csrfToken;
+
+  config.csrfToken = body.csrf_token;
+  // 服务端可能只在 cookie 里下发 token，也可能只回 body。
+  // 两者不一致（或压根没有 cookie）会让后续 POST 被判定 csrf_failed，
+  // 这里用同一个值补齐 cookie，保证「header 里的 token」与「Cookie 里的 token」一致。
+  const jar = resolveSessionJar(config);
+  if (jar.get('panel_csrf_token') !== body.csrf_token) {
+    jar.set('panel_csrf_token', body.csrf_token);
+    config.sessionCookie = buildCookieJar(jar);
+  }
   return config.csrfToken;
 }
 
@@ -195,20 +205,35 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
     throw new Error(`通行密钥配置无效（${shape}）：请粘贴 JSON，单条凭据对象或含 fido2Credentials 数组的对象都可以`);
   }
 
-  // 换签必须从干净会话开始，否则会带着过期 cookie / remember_token 撞 CSRF
-  config.sessionCookie = undefined;
+  // 换签要清掉过期的会话凭证，但 **保留 panel_csrf_token**：
+  // 它本身就是 CSRF 校验的一半，清掉会让 begin 直接 400 csrf_failed
   config.rememberToken = undefined;
+  const staleJar = resolveSessionJar(config);
+  staleJar.delete('remember_token');
+  staleJar.delete('panel_session');
+  staleJar.delete('panel_device');
+  config.sessionCookie = buildCookieJar(staleJar);
   config.csrfToken = undefined;
   verifiedAt.delete(config);
 
   const csrf = await ensureCsrfToken(config);
   if (!csrf) throw new Error('通行密钥换签失败[csrf]：未能获取 CSRF token');
 
-  const begin = await send(`${PANEL_API}/api/auth/passkey/begin`, config, {
+  const startBegin = () => send(`${PANEL_API}/api/auth/passkey/begin`, config, {
     method: 'POST',
     body: JSON.stringify({ purpose: 'login' }),
   });
-  const { json: beginBody, raw: beginRaw } = await readJson(begin);
+
+  let begin = await startBegin();
+  let { json: beginBody, raw: beginRaw } = await readJson(begin);
+
+  // CSRF 过期/不一致时刷新一次再重试：上游只回 body token、不下发 cookie 的部署也会命中
+  if (begin.status === 400 && (beginBody as { code?: string } | null)?.code === 'csrf_failed') {
+    await ensureCsrfToken(config);
+    begin = await startBegin();
+    ({ json: beginBody, raw: beginRaw } = await readJson(begin));
+  }
+
   if (!begin.ok || !beginBody?.ok || !beginBody.options?.challenge || !beginBody.request_id) {
     // 带上响应摘要：经过代理时可能拿到 HTML 错误页而不是 JSON，光看状态码分不出来
     throw new Error(`通行密钥换签失败[begin]：HTTP ${begin.status}，响应 ${summarize(beginRaw)}`);
