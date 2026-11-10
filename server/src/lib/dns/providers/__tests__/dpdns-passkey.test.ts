@@ -107,3 +107,38 @@ describe('buildAssertion', () => {
     )).toBe(false);
   });
 });
+
+describe('parsePasskeyCredential 的粘贴容错', () => {
+  const { credential } = makeCredential();
+  const single = { ...credential };
+
+  it('数组形态：[ { ... } ]', () => {
+    expect(parsePasskeyCredential(JSON.stringify([single]))?.credentialId).toBe(single.credentialId);
+  });
+
+  it('Bitwarden 界面复制的片段："fido2Credentials": [ { ... } ]（不是合法 JSON）', () => {
+    const pasted = '"fido2Credentials": [\n' + JSON.stringify(single, null, 2) + '\n]';
+    expect(parsePasskeyCredential(pasted)?.credentialId).toBe(single.credentialId);
+  });
+
+  it('前后夹着说明文字也能取出对象', () => {
+    const pasted = '导出的凭据如下：\n' + JSON.stringify(single) + '\n（完）';
+    expect(parsePasskeyCredential(pasted)?.credentialId).toBe(single.credentialId);
+  });
+
+  it('空白 / 非 JSON 文本返回 null', () => {
+    expect(parsePasskeyCredential('   ')).toBeNull();
+    expect(parsePasskeyCredential('not a json at all')).toBeNull();
+  });
+});
+
+
+describe('整份 Bitwarden 导出的嵌套结构', () => {
+  const { credential } = makeCredential();
+
+  it('从 { items: [{ login: { fido2Credentials: [...] } }] } 里取出凭据', () => {
+    const exported = { encrypted: false, items: [{ name: 'dpdns', login: { fido2Credentials: [credential] } }] };
+    expect(parsePasskeyCredential(JSON.stringify(exported))?.credentialId).toBe(credential.credentialId);
+  });
+});
+

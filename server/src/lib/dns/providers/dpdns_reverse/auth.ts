@@ -161,7 +161,13 @@ export async function ensureCsrfToken(config: DpdnsAuthConfig): Promise<string |
 export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
   const credential = parsePasskeyCredential(config.passkey);
   if (!credential) {
-    throw new Error('通行密钥配置无效：请粘贴 Bitwarden 导出的 fido2Credentials 条目（含 credentialId / keyValue / userHandle）');
+    // 只报“收到了多少”，不打印凭据内容
+    const raw: unknown = config.passkey;
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    const shape = typeof raw !== 'string'
+      ? (raw == null ? '未填写' : `收到 ${typeof raw}`)
+      : (text ? `收到 ${text.length} 字符` : '字段为空');
+    throw new Error(`通行密钥配置无效（${shape}）：请粘贴 JSON，单条凭据对象或含 fido2Credentials 数组的对象都可以`);
   }
 
   // 换签必须从干净会话开始，否则会带着过期 cookie / remember_token 撞 CSRF
