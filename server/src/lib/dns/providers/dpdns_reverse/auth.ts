@@ -298,15 +298,17 @@ export async function authenticatedRequest(
   return res;
 }
 
-/** 校验账号是否可用（新建/编辑账号时调用）：能换签即视为有效 */
+/**
+ * 校验账号是否可用（新建/编辑账号时调用）：能换签即视为有效。
+ *
+ * 注意：这里**不再**把异常吞成 false —— 否则调用方只能看到一句「凭据无效」，
+ * 丢失了「卡在 csrf / begin / 签名 / finish 哪一步、上游返回了什么」这类关键信息。
+ * 由 adapter.check() 捕获并写入 getError()。
+ */
 export async function validateCredentials(config: DpdnsAuthConfig): Promise<boolean> {
-  try {
-    await ensureSession(config);
-    const res = await send(`${PANEL_API}/api/auth/me`, config);
-    if (!res.ok) return false;
-    const body = await res.json().catch(() => null) as { ok?: boolean; user?: unknown } | null;
-    return body?.ok === true && !!body.user;
-  } catch {
-    return false;
-  }
+  await ensureSession(config);
+  const res = await send(`${PANEL_API}/api/auth/me`, config);
+  if (!res.ok) return false;
+  const body = await res.json().catch(() => null) as { ok?: boolean; user?: unknown } | null;
+  return body?.ok === true && !!body.user;
 }
