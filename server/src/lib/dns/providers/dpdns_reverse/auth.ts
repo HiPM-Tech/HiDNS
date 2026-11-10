@@ -181,15 +181,19 @@ function cookieHeader(config: DpdnsAuthConfig): string {
   return buildCookieJar(resolveSessionJar(config)) ?? '';
 }
 
+/** CSRF 阶段的诊断信息：begin 失败时附在错误里，直接看出是代理丢头还是没拿到 token */
+const csrfDiag = new WeakMap<object, { cookieNames: string[]; hadCookieToken: boolean; direct: boolean }>();
+
 /** 底层请求：自动带 Cookie 与 CSRF 头，并吸收响应里的 Set-Cookie */
 async function send(
   url: string,
   config: DpdnsAuthConfig,
   options: RequestInit = {},
+  extra: { direct?: boolean } = {},
 ): Promise<Response> {
   const method = (options.method ?? 'GET').toUpperCase();
   const headers = buildBrowserHeaders({
-    ...(options.headers as Record<string, string> | undefined),
+    ...(options.headers as Record<string, string | undefined>),
     Cookie: cookieHeader(config),
   });
   if (config.csrfToken && method !== 'GET' && method !== 'HEAD') {
@@ -198,27 +202,54 @@ async function send(
   const res = await fetchWithFallback(
     url,
     { ...options, headers },
-    config.useProxy ?? false,
+    extra.direct ? false : (config.useProxy ?? false),
     'DPDNS',
   );
   absorbCookies(config, res);
   return res;
 }
 
-/** 取 CSRF token（同时建立 panel_csrf_token cookie） */
+/**
+ * 取 CSRF token（同时建立 panel_csrf_token cookie）。
+ *
+ * 判定顺序很重要：**以服务端下发的 cookie 为准**，而不是 body。
+ * 服务端校验的是「header 里的 token 与它自己记在会话/cookie 里的值」，
+ * 用 body 覆盖 cookie 会造出「两边都变了、但都不是服务端认的那个」的假一致。
+ * 只有在完全没有 cookie 时才用 body 值补一份。
+ *
+ * 另一个坑：走代理时响应头可能丢 Set-Cookie，导致永远拿不到 panel_csrf_token。
+ * 这种情况会直连再取一次。
+ */
 export async function ensureCsrfToken(config: DpdnsAuthConfig): Promise<string | undefined> {
-  const res = await send(`${PANEL_API}/api/security/csrf`, config);
+  let direct = false;
+  let res = await send(`${PANEL_API}/api/security/csrf`, config);
+  let pairs = extractSetCookies(res);
+
+  if (pairs.length === 0 && config.useProxy) {
+    log.sub('Auth').tag('CSRF').warn('CSRF 响应没有 Set-Cookie，改为直连重试', {});
+    res = await send(`${PANEL_API}/api/security/csrf`, config, {}, { direct: true });
+    pairs = extractSetCookies(res);
+    direct = true;
+  }
+
   if (!res.ok) return config.csrfToken;
   const body = await res.json().catch(() => null) as { csrf_token?: string } | null;
-  if (!body?.csrf_token) return config.csrfToken;
 
-  config.csrfToken = body.csrf_token;
-  // 服务端可能只在 cookie 里下发 token，也可能只回 body。
-  // 两者不一致（或压根没有 cookie）会让后续 POST 被判定 csrf_failed，
-  // 这里用同一个值补齐 cookie，保证「header 里的 token」与「Cookie 里的 token」一致。
   const jar = resolveSessionJar(config);
-  if (jar.get('panel_csrf_token') !== body.csrf_token) {
-    jar.set('panel_csrf_token', body.csrf_token);
+  const cookieToken = jar.get('panel_csrf_token');
+  const token = cookieToken ?? body?.csrf_token;
+
+  csrfDiag.set(config, {
+    cookieNames: pairs.map(([name]) => name),
+    hadCookieToken: Boolean(cookieToken),
+    direct,
+  });
+
+  if (!token) return config.csrfToken;
+
+  config.csrfToken = token;
+  if (!cookieToken) {
+    jar.set('panel_csrf_token', token);
     config.sessionCookie = buildCookieJar(jar);
   }
   return config.csrfToken;
@@ -259,14 +290,10 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
     throw new Error(`通行密钥配置无效（${shape}）：请粘贴 JSON，单条凭据对象或含 fido2Credentials 数组的对象都可以`);
   }
 
-  // 换签要清掉过期的会话凭证，但 **保留 panel_csrf_token**：
-  // 它本身就是 CSRF 校验的一半，清掉会让 begin 直接 400 csrf_failed
+  // 换签从干净会话开始：旧的 remember_token/panel_session 会撞 CSRF，旧的 panel_csrf_token 也可能已失效。
+  // 清空后由 ensureCsrfToken 重新取一份，并按「服务端下发的 cookie 优先」建立 header/cookie 一致状态。
   config.rememberToken = undefined;
-  const staleJar = resolveSessionJar(config);
-  staleJar.delete('remember_token');
-  staleJar.delete('panel_session');
-  staleJar.delete('panel_device');
-  config.sessionCookie = buildCookieJar(staleJar);
+  config.sessionCookie = undefined;
   config.csrfToken = undefined;
   verifiedAt.delete(config);
 
@@ -289,8 +316,12 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
   }
 
   if (!begin.ok || !beginBody?.ok || !beginBody.options?.challenge || !beginBody.request_id) {
-    // 带上响应摘要：经过代理时可能拿到 HTML 错误页而不是 JSON，光看状态码分不出来
-    throw new Error(`通行密钥换签失败[begin]：HTTP ${begin.status}，响应 ${summarize(beginRaw)}`);
+    // 带上响应摘要与 CSRF 阶段诊断：经过代理时可能拿到 HTML 错误页，或 Set-Cookie 被吞
+    const diag = csrfDiag.get(config);
+    const diagText = diag
+      ? `；csrf 阶段${diag.direct ? '直连' : '代理'}，Set-Cookie: ${diag.cookieNames.join(',') || '无'}${diag.hadCookieToken ? '' : '（无 panel_csrf_token）'}`
+      : '';
+    throw new Error(`通行密钥换签失败[begin]：HTTP ${begin.status}，响应 ${summarize(beginRaw)}${diagText}`);
   }
 
   // 服务端可能严格校验 signCount 递增；Bitwarden 导出的 counter 恒为 0，必须自己推进。

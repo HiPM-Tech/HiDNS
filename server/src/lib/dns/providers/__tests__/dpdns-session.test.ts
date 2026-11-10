@@ -33,14 +33,16 @@ describe('resolveSessionJar', () => {
 const net = vi.hoisted(() => ({
   calls: [] as string[],
   requestHeaders: [] as Array<Record<string, string>>,
+  usedProxy: [] as boolean[],
   queue: [] as Array<{ status?: number; body?: unknown; headers?: Record<string, string> }>,
 }));
 
 // setup.ts 全局 mock 了 fetchWithFallback（返回固定 {success:true}）；这里覆盖成可编排的假响应
 vi.mock('../../../proxy-http', () => ({
-  fetchWithFallback: async (url: string, init?: { headers?: Record<string, string> }) => {
+  fetchWithFallback: async (url: string, init?: { headers?: Record<string, string> }, useProxy?: boolean) => {
     net.calls.push(String(url));
     net.requestHeaders.push((init?.headers ?? {}) as Record<string, string>);
+    net.usedProxy.push(Boolean(useProxy));
     const next = net.queue.shift() ?? {};
     return new Response(JSON.stringify(next.body ?? { ok: true, user: { id: 1 } }), {
       status: next.status ?? 200,
@@ -54,6 +56,7 @@ describe('ensureSession 的升级兼容路径', () => {
   beforeEach(() => {
     net.calls.length = 0;
     net.requestHeaders.length = 0;
+    net.usedProxy.length = 0;
     net.queue.length = 0;
   });
 
@@ -257,6 +260,58 @@ describe('跨版本升级：有 signCounter 但没有 signCounterFor', () => {
     const config = { passkey: JSON.stringify(passkey) } as { passkey: string; signCounter?: number };
     await loginWithPasskey(config);
     expect(config.signCounter).toBe(1);
+  });
+});
+
+
+describe('CSRF 取值顺序与代理回退', () => {
+  beforeEach(() => {
+    net.calls.length = 0;
+    net.requestHeaders.length = 0;
+    net.usedProxy.length = 0;
+    net.queue.length = 0;
+  });
+
+  function makePasskey() {
+    const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    return {
+      credentialId: '36d61772-b56f-47b4-9944-65c47be7f611',
+      keyValue: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+      rpId: 'dashboard.digitalplat.org',
+      userHandle: 'mEqCHdbXrHsyXlUjSh5Cvg-sd0U9qyzISZ1K_a3_2u0',
+    };
+  }
+
+  it('以服务端下发的 cookie 为准，不用 body 覆盖（body 与 cookie 不同值时）', async () => {
+    net.queue.push(
+      { body: { ok: true, csrf_token: 'BODY_TOKEN' }, headers: { 'set-cookie': 'panel_csrf_token=COOKIE_TOKEN' } },
+      { body: { ok: true, options: { challenge: 'chal' }, request_id: 'rid' } },
+      { body: { ok: true, user: { id: 1 } }, headers: { 'set-cookie': 'remember_token=rt' } },
+    );
+
+    const config = { passkey: JSON.stringify(makePasskey()) };
+    await loginWithPasskey(config);
+
+    const beginHeaders = net.requestHeaders[1];
+    expect(beginHeaders['X-CSRF-Token']).toBe('COOKIE_TOKEN');
+    expect(beginHeaders.Cookie).toContain('panel_csrf_token=COOKIE_TOKEN');
+  });
+
+  it('代理没带回 Set-Cookie 时直连重试一次', async () => {
+    net.queue.push(
+      { body: { ok: true, csrf_token: 'T_NO_COOKIE' } },                       // 代理：无 Set-Cookie
+      { body: { ok: true, csrf_token: 'T_DIRECT' }, headers: { 'set-cookie': 'panel_csrf_token=T_DIRECT' } }, // 直连
+      { body: { ok: true, options: { challenge: 'chal' }, request_id: 'rid' } },
+      { body: { ok: true, user: { id: 1 } }, headers: { 'set-cookie': 'remember_token=rt' } },
+    );
+
+    const config = { passkey: JSON.stringify(makePasskey()), useProxy: true };
+    await loginWithPasskey(config);
+
+    // 前两次都是 csrf：第一次走代理，第二次直连
+    expect(net.usedProxy[0]).toBe(true);
+    expect(net.usedProxy[1]).toBe(false);
+    expect(net.requestHeaders[2]['X-CSRF-Token']).toBe('T_DIRECT');
   });
 });
 
