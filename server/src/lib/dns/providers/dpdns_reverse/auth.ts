@@ -14,32 +14,40 @@
  *
  * 所有请求统一走 fetchWithFallback（代理环境下原生 fetch 会挂死，见 root.ai.md §DNS提供商适配器 1）。
  */
-import { fetchWithFallback } from '../internal';
+import { createProviderAuthLogger, fetchWithFallback } from '../internal';
 import {
   buildAssertion,
   parsePasskeyCredential,
   DEFAULT_DPDNS_ORIGIN,
 } from './passkey';
 
+const log = createProviderAuthLogger('DPDNS');
+
 export const DPDNS_BASE_URL = 'https://dashboard.digitalplat.org';
 const PANEL_API = `${DPDNS_BASE_URL}/_panel_api`;
 const CSRF_HEADER = 'X-CSRF-Token';
 
-/** WebAuthn signCount 上限：到这里回绕到 0（Bitwarden 导出的 counter 恒为 0，必须自己递增） */
-export const MAX_SIGN_COUNTER = 300;
+/** WebAuthn signCount 是 32 位无符号数（4 字节大端） */
+export const MAX_SIGN_COUNTER = 0xffffffff;
+/** 软阈值：超过只打日志，仍然继续递增 */
+export const WARN_SIGN_COUNTER = 300;
 
 /**
  * 下一次断言使用的 signCount。
  *
- * 部分服务端会严格校验 signCount 递增；Bitwarden 导出的 counter 恒为 0，
- * 若一直发 0，第一次之后就会被判为「计数器未前进/疑似克隆」而拒绝。
- * 策略：首次 0，之后每次 +1，到 MAX_SIGN_COUNTER 后回绕到 0。
+ * 对齐标准校验库（@simplewebauthn/server）的语义：
+ *   if (stored > 0 || next > 0) require(next > stored)
+ * 因此：
+ * - 首次发 0（stored=0 且 next=0 时库跳过校验，兼容 Bitwarden 导出的 counter=0）；
+ * - 之后必须**严格 +1**，不能回绕——回绕到 0 会被判成「计数器倒退 / 疑似克隆」；
+ * - 只有到 32 位上限（4294967295）才回绕到 1，此时应当重新注册凭据。
  */
 export function nextSignCounter(current?: number): number {
   if (current === undefined || current === null) return 0;
   const value = Math.trunc(Number(current));
   if (!Number.isFinite(value) || value < 0) return 0;
-  return value >= MAX_SIGN_COUNTER ? 0 : value + 1;
+  if (value >= MAX_SIGN_COUNTER) return 1;
+  return value + 1;
 }
 
 export interface DpdnsSessionState {
@@ -282,6 +290,9 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
 
   // 服务端可能严格校验 signCount 递增；Bitwarden 导出的 counter 恒为 0，必须自己推进
   const signCounter = nextSignCounter(config.signCounter);
+  if (signCounter > WARN_SIGN_COUNTER) {
+    log.sub('Auth').tag('COUNTER').debug('signCount 超过软阈值，继续按标准库要求递增', { signCounter });
+  }
 
   let assertion;
   try {

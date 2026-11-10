@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ensureSession, loginWithPasskey, nextSignCounter, resolveSessionJar } from '../dpdns_reverse/auth';
+import { MAX_SIGN_COUNTER, WARN_SIGN_COUNTER, ensureSession, loginWithPasskey, nextSignCounter, resolveSessionJar } from '../dpdns_reverse/auth';
 
 /**
  * 会话视图是「新旧凭证共存」的关键：
@@ -147,13 +147,22 @@ describe('ensureSession 的升级兼容路径', () => {
   });
 });
 
-describe('nextSignCounter', () => {
-  it('首次 0，之后每次 +1，300 后回绕', () => {
+describe('nextSignCounter（对齐 @simplewebauthn/server 语义）', () => {
+  it('首次 0：stored=0 且 next=0 时标准库跳过校验', () => {
     expect(nextSignCounter(undefined)).toBe(0);
+  });
+
+  it('之后严格 +1，不回绕（回绕会被判为计数器倒退）', () => {
     expect(nextSignCounter(0)).toBe(1);
     expect(nextSignCounter(1)).toBe(2);
     expect(nextSignCounter(299)).toBe(300);
-    expect(nextSignCounter(300)).toBe(0);
+    expect(nextSignCounter(300)).toBe(301);
+    expect(nextSignCounter(WARN_SIGN_COUNTER)).toBe(WARN_SIGN_COUNTER + 1);
+  });
+
+  it('仅 32 位溢出时回到 1', () => {
+    expect(nextSignCounter(MAX_SIGN_COUNTER)).toBe(1);
+    expect(nextSignCounter(MAX_SIGN_COUNTER - 1)).toBe(MAX_SIGN_COUNTER);
   });
 
   it('非法值按 0 处理', () => {
