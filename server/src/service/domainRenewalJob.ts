@@ -41,7 +41,27 @@ export async function executeDomainRenewal(): Promise<void> {
     // 遍历每个有续期调度器的账号
     for (const account of targetAccounts) {
       try {
-        const config = typeof account.config === 'string' ? JSON.parse(account.config) : account.config;
+        const stored = typeof account.config === 'string' ? JSON.parse(account.config) : account.config;
+        // 动态认证的提供商（dpdns）会把换签结果回传；回调只对声明了 onSession 的适配器生效
+        const config = {
+          ...stored,
+          onSession: async (session: { sessionCookie: string; rememberToken: string | null }) => {
+            try {
+              await DnsAccountOperations.update(account.id, {
+                config: JSON.stringify({
+                  ...stored,
+                  sessionCookie: session.sessionCookie,
+                  rememberToken: session.rememberToken ?? stored.rememberToken,
+                }),
+              });
+            } catch (e: unknown) {
+              log.warn('Failed to persist provider session', {
+                accountId: account.id,
+                error: e instanceof Error ? e.message : String(e),
+              });
+            }
+          },
+        };
 
         // 获取该提供商类型的续期调度器
         const scheduler = renewalRegistry.getScheduler(account.type);

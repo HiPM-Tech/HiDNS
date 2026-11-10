@@ -65,38 +65,32 @@ interface DpdnsRenewResponse {
 // ============================================================================
 
 /**
- * 获取所有域名（内部方法，不含配额过滤）
+ * 拉取全部域名。
+ *
+ * 失败时必须**抛错**，不能折叠成空数组（root.ai.md §DNS接口定义 2.1：读接口 fail-closed）。
+ * 空数组会被上层当成「账号下没有域名」，在域名同步里等于把本地域名全部禁用。
  */
 async function fetchAllDomains(
   config: DpdnsAuthConfig
 ): Promise<DpdnsDomain[]> {
-  try {
-    const url = `${BASE_URL}/api/domains`;
-    log.sub('API').tag('REQUEST').debug('Fetching domain list');
+  const url = `${BASE_URL}/api/domains`;
+  log.sub('API').tag('REQUEST').debug('Fetching domain list');
 
-    const response = await authenticatedRequest(url, config, { method: 'GET' });
+  const response = await authenticatedRequest(url, config, { method: 'GET' });
 
-    if (!response.ok) {
-      log.sub('API').tag('ERROR').error('Failed to fetch domains', {
-        status: response.status,
-      });
-      return [];
-    }
-
-    const data: DpdnsDomainListResponse = await response.json();
-
-    if (!data.ok || !Array.isArray(data.domains)) {
-      log.sub('API').tag('ERROR').error('Invalid API response');
-      return [];
-    }
-
-    return data.domains;
-  } catch (error) {
-    log.sub('API').tag('ERROR').error('Failed to list domains', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return [];
+  if (!response.ok) {
+    log.sub('API').tag('ERROR').error('Failed to fetch domains', { status: response.status });
+    throw new Error(`获取域名列表失败（HTTP ${response.status}）`);
   }
+
+  const data = await response.json().catch(() => null) as DpdnsDomainListResponse | null;
+
+  if (!data?.ok || !Array.isArray(data.domains)) {
+    log.sub('API').tag('ERROR').error('Invalid API response');
+    throw new Error('上游域名列表响应格式异常');
+  }
+
+  return data.domains;
 }
 
 /**

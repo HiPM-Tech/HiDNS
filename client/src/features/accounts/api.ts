@@ -18,6 +18,8 @@ export interface ProviderConfigField {
   required: boolean;
   group?: string;
   options?: Array<{ label: string; value: string }>;
+  /** 仅服务端读写的字段（如会话 Cookie）：前端不渲染、不提交 */
+  hidden?: boolean;
 }
 
 export interface ProviderInfo {

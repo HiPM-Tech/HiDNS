@@ -134,11 +134,30 @@ async function syncAccountDomains(account: any): Promise<void> {
     log.info(`Starting domain sync for account: ${accountName} (ID: ${accountId})`);
 
     // 解析配置
-    const cfg = typeof account.config === 'string'
-      ? JSON.parse(account.config) as Record<string, string>
-      : account.config as Record<string, string>;
+    const stored = typeof account.config === 'string'
+      ? JSON.parse(account.config) as Record<string, unknown>
+      : account.config as Record<string, unknown>;
 
-    // 创建适配器
+    // 创建适配器：动态认证的提供商（dpdns）换签后把会话写回，避免每次同步都重签
+    const cfg = {
+      ...stored,
+      onSession: async (session: { sessionCookie: string; rememberToken: string | null }) => {
+        try {
+          await DnsAccountOperations.update(accountId, {
+            config: JSON.stringify({
+              ...stored,
+              sessionCookie: session.sessionCookie,
+              rememberToken: session.rememberToken ?? stored.rememberToken,
+            }),
+          });
+        } catch (e: unknown) {
+          log.warn('Failed to persist provider session', {
+            accountId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      },
+    } as unknown as Record<string, string>;
     const dnsAdapter = createAdapter(account.type, cfg);
 
     // 分页获取所有域名

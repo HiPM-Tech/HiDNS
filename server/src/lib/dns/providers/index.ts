@@ -38,7 +38,7 @@ export { DnsnekoAdapter } from './dnsneko';
 
 // ========== 续期调度器导出 ==========
 export { DnsheRenewalScheduler, dnsheRenewalScheduler } from './dnshe';
-export { DpdnsReverseRenewalScheduler, dpdnsReverseRenewalScheduler, DpdnsReverseAdapter } from './dpdns_reverse';
+export { DpdnsReverseRenewalScheduler, dpdnsReverseRenewalScheduler, DpdnsReverseAdapter, type DpdnsAuthConfig } from './dpdns_reverse';
 
 // 本地导入以构建调度器数组
 import { dnsheRenewalScheduler as _dnsheScheduler } from './dnshe';

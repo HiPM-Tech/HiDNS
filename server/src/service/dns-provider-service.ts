@@ -25,6 +25,26 @@ export class DnsProviderService {
   /**
    * 获取域名的 DNS 适配器
    */
+  /**
+   * dpdns：把换签后的 Cookie 写回账号配置的隐藏字段。
+   * 适配器自己拿不到 DB 句柄，这里注入回调（config 里的函数不会被 JSON.stringify 入库）。
+   */
+  private static attachSessionPersist(account: DnsAccount, cfg: Record<string, unknown>): void {
+    if (normalizeProviderType(String(account.type)) !== 'dpdns_reverse') return;
+    cfg.onSession = async (session: { sessionCookie: string; rememberToken: string | null }) => {
+      cfg.sessionCookie = session.sessionCookie;
+      if (session.rememberToken) cfg.rememberToken = session.rememberToken;
+      try {
+        await DnsAccountOperations.update(Number(account.id), { config: JSON.stringify(cfg) });
+      } catch (e: unknown) {
+        log.warn('Failed to persist dpdns session cookie', {
+          accountId: account.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    };
+  }
+
   static async getAdapter(domainId: number): Promise<DnsAdapter> {
     // 1. 获取域名信息
     const domain = await DomainOperations.getById(domainId);
@@ -77,9 +97,11 @@ export class DnsProviderService {
     });
 
     // 5. 创建适配器
+    const mutableCfg = cfg as unknown as Record<string, unknown>;
+    this.attachSessionPersist(account as DnsAccount, mutableCfg);
     const adapter = createAdapter(
       account.type,
-      cfg,
+      mutableCfg as unknown as Record<string, string>,
       domain.name as string,
       domain.third_id as string,
       effectiveDomainId
@@ -98,7 +120,9 @@ export class DnsProviderService {
     const cfg = typeof account.config === 'string'
       ? (JSON.parse(account.config) as Record<string, string>)
       : (account.config as Record<string, string>);
-    return createAdapter(account.type, cfg, domainName, thirdId, thirdId);
+    const mutableCfg = cfg as unknown as Record<string, unknown>;
+    this.attachSessionPersist(account, mutableCfg);
+    return createAdapter(account.type, mutableCfg as unknown as Record<string, string>, domainName, thirdId, thirdId);
   }
 
   /**

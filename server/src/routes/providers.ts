@@ -177,11 +177,28 @@ router.get('/:type/renewable-domains', authMiddleware, asyncHandler(async (req: 
         // Fetch free domains from each dpdns_reverse account
         for (const account of providerAccounts) {
           try {
-            const config = typeof account.config === 'string' ? JSON.parse(account.config) : account.config;
+            const stored = typeof account.config === 'string' ? JSON.parse(account.config) : account.config;
 
+            // 通行密钥换签：Cookie 失效时自动重签，并把新会话写回账号配置的隐藏字段
             const domains = await dpdnsListFreeDomains({
-              rememberToken: config.rememberToken || config.remember_token,
-              useProxy: !!config.useProxy,
+              passkey: stored.passkey,
+              sessionCookie: stored.sessionCookie,
+              // 升级前的老账号只有手抄的 rememberToken：这里必须一并传入，否则会误判为未配置凭据
+              rememberToken: stored.rememberToken,
+              useProxy: !!stored.useProxy,
+              onSession: async (session: { sessionCookie: string; rememberToken: string | null }) => {
+                try {
+                  await DnsAccountOperations.update(account.id, {
+                    config: JSON.stringify({
+                      ...stored,
+                      sessionCookie: session.sessionCookie,
+                      rememberToken: session.rememberToken ?? stored.rememberToken,
+                    }),
+                  });
+                } catch {
+                  // 持久化失败不影响本次查询：下次仍会重新换签
+                }
+              },
             });
 
             if (domains.length > 0) {

@@ -45,6 +45,11 @@ export interface ProviderConfigField {
   required: boolean;
   group?: string;
   options?: ProviderConfigFieldOption[];
+  /**
+   * 隐藏字段：仅服务端读写，不下发给前端、不接收客户端赋值。
+   * 用于适配器自行维护的会话状态（如 dpdns 的 sessionCookie）。
+   */
+  hidden?: boolean;
 }
 
 export interface ProviderDefinition {
@@ -400,9 +405,15 @@ const allProviderDefinitions: ProviderDefinition[] = [
     defaultLine: '0',
     capabilities: { dns: null, log: false, renewal: true, redirect: false },
     configFields: [
-      { key: 'rememberToken', label: 'provider.config.remember_token', type: 'password', required: true },
+      // 认证凭据：密码管理器（Bitwarden 等）导出的 FIDO2 通行密钥条目（整段 JSON 粘贴）
+      // 非必填：升级前已存在的老账号只有 rememberToken（有效期内可直接用），不强制立刻补
+      { key: 'passkey', label: 'provider.config.passkey', type: 'password', required: false },
+      // 会话主凭证：旧版由用户手抄，现在由换签自动写入；移入隐藏字段，前端不可见
+      { key: 'rememberToken', label: 'provider.config.remember_token', type: 'password', required: false, hidden: true },
+      // 完整 Cookie 串：换签产物，前端不可见、不可编辑
+      { key: 'sessionCookie', label: 'provider.config.session_cookie', type: 'password', required: false, hidden: true },
     ],
-    adapterFactory: (config) => new Adapters.DpdnsReverseAdapter(config),
+    adapterFactory: (config) => new Adapters.DpdnsReverseAdapter(config as unknown as Adapters.DpdnsAuthConfig),
   },
 ];
 

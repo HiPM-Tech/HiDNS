@@ -30,12 +30,24 @@ export function parseConfigRecord(config: unknown): Record<string, unknown> {
  * - 值为 `***` 且原配置里没有 → 丢弃该键（避免把占位符写进库）；
  * - 其余键按传入值覆盖。
  */
+/**
+ * 合并「掩码占位」的配置更新：
+ * - 值为 `***` 且原配置里有同名键 → 沿用原值（未修改）；
+ * - 值为 `***` 且原配置里没有 → 丢弃该键（避免把占位符写进库）；
+ * - 隐藏字段（hidden）：一律沿用原值，忽略客户端传入的任何值（防注入会话状态）；
+ * - 其余键按传入值覆盖。
+ */
 export function mergeMaskedConfig(
   existing: Record<string, unknown>,
   incoming: Record<string, unknown>,
+  hiddenKeys: readonly string[] = [],
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = {};
+  for (const key of hiddenKeys) {
+    if (key in existing) merged[key] = existing[key];
+  }
   for (const [key, value] of Object.entries(incoming)) {
+    if (hiddenKeys.includes(key)) continue;
     if (value === MASKED_CONFIG_VALUE) {
       if (key in existing) merged[key] = existing[key];
       continue;
@@ -43,4 +55,17 @@ export function mergeMaskedConfig(
     merged[key] = value;
   }
   return merged;
+}
+
+/** 从配置中剔除隐藏字段（响应给前端前调用，避免会话 Cookie 外泄） */
+export function stripHiddenConfig(
+  config: Record<string, unknown>,
+  hiddenKeys: readonly string[],
+): Record<string, unknown> {
+  if (hiddenKeys.length === 0) return config;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config)) {
+    if (!hiddenKeys.includes(key)) out[key] = value;
+  }
+  return out;
 }

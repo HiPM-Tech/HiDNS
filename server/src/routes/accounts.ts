@@ -8,7 +8,7 @@ import { normalizeProviderType } from '../lib/dns/providerAlias';
 import { isAdmin, isSuper, normalizeRole, ROLE_ADMIN } from '../utils/roles';
 import { parseInteger, sendError, sendSuccess, sendServerError } from '../utils/http';
 import { accountEventData } from '../utils/accountEvent';
-import { mergeMaskedConfig, parseConfigRecord } from '../service/account-config';
+import { mergeMaskedConfig, parseConfigRecord, stripHiddenConfig } from '../service/account-config';
 import { wsService } from '../service/websocket';
 import { getAccountAudienceUserIds } from './audience';
 import { logAuditOperation } from '../service/audit';
@@ -17,6 +17,12 @@ import { createLogger } from '../lib/logger';
 
 const log = createLogger('HTTP').sub('Route').sub('Accounts');
 const router = Router();
+
+/** 该提供商声明为「仅服务端读写」的配置键（如 dpdns 的 sessionCookie）：不回传、不接受客户端赋值 */
+function hiddenConfigKeys(type: string): string[] {
+  const def = getProvider(normalizeProviderType(type));
+  return (def?.configFields ?? []).filter((field) => field.hidden).map((field) => field.key);
+}
 
 async function canReadAccount(account: DnsAccount, userId: number, role: number): Promise<boolean> {
   if (isSuper(role)) return true;
@@ -129,12 +135,12 @@ router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response)
 
   // Mask config secrets unless showDnsProviderSecrets is enabled
   const safe = accounts.map(a => {
-    // MySQL JSON type returns object directly, SQLite/PostgreSQL returns string
-    const cfg = typeof a.config === 'string' ? JSON.parse(a.config) as Record<string, string> : a.config as Record<string, string>;
+    // 隐藏字段（会话 Cookie 等）无论如何都不回传：它们由服务端维护，暴露出去等于交出账号
+    const cfg = stripHiddenConfig(parseConfigRecord(a.config), hiddenConfigKeys(a.type));
     const masked: Record<string, string> = {};
     if (showSecrets) {
       // Return actual values
-      for (const k of Object.keys(cfg)) masked[k] = cfg[k];
+      for (const k of Object.keys(cfg)) masked[k] = String(cfg[k]);
     } else {
       // Mask all values
       for (const k of Object.keys(cfg)) masked[k] = '***';
@@ -218,8 +224,19 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
     return;
   }
 
+  // 隐藏字段由服务端维护，不接受客户端赋值（防止伪造会话 Cookie 冒充其他账号）
+  const cleanConfig = stripHiddenConfig(config as Record<string, unknown>, hiddenConfigKeys(normalizedType)) as Record<string, string>;
+
+  // dpdns：check 会用通行密钥换签，把首次换到的会话一并入库（省掉一次重签）
+  if (normalizedType === 'dpdns_reverse') {
+    (cleanConfig as Record<string, unknown>).onSession = (session: { sessionCookie: string; rememberToken: string | null }) => {
+      (cleanConfig as Record<string, unknown>).sessionCookie = session.sessionCookie;
+      if (session.rememberToken) (cleanConfig as Record<string, unknown>).rememberToken = session.rememberToken;
+    };
+  }
+
   try {
-    const dnsAdapter = createAdapter(normalizedType, config);
+    const dnsAdapter = createAdapter(normalizedType, cleanConfig);
     const ok = await dnsAdapter.check();
     if (!ok) {
       sendError(res, `Credential check failed: ${dnsAdapter.getError()}`);
@@ -232,7 +249,7 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
   const id = await DnsAccountOperations.create({
     type: normalizedType,
     name,
-    config: JSON.stringify(config),
+    config: JSON.stringify(cleanConfig),
     remark,
     created_by: req.user!.userId,
     team_id: team_id ?? null
@@ -367,7 +384,9 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
   // 掩码回传兼容：GET 把 config 的每个值掩成 '***'，前端原样回传时必须视为「未修改」——
   // 否则 check() 会拿 '***' 验凭据（必然失败），或在校验宽松的 provider 上把凭据写成 '***'。
   const existingConfig = parseConfigRecord(account.config);
-  const effectiveConfig = config ? mergeMaskedConfig(existingConfig, config) : undefined;
+  const effectiveConfig = config
+    ? mergeMaskedConfig(existingConfig, config, hiddenConfigKeys(normalizeProviderType(type ?? account.type)))
+    : undefined;
 
   const normalizedType = type !== undefined ? normalizeProviderType(type) : undefined;
   if (normalizedType !== undefined) {
@@ -381,6 +400,13 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
     }
   }
   if (effectiveConfig) {
+    // dpdns：check 可能用通行密钥换签，新会话要跟着更新一起写回配置
+    if (normalizeProviderType(normalizedType ?? account.type) === 'dpdns_reverse') {
+      (effectiveConfig as Record<string, unknown>).onSession = (session: { sessionCookie: string; rememberToken: string | null }) => {
+        (effectiveConfig as Record<string, unknown>).sessionCookie = session.sessionCookie;
+        if (session.rememberToken) (effectiveConfig as Record<string, unknown>).rememberToken = session.rememberToken;
+      };
+    }
     try {
       const dnsAdapter = createAdapter(
         normalizedType ?? normalizeProviderType(account.type),

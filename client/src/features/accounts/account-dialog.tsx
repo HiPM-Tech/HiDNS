@@ -33,7 +33,7 @@ export function AccountDialog({ open, onOpenChange, providers, account }: Accoun
       type: preferred?.type ?? '',
       name: '',
       remark: '',
-      config: Object.fromEntries((preferred?.configFields ?? []).map((field) => [field.key, ''])),
+      config: Object.fromEntries((preferred?.configFields ?? []).filter((field) => !field.hidden).map((field) => [field.key, ''])),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只取挂载时的快照
   }, []);
@@ -45,12 +45,13 @@ export function AccountDialog({ open, onOpenChange, providers, account }: Accoun
   const [error, setError] = useState<string | null>(null);
 
   const provider = useMemo(() => selectableProviders.find((item) => item.type === type), [selectableProviders, type]);
-  const fields = provider?.configFields ?? [];
+  // 隐藏字段由服务端维护（会话 Cookie 等），不渲染也不提交
+  const fields = (provider?.configFields ?? []).filter((field) => !field.hidden);
 
   const handleTypeChange = (nextType: string) => {
     setType(nextType);
     const nextProvider = selectableProviders.find((item) => item.type === nextType);
-    setConfig(Object.fromEntries((nextProvider?.configFields ?? []).map((field) => [field.key, ''])));
+    setConfig(Object.fromEntries((nextProvider?.configFields ?? []).filter((field) => !field.hidden).map((field) => [field.key, ''])));
     setError(null);
   };
 
