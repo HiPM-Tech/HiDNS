@@ -367,3 +367,53 @@ describe('Set-Cookie 合并串解析（fetch 的真实形态）', () => {
   });
 });
 
+
+describe('signCount 自愈（服务端 counter 与本地不同步）', () => {
+  function makePasskey() {
+    const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    return {
+      credentialId: '02c3ace8-6a41-48e0-bfff-a66c448ad1a0',
+      keyValue: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+      rpId: 'dashboard.digitalplat.org',
+      userHandle: 'mEqCHdbXrHsyXlUjSh5Cvg-sd0U9qyzISZ1K_a3_2u0',
+    };
+  }
+
+  it('第一次 could not be verified，用下一个候选值重试并成功', async () => {
+    const passkey = makePasskey();
+    net.queue.push(
+      // attempt 1
+      { body: { ok: true, csrf_token: 'T1' } },
+      { body: { ok: true, options: { challenge: 'c1' }, request_id: 'r1' } },
+      { status: 401, body: { ok: false, code: 'security_error', error: 'Passkey sign-in could not be verified.' } },
+      // attempt 2
+      { body: { ok: true, csrf_token: 'T2' } },
+      { body: { ok: true, options: { challenge: 'c2' }, request_id: 'r2' } },
+      { body: { ok: true, user: { id: 1 } }, headers: { 'set-cookie': 'remember_token=rt' } },
+      // 成功后刷新 CSRF
+      { body: { ok: true, csrf_token: 'T3' } },
+    );
+
+    const config: { passkey: string; signCounter?: number; signCounterFor?: string } = { passkey: JSON.stringify(passkey) };
+    await loginWithPasskey(config);
+
+    // base=1 → 第一次失败 → 候选 +1 = 2
+    expect(config.signCounter).toBe(2);
+    expect(config.signCounterFor).toBe(passkey.credentialId);
+    const csrfCalls = net.calls.filter((u) => u.includes('/api/security/csrf'));
+    expect(csrfCalls).toHaveLength(3);
+  });
+
+  it('凭据不存在（sign-in failed）不重试，直接失败', async () => {
+    const passkey = makePasskey();
+    net.queue.push(
+      { body: { ok: true, csrf_token: 'T1' } },
+      { body: { ok: true, options: { challenge: 'c1' }, request_id: 'r1' } },
+      { status: 401, body: { ok: false, code: 'security_error', error: 'Passkey sign-in failed.' } },
+    );
+
+    await expect(loginWithPasskey({ passkey: JSON.stringify(passkey) })).rejects.toThrow(/sign-in failed/);
+    expect(net.calls.filter((u) => u.includes('/api/security/csrf'))).toHaveLength(1);
+  });
+});
+

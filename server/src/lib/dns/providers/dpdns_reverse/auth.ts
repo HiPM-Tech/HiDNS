@@ -288,31 +288,27 @@ function summarize(raw: string, max = 160): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-/**
- * 用通行密钥换签：csrf → passkey/begin → 本地签名 → passkey/finish。
- * 成功后 config.sessionCookie 为完整 Cookie 串，并触发 onSession 持久化。
- */
-export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
-  const credential = parsePasskeyCredential(config.passkey);
-  if (!credential) {
-    // 只报“收到了多少”，不打印凭据内容
-    const raw: unknown = config.passkey;
-    const text = typeof raw === 'string' ? raw.trim() : '';
-    const shape = typeof raw !== 'string'
-      ? (raw == null ? '未填写' : `收到 ${typeof raw}`)
-      : (text ? `收到 ${text.length} 字符` : '字段为空');
-    throw new Error(`通行密钥配置无效（${shape}）：请粘贴 JSON，单条凭据对象或含 fido2Credentials 数组的对象都可以`);
-  }
+type PasskeyAttempt =
+  | { ok: true; signCounter: number }
+  | { ok: false; retryable: boolean; error: string };
 
-  // 换签从干净会话开始：旧的 remember_token/panel_session 会撞 CSRF，旧的 panel_csrf_token 也可能已失效。
-  // 清空后由 ensureCsrfToken 重新取一份，并按「服务端下发的 cookie 优先」建立 header/cookie 一致状态。
-  config.rememberToken = undefined;
+/**
+ * 单次换签尝试（一次 begin + 一次 finish）。
+ *
+ * 拆出来是为了支持 signCount 自愈：服务端记录的 counter 可能与本地不一致
+ * （换过凭据、服务端重置、跨版本迁移都会发生），失败时用不同候选值重试。
+ * 只有「断言验证失败」才允许重试；凭据不存在、CSRF、网络错误一律直接失败。
+ */
+async function attemptPasskeyLogin(
+  config: DpdnsAuthConfig,
+  credential: NonNullable<ReturnType<typeof parsePasskeyCredential>>,
+  signCounter: number,
+): Promise<PasskeyAttempt> {
   config.sessionCookie = undefined;
   config.csrfToken = undefined;
-  verifiedAt.delete(config);
 
   const csrf = await ensureCsrfToken(config);
-  if (!csrf) throw new Error('通行密钥换签失败[csrf]：未能获取 CSRF token');
+  if (!csrf) return { ok: false, retryable: false, error: '通行密钥换签失败[csrf]：未能获取 CSRF token' };
 
   const startBegin = () => send(`${PANEL_API}/api/auth/passkey/begin`, config, {
     method: 'POST',
@@ -330,36 +326,18 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
   }
 
   if (!begin.ok || !beginBody?.ok || !beginBody.options?.challenge || !beginBody.request_id) {
-    // 带上响应摘要与 CSRF 阶段诊断：经过代理时可能拿到 HTML 错误页，或 Set-Cookie 被吞
     const diag = csrfDiag.get(config);
     const diagText = diag
       ? `；csrf 阶段${diag.direct ? '直连' : '代理'}，Set-Cookie: ${diag.cookieNames.join(',') || '无'}${diag.hadCookieToken ? '' : '（无 panel_csrf_token）'}`
       : '';
-    throw new Error(`通行密钥换签失败[begin]：HTTP ${begin.status}，响应 ${summarize(beginRaw)}${diagText}`);
-  }
-
-  // 服务端可能严格校验 signCount 递增；Bitwarden 导出的 counter 恒为 0，必须自己推进。
-  // 换了凭据（或新建账号）时必须从 1 重新开始：新凭据在上游记录的 counter 是 0，
-  // 沿用旧游标虽然多数实现能过，但遇到「严格比较」的实现会被判为异常。
-  const counterBase = config.signCounterFor && config.signCounterFor !== credential.credentialId
-    ? undefined
-    : config.signCounter;
-  const signCounter = nextSignCounter(counterBase);
-  log.sub('Auth').tag('SIGN').debug('Signing assertion', {
-    credential: credential.credentialId.slice(0, 8),
-    signCounter,
-    counterBase: counterBase ?? null,
-    hasCounterFor: Boolean(config.signCounterFor),
-  });
-  if (signCounter > WARN_SIGN_COUNTER) {
-    log.sub('Auth').tag('COUNTER').debug('signCount 超过软阈值，继续按标准库要求递增', { signCounter });
+    return { ok: false, retryable: false, error: `通行密钥换签失败[begin]：HTTP ${begin.status}，响应 ${summarize(beginRaw)}${diagText}` };
   }
 
   let assertion;
   try {
     assertion = buildAssertion(credential, beginBody.options.challenge, DEFAULT_DPDNS_ORIGIN, signCounter);
   } catch (e: unknown) {
-    throw new Error(`通行密钥换签失败[sign]：${e instanceof Error ? e.message : String(e)}`);
+    return { ok: false, retryable: false, error: `通行密钥换签失败[sign]：${e instanceof Error ? e.message : String(e)}` };
   }
 
   // redirect: 'manual' —— 上游可能用 302 下发 Set-Cookie；跟随重定向后最终响应就看不到这些头了
@@ -371,39 +349,95 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
   const isRedirect = finish.status >= 300 && finish.status < 400;
   const { json: finishBody, raw: finishRaw } = await readJson(finish);
   if (!isRedirect && (!finish.ok || !finishBody?.ok)) {
-    // 带上完整响应摘要：上游可能只给一句笼统的 “could not be verified”，
-    // 但响应里往往还有 reason / code，能区分是签名、challenge 还是 counter 的问题。
+    const text = String(finishBody?.error || `HTTP ${finish.status}`);
     const detail = summarize(finishRaw, 300);
-    throw new Error(
-      `通行密钥换签失败[finish]：${finishBody?.error || `HTTP ${finish.status}`}` +
-      `（counter=${signCounter}，credential=${credential.credentialId.slice(0, 8)}）` +
-      (detail ? `（响应 ${detail}）` : ''),
-    );
+    // 「could not be verified」既可能是 counter 不同步，也可能是凭据不对；
+    // 前者可重试，后者重试也没用（凭据不存在时上游措辞是 sign-in failed）
+    const retryable = /could not be verified|sign.?count|counter/i.test(text);
+    return {
+      ok: false,
+      retryable,
+      error: `通行密钥换签失败[finish]：${text}（counter=${signCounter}，credential=${credential.credentialId.slice(0, 8)}）` +
+        (detail ? `（响应 ${detail}）` : ''),
+    };
   }
 
   const jar = resolveSessionJar(config);
-  const rememberToken = jar.get('remember_token') ?? null;
-  if (!rememberToken) {
+  if (!jar.get('remember_token')) {
     const cookieNames = extractSetCookies(finish).map(([name]) => name).join(',') || '无';
-    throw new Error(
-      `通行密钥换签失败[finish]：HTTP ${finish.status} 已通过，但没有下发表会话 Cookie（Set-Cookie: ${cookieNames}；响应 ${summarize(finishRaw)}）`,
-    );
+    return {
+      ok: false,
+      retryable: false,
+      error: `通行密钥换签失败[finish]：HTTP ${finish.status} 已通过，但没有下发表会话 Cookie（Set-Cookie: ${cookieNames}；响应 ${summarize(finishRaw)}）`,
+    };
+  }
+  return { ok: true, signCounter };
+}
+
+/**
+ * 用通行密钥换签：csrf → passkey/begin → 本地签名 → passkey/finish。
+ * 成功后 config.sessionCookie 为完整 Cookie 串，并触发 onSession 持久化。
+ *
+ * signCount 自愈：断言被拒（could not be verified）时，依次尝试
+ * base、base+1、base+10、base+100、1000，直到服务端接受；
+ * 成功的值会写回 signCounter，后续正常 +1。
+ */
+export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
+  const credential = parsePasskeyCredential(config.passkey);
+  if (!credential) {
+    // 只报“收到了多少”，不打印凭据内容
+    const raw: unknown = config.passkey;
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    const shape = typeof raw !== 'string'
+      ? (raw == null ? '未填写' : `收到 ${typeof raw}`)
+      : (text ? `收到 ${text.length} 字符` : '字段为空');
+    throw new Error(`通行密钥配置无效（${shape}）：请粘贴 JSON，单条凭据对象或含 fido2Credentials 数组的对象都可以`);
   }
 
-  config.sessionCookie = buildCookieJar(jar);
-  config.rememberToken = rememberToken;
-  config.signCounter = signCounter;
-  config.signCounterFor = credential.credentialId;
-  verifiedAt.set(config, Date.now());
-  // 换签后用新会话再取一次 CSRF：finish 可能轮换了 token 但没有重发 cookie，
-  // 这一份才是与服务端会话配对的
-  await ensureCsrfToken(config);
-  await config.onSession?.({
-    sessionCookie: config.sessionCookie ?? '',
-    rememberToken,
-    signCounter,
-    signCounterFor: credential.credentialId,
-  });
+  verifiedAt.delete(config);
+
+  const counterBase = config.signCounterFor && config.signCounterFor !== credential.credentialId
+    ? undefined
+    : config.signCounter;
+  const base = nextSignCounter(counterBase);
+  // 候选值：本地推导值 → +1 → +10 → +100 → 1000（服务端只要求 next > stored）
+  const candidates = Array.from(new Set([base, base + 1, base + 10, base + 100, 1000]));
+
+  let lastError: string | null = null;
+  for (let i = 0; i < candidates.length; i += 1) {
+    const signCounter = candidates[i];
+    log.sub('Auth').tag('SIGN').debug('Signing assertion', {
+      credential: credential.credentialId.slice(0, 8),
+      signCounter,
+      counterBase: counterBase ?? null,
+      attempt: i + 1,
+    });
+
+    const result = await attemptPasskeyLogin(config, credential, signCounter);
+    if (result.ok) {
+      config.signCounter = signCounter;
+      config.signCounterFor = credential.credentialId;
+      verifiedAt.set(config, Date.now());
+      // 换签后用新会话再取一次 CSRF：finish 可能轮换了 token 但没有重发 cookie
+      await ensureCsrfToken(config);
+      await config.onSession?.({
+        sessionCookie: config.sessionCookie ?? '',
+        rememberToken: config.rememberToken ?? null,
+        signCounter,
+        signCounterFor: credential.credentialId,
+      });
+      return;
+    }
+
+    lastError = result.error;
+    if (!result.retryable) throw new Error(result.error);
+    log.sub('Auth').tag('COUNTER').warn('signCount 被拒，尝试下一个候选值', {
+      signCounter,
+      next: candidates[i + 1] ?? null,
+    });
+  }
+
+  throw new Error(lastError ?? '通行密钥换签失败：未知原因');
 }
 
 /** 会话是否可用；不可用则换签。60s 内复用校验结果，避免每个请求都打 /auth/me */
