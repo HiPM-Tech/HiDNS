@@ -145,6 +145,14 @@ export function AccountDialog({ open, onOpenChange, providers, account }: Accoun
                   placeholder={config[field.key] === MASK ? '保持原值' : undefined}
                 />
               )}
+              {/* 凭据状态提示：只在编辑已有账号、且该账号还没配通行密钥时出现 */}
+              {field.key === 'passkey' && account?.credential_state && account.credential_state !== 'passkey' && (
+                <p className="text-xs text-muted-foreground">
+                  {account.credential_state === 'legacy'
+                    ? '当前仍在使用旧版会话凭证（已隐藏，不再展示）。填写通行密钥后即改为全自动换签，不再受旧凭证过期影响。'
+                    : '该账号当前没有任何可用凭据，请填写通行密钥。'}
+                </p>
+              )}
             </div>
           ))}
 
