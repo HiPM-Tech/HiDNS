@@ -31,10 +31,11 @@ export class DnsProviderService {
    */
   private static attachSessionPersist(account: DnsAccount, cfg: Record<string, unknown>): void {
     if (normalizeProviderType(String(account.type)) !== 'dpdns_reverse') return;
-    cfg.onSession = async (session: { sessionCookie: string; rememberToken: string | null; signCounter?: number }) => {
+    cfg.onSession = async (session: { sessionCookie: string; rememberToken: string | null; signCounter?: number; signCounterFor?: string }) => {
       cfg.sessionCookie = session.sessionCookie;
       if (session.rememberToken) cfg.rememberToken = session.rememberToken;
       if (typeof session.signCounter === 'number') cfg.signCounter = session.signCounter;
+      if (session.signCounterFor) cfg.signCounterFor = session.signCounterFor;
       try {
         await DnsAccountOperations.update(Number(account.id), { config: JSON.stringify(cfg) });
       } catch (e: unknown) {

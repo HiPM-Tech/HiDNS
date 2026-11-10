@@ -38,14 +38,15 @@ export const WARN_SIGN_COUNTER = 300;
  * 对齐标准校验库（@simplewebauthn/server）的语义：
  *   if (stored > 0 || next > 0) require(next > stored)
  * 因此：
- * - 首次发 0（stored=0 且 next=0 时库跳过校验，兼容 Bitwarden 导出的 counter=0）；
- * - 之后必须**严格 +1**，不能回绕——回绕到 0 会被判成「计数器倒退 / 疑似克隆」；
- * - 只有到 32 位上限（4294967295）才回绕到 1，此时应当重新注册凭据。
+ * - **首次发 1**：stored=0 且 next=1 时严格实现（要求 next > 0）与 SimpleWebAuthn（next > stored）都通过；
+ *   发 0 会被「无条件要求 new > stored」的实现拒绝，而这类严格实现并不少见；
+ * - 之后必须**严格 +1**，不能回绕——回绕会被判成「计数器倒退 / 疑似克隆」；
+ * - 只有到 32 位上限（4294967295）才回到 1，此时应当重新注册凭据。
  */
 export function nextSignCounter(current?: number): number {
-  if (current === undefined || current === null) return 0;
+  if (current === undefined || current === null) return 1;
   const value = Math.trunc(Number(current));
-  if (!Number.isFinite(value) || value < 0) return 0;
+  if (!Number.isFinite(value) || value < 0) return 1;
   if (value >= MAX_SIGN_COUNTER) return 1;
   return value + 1;
 }
@@ -57,6 +58,8 @@ export interface DpdnsSessionState {
   rememberToken: string | null;
   /** 本次断言使用的 signCount，调用方需要持久化，下次继续递增 */
   signCounter: number;
+  /** 本次计数对应的凭据 ID，调用方需要持久化，用于识别「换了凭据」 */
+  signCounterFor: string;
 }
 
 export interface DpdnsAuthConfig {
@@ -66,8 +69,10 @@ export interface DpdnsAuthConfig {
   sessionCookie?: string;
   /** 会话主凭证：隐藏字段，换签后由服务端写入，旧账号里可能是用户当年手抄的值 */
   rememberToken?: string;
-  /** WebAuthn signCount 游标：隐藏字段，每次换签 +1（0→300→0） */
+  /** WebAuthn signCount 游标：隐藏字段，每次换签 +1（不回绕） */
   signCounter?: number;
+  /** 该游标对应的凭据 ID：换凭据（或新建账号）后计数必须从 1 重新开始 */
+  signCounterFor?: string;
   /**
    * 强制用通行密钥换签（忽略已有会话）。
    * 用户本次提交了新的通行密钥时必须为 true：否则旧 sessionCookie/rememberToken 会让 check 走
@@ -288,8 +293,13 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
     throw new Error(`通行密钥换签失败[begin]：HTTP ${begin.status}，响应 ${summarize(beginRaw)}`);
   }
 
-  // 服务端可能严格校验 signCount 递增；Bitwarden 导出的 counter 恒为 0，必须自己推进
-  const signCounter = nextSignCounter(config.signCounter);
+  // 服务端可能严格校验 signCount 递增；Bitwarden 导出的 counter 恒为 0，必须自己推进。
+  // 换了凭据（或新建账号）时必须从 1 重新开始：新凭据在上游记录的 counter 是 0，
+  // 沿用旧游标虽然多数实现能过，但遇到「严格比较」的实现会被判为异常。
+  const counterBase = config.signCounterFor && config.signCounterFor !== credential.credentialId
+    ? undefined
+    : config.signCounter;
+  const signCounter = nextSignCounter(counterBase);
   if (signCounter > WARN_SIGN_COUNTER) {
     log.sub('Auth').tag('COUNTER').debug('signCount 超过软阈值，继续按标准库要求递增', { signCounter });
   }
@@ -325,8 +335,14 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
   config.sessionCookie = buildCookieJar(jar);
   config.rememberToken = rememberToken;
   config.signCounter = signCounter;
+  config.signCounterFor = credential.credentialId;
   verifiedAt.set(config, Date.now());
-  await config.onSession?.({ sessionCookie: config.sessionCookie ?? '', rememberToken, signCounter });
+  await config.onSession?.({
+    sessionCookie: config.sessionCookie ?? '',
+    rememberToken,
+    signCounter,
+    signCounterFor: credential.credentialId,
+  });
 }
 
 /** 会话是否可用；不可用则换签。60s 内复用校验结果，避免每个请求都打 /auth/me */

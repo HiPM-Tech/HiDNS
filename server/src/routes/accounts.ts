@@ -240,10 +240,11 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
 
   // dpdns：check 会用通行密钥换签，把首次换到的会话一并入库（省掉一次重签）
   if (normalizedType === 'dpdns_reverse') {
-    (cleanConfig as Record<string, unknown>).onSession = (session: { sessionCookie: string; rememberToken: string | null; signCounter?: number }) => {
+    (cleanConfig as Record<string, unknown>).onSession = (session: { sessionCookie: string; rememberToken: string | null; signCounter?: number; signCounterFor?: string }) => {
       (cleanConfig as Record<string, unknown>).sessionCookie = session.sessionCookie;
       if (session.rememberToken) (cleanConfig as Record<string, unknown>).rememberToken = session.rememberToken;
       if (typeof session.signCounter === 'number') (cleanConfig as Record<string, unknown>).signCounter = session.signCounter;
+      if (session.signCounterFor) (cleanConfig as Record<string, unknown>).signCounterFor = session.signCounterFor;
     };
   }
 
@@ -431,10 +432,11 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
   if (effectiveConfig) {
     // dpdns：check 可能用通行密钥换签，新会话要跟着更新一起写回配置
     if (normalizeProviderType(normalizedType ?? account.type) === 'dpdns_reverse') {
-      (effectiveConfig as Record<string, unknown>).onSession = (session: { sessionCookie: string; rememberToken: string | null; signCounter?: number }) => {
+      (effectiveConfig as Record<string, unknown>).onSession = (session: { sessionCookie: string; rememberToken: string | null; signCounter?: number; signCounterFor?: string }) => {
         (effectiveConfig as Record<string, unknown>).sessionCookie = session.sessionCookie;
         if (session.rememberToken) (effectiveConfig as Record<string, unknown>).rememberToken = session.rememberToken;
         if (typeof session.signCounter === 'number') (effectiveConfig as Record<string, unknown>).signCounter = session.signCounter;
+        if (session.signCounterFor) (effectiveConfig as Record<string, unknown>).signCounterFor = session.signCounterFor;
       };
     }
     // 新凭据提交时强制走通行密钥换签（副本只用于本次校验，不落库）

@@ -141,7 +141,7 @@ async function syncAccountDomains(account: any): Promise<void> {
     // 创建适配器：动态认证的提供商（dpdns）换签后把会话写回，避免每次同步都重签
     const cfg = {
       ...stored,
-      onSession: async (session: { sessionCookie: string; rememberToken: string | null; signCounter?: number }) => {
+      onSession: async (session: { sessionCookie: string; rememberToken: string | null; signCounter?: number; signCounterFor?: string }) => {
         try {
           await DnsAccountOperations.update(accountId, {
             config: JSON.stringify({
@@ -149,6 +149,7 @@ async function syncAccountDomains(account: any): Promise<void> {
               sessionCookie: session.sessionCookie,
               rememberToken: session.rememberToken ?? stored.rememberToken,
               signCounter: session.signCounter ?? stored.signCounter,
+              signCounterFor: session.signCounterFor ?? stored.signCounterFor,
             }),
           });
         } catch (e: unknown) {

@@ -40,6 +40,7 @@ const CONFIG_LABELS: Record<string, string> = {
   'provider.config.passkey': '通行密钥（FIDO2 JSON）',
   'provider.config.remember_token': '会话凭证（自动维护）',
   'provider.config.sign_counter': '签名计数器（自动维护）',
+  'provider.config.sign_counter_for': '计数器所属凭据（自动维护）',
   'provider.config.session_cookie': '会话 Cookie（自动维护）',
   'provider.config.account_id': 'Account ID',
   'provider.config.account_id_tunnels': 'Account ID（隧道）',
