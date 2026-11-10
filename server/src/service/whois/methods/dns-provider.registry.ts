@@ -65,7 +65,12 @@ function wrapScheduler(scheduler: WhoisScheduler): DnsWhoisSource {
 }
 
 function convertResult(domain: string, raw: WhoisSchedulerResult): WhoisResult | null {
-  const expiryDate = raw.expiration_date ? extractExpiryDate(raw.expiration_date, 'WHOIS') : null;
+  // 不同提供商的到期字段名不一致：DNSHE 原生返回 expires_at，调度器通常已映射成 expiration_date，
+  // 但直接调用适配器时不会经过那层映射，这里兜一下，避免到期日被静默丢掉。
+  const rawExpiry = raw.expiration_date
+    ?? (raw as unknown as { expires_at?: string }).expires_at
+    ?? (raw as unknown as { expiry_date?: string }).expiry_date;
+  const expiryDate = rawExpiry ? extractExpiryDate(rawExpiry, 'WHOIS') : null;
   return {
     domain,
     expiryDate,

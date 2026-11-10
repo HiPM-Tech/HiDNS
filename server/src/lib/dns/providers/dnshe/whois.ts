@@ -39,7 +39,15 @@ export async function getWhois(
     }
 
     const data = await response.json();
-    log.sub('API').tag('RESPONSE').debug('Provider response', { status: response.status, success: data.success, data: { domain } });
+    // 关键字段摘要（不打印整包）：到期日缺失时，靠这几个字段判断是「上游没给」还是「字段名/格式不对」
+    log.sub('API').tag('RESPONSE').debug('Provider response', {
+      status: response.status,
+      success: data.success,
+      expires: data.expires_at ?? data.expiration_date ?? data.expiry_date ?? null,
+      registrar: data.registrar ?? null,
+      domainStatus: data.status ?? null,
+      keys: Object.keys(data).slice(0, 12),
+    });
 
     if (!data.success) {
       log.sub('API').tag('ERROR').error('Provider error', { message: data.message || data.error });
