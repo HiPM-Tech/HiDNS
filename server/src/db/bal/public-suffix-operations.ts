@@ -56,10 +56,14 @@ export const PublicSuffixOperations = {
       const placeholders = chunk.map(() => '?').join(',');
       await execute(`DELETE FROM public_suffixes WHERE suffix IN (${placeholders})`, chunk);
     }
-    for (const suffix of normalized) {
+    // 多值 INSERT：一次 200 条。逐条插入在 PG 上要 1 万次往返，
+    // 并且每条都会打一行 SQL 日志（实测一次刷新刷出 10381 条 INSERT，把真正的错误淹没）。
+    for (let i = 0; i < normalized.length; i += 200) {
+      const chunk = normalized.slice(i, i + 200);
+      const values = chunk.map(() => '(?, ?, CURRENT_TIMESTAMP)').join(',');
       await execute(
-        'INSERT INTO public_suffixes (suffix, source, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
-        [suffix, source],
+        `INSERT INTO public_suffixes (suffix, source, updated_at) VALUES ${values}`,
+        chunk.flatMap((suffix) => [suffix, source]),
       );
     }
     return normalized.length;
