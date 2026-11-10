@@ -111,11 +111,31 @@ function buildCookieJar(map: Map<string, string>): string | undefined {
   return Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
+/**
+ * 读取响应里的全部 Set-Cookie。
+ *
+ * 优先用 getSetCookie()（undici 提供，返回数组）：走代理时多个 Set-Cookie 会被合并成
+ * 一个逗号串，手工切分容易被 cookie 值里的逗号/Expires 日期切错，导致读不到 remember_token。
+ */
+function extractSetCookies(res: Response): Array<[string, string]> {
+  const headers = res.headers as unknown as {
+    getSetCookie?: () => string[];
+    get(name: string): string | null;
+  };
+  const list = headers.getSetCookie?.();
+  const rawList = list && list.length > 0 ? list : [headers.get('set-cookie') ?? ''].filter(Boolean);
+  const pairs: Array<[string, string]> = [];
+  for (const raw of rawList) {
+    for (const [key, value] of parseSetCookieHeader(raw)) pairs.push([key, value]);
+  }
+  return pairs;
+}
+
 function absorbCookies(config: DpdnsAuthConfig, res: Response): void {
-  const raw = res.headers.get('set-cookie');
-  if (!raw) return;
+  const pairs = extractSetCookies(res);
+  if (pairs.length === 0) return;
   const map = resolveSessionJar(config);
-  for (const [k, v] of parseSetCookieHeader(raw)) map.set(k, v);
+  for (const [k, v] of pairs) map.set(k, v);
   config.sessionCookie = buildCookieJar(map);
   const token = map.get('remember_token');
   if (token) config.rememberToken = token;
@@ -246,18 +266,25 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
     throw new Error(`通行密钥换签失败[sign]：${e instanceof Error ? e.message : String(e)}`);
   }
 
+  // redirect: 'manual' —— 上游可能用 302 下发 Set-Cookie；跟随重定向后最终响应就看不到这些头了
   const finish = await send(`${PANEL_API}/api/auth/passkey/finish`, config, {
     method: 'POST',
     body: JSON.stringify({ purpose: 'login', request_id: beginBody.request_id, credential: assertion }),
+    redirect: 'manual',
   });
+  const isRedirect = finish.status >= 300 && finish.status < 400;
   const { json: finishBody, raw: finishRaw } = await readJson(finish);
-  if (!finish.ok || !finishBody?.ok) {
+  if (!isRedirect && (!finish.ok || !finishBody?.ok)) {
     throw new Error(`通行密钥换签失败[finish]：${finishBody?.error || `HTTP ${finish.status}，响应 ${summarize(finishRaw)}`}`);
   }
+
   const jar = resolveSessionJar(config);
   const rememberToken = jar.get('remember_token') ?? null;
   if (!rememberToken) {
-    throw new Error('通行密钥换签成功但未拿到会话 Cookie');
+    const cookieNames = extractSetCookies(finish).map(([name]) => name).join(',') || '无';
+    throw new Error(
+      `通行密钥换签失败[finish]：HTTP ${finish.status} 已通过，但没有下发表会话 Cookie（Set-Cookie: ${cookieNames}；响应 ${summarize(finishRaw)}）`,
+    );
   }
 
   config.sessionCookie = buildCookieJar(jar);

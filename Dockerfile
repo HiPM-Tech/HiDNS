@@ -72,6 +72,9 @@ EXPOSE 3001
 ENV NODE_ENV=production
 ENV PORT=3001
 ENV CI_BUILD=${CI_BUILD}
+# 发布镜像默认 debug 日志（CI 构建的版本用于排查现场问题）；
+# 生产稳态可用 -e HIDNS_LOG_LEVEL=info 覆盖，无需重建镜像。
+ENV HIDNS_LOG_LEVEL=debug
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

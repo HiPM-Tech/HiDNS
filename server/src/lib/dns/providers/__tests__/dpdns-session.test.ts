@@ -122,6 +122,25 @@ describe('ensureSession 的升级兼容路径', () => {
     expect(beginHeaders.Cookie).toContain('panel_csrf_token=T1');
     expect(beginHeaders.Cookie ?? '').not.toContain('remember_token=old');
   });
+  it('finish 用 302 下发会话 Cookie 时也能换签成功', async () => {
+    const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const passkey = {
+      credentialId: '36d61772-b56f-47b4-9944-65c47be7f611',
+      keyValue: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+      rpId: 'dashboard.digitalplat.org',
+      userHandle: 'mEqCHdbXrHsyXlUjSh5Cvg-sd0U9qyzISZ1K_a3_2u0',
+    };
+    net.queue.push(
+      { body: { ok: true, csrf_token: 'T1' } },
+      { body: { ok: true, options: { challenge: 'chal' }, request_id: 'rid' } },
+      { status: 302, body: {}, headers: { 'set-cookie': 'remember_token=rt302' } },
+    );
+
+    const config: { passkey: string; rememberToken?: string; sessionCookie?: string } = { passkey: JSON.stringify(passkey) };
+    await loginWithPasskey(config);
+    expect(config.rememberToken).toBe('rt302');
+    expect(config.sessionCookie).toContain('remember_token=rt302');
+  });
   it('旧 rememberToken 失效且没有通行密钥：报错并提示补充', async () => {
     net.queue.push({ status: 401, body: { ok: false, error: 'Authentication required' } });
     await expect(ensureSession({ rememberToken: 'expired' })).rejects.toThrow(/通行密钥/);

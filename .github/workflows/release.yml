@@ -62,6 +62,8 @@ on:
         type: boolean
 
 env:
+  # CI 构建/测试阶段默认 debug，便于从 Actions 日志定位问题（不影响运行期覆盖）
+  HIDNS_LOG_LEVEL: debug
   REGISTRY: ghcr.io
   # 打包进发布产物的 Node.js 运行时版本。
   # 必须 ≥ v24.22.1（2026-10-20 安全版本），它修复了 CVE-2026-111497（Brotli RCE）、
