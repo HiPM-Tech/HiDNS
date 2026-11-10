@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ensureSession, resolveSessionJar } from '../dpdns_reverse/auth';
 
@@ -64,6 +65,34 @@ describe('ensureSession 的升级兼容路径', () => {
     expect(config.rememberToken).toBe('legacy-token');
   });
 
+  it('forcePasskey：即便有旧 rememberToken，也强制用通行密钥换签（不校验旧会话）', async () => {
+    const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const passkey = {
+      credentialId: '36d61772-b56f-47b4-9944-65c47be7f611',
+      keyValue: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+      rpId: 'dashboard.digitalplat.org',
+      userHandle: 'mEqCHdbXrHsyXlUjSh5Cvg-sd0U9qyzISZ1K_a3_2u0',
+    };
+    net.queue.push(
+      { body: { ok: true, csrf_token: 'csrf-1' } },
+      { body: { ok: true, options: { challenge: 'chal' }, request_id: 'rid' } },
+      {
+        body: { ok: true, user: { id: 1 } },
+        headers: { 'set-cookie': 'remember_token=brand-new-token; panel_session=s1; panel_device=d1' },
+      },
+    );
+
+    const config = { rememberToken: 'legacy-token', forcePasskey: true, passkey: JSON.stringify(passkey) };
+    await ensureSession(config);
+
+    expect(net.calls.some((u) => u.includes('/auth/me'))).toBe(false);
+    expect(net.calls.map((u) => u.split('/_panel_api')[1])).toEqual([
+      '/api/security/csrf',
+      '/api/auth/passkey/begin',
+      '/api/auth/passkey/finish',
+    ]);
+    expect(config.rememberToken).toBe('brand-new-token');
+  });
   it('旧 rememberToken 失效且没有通行密钥：报错并提示补充', async () => {
     net.queue.push({ status: 401, body: { ok: false, error: 'Authentication required' } });
     await expect(ensureSession({ rememberToken: 'expired' })).rejects.toThrow(/通行密钥/);

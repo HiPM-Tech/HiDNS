@@ -246,8 +246,13 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
     };
   }
 
+  // 新建时只要填了通行密钥，就强制用它换签验证（杜绝客户端伪造隐藏会话字段蒙混）
+  const createCheckConfig = typeof cleanConfig.passkey === 'string' && cleanConfig.passkey.trim()
+    ? { ...(cleanConfig as Record<string, unknown>), forcePasskey: true }
+    : cleanConfig;
+
   try {
-    const dnsAdapter = createAdapter(normalizedType, cleanConfig);
+    const dnsAdapter = createAdapter(normalizedType, createCheckConfig as unknown as Record<string, string>);
     const ok = await dnsAdapter.check();
     if (!ok) {
       sendError(res, `Credential check failed: ${dnsAdapter.getError()}`);
@@ -399,6 +404,18 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
     ? mergeMaskedConfig(existingConfig, config, hiddenConfigKeys(normalizeProviderType(type ?? account.type)))
     : undefined;
 
+  /**
+   * 本次是否提交了「新的」通行密钥（不是未修改的掩码占位）。
+   * 是的话必须丢掉旧会话、强制用新凭据换签验证：否则 readAllowed 仍会命中旧 sessionCookie/rememberToken，
+   * check 会因为「旧会话还有效」而通过，新凭据从头到尾没被验证过。
+   */
+  const incomingPasskey = typeof config?.passkey === 'string' ? String(config.passkey).trim() : '';
+  const passkeyChanged = Boolean(incomingPasskey) && incomingPasskey !== '***';
+  if (effectiveConfig && passkeyChanged) {
+    delete (effectiveConfig as Record<string, unknown>).rememberToken;
+    delete (effectiveConfig as Record<string, unknown>).sessionCookie;
+  }
+
   const normalizedType = type !== undefined ? normalizeProviderType(type) : undefined;
   if (normalizedType !== undefined) {
     if (!getProvider(normalizedType)) {
@@ -418,10 +435,14 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
         if (session.rememberToken) (effectiveConfig as Record<string, unknown>).rememberToken = session.rememberToken;
       };
     }
+    // 新凭据提交时强制走通行密钥换签（副本只用于本次校验，不落库）
+    const checkConfig = passkeyChanged
+      ? { ...(effectiveConfig as Record<string, unknown>), forcePasskey: true }
+      : effectiveConfig;
     try {
       const dnsAdapter = createAdapter(
         normalizedType ?? normalizeProviderType(account.type),
-        effectiveConfig as Record<string, string>,
+        checkConfig as unknown as Record<string, string>,
       );
       const ok = await dnsAdapter.check();
       if (!ok) {

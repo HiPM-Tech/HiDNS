@@ -39,6 +39,12 @@ export interface DpdnsAuthConfig {
   sessionCookie?: string;
   /** 会话主凭证：隐藏字段，换签后由服务端写入，旧账号里可能是用户当年手抄的值 */
   rememberToken?: string;
+  /**
+   * 强制用通行密钥换签（忽略已有会话）。
+   * 用户本次提交了新的通行密钥时必须为 true：否则旧 sessionCookie/rememberToken 会让 check 走
+   * 「旧会话仍有效」的分支，新凭据根本没被验证过。
+   */
+  forcePasskey?: boolean;
   csrfToken?: string;
   useProxy?: boolean;
   /** 换签成功后回调，用于把新会话持久化到账号配置的隐藏字段 */
@@ -237,6 +243,12 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
 
 /** 会话是否可用；不可用则换签。60s 内复用校验结果，避免每个请求都打 /auth/me */
 export async function ensureSession(config: DpdnsAuthConfig): Promise<void> {
+  // 本次提交了新的通行密钥：必须用它真实验证一次，不能拿旧会话蒙混过关
+  if (config.forcePasskey) {
+    await loginWithPasskey(config);
+    return;
+  }
+
   const last = verifiedAt.get(config);
   if (last && Date.now() - last < SESSION_TTL_MS && resolveSessionJar(config).get('remember_token')) {
     return;
