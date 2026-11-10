@@ -416,6 +416,9 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
   if (effectiveConfig && passkeyChanged) {
     delete (effectiveConfig as Record<string, unknown>).rememberToken;
     delete (effectiveConfig as Record<string, unknown>).sessionCookie;
+    // 换了一把凭据：signCount 是「按凭据」计数的，新凭据必须从 1 重新开始
+    delete (effectiveConfig as Record<string, unknown>).signCounter;
+    delete (effectiveConfig as Record<string, unknown>).signCounterFor;
   }
 
   const normalizedType = type !== undefined ? normalizeProviderType(type) : undefined;

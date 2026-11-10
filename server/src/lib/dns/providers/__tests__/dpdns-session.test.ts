@@ -216,3 +216,47 @@ describe('signCount 与凭据绑定', () => {
   });
 });
 
+
+describe('跨版本升级：有 signCounter 但没有 signCounterFor', () => {
+  it('沿用旧游标（无法判定是否换凭据时，重置反而会撞上「next > stored」）', async () => {
+    const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const passkey = {
+      credentialId: '2b2912f3-4d07-4144-8f59-bacd6793f78a',
+      keyValue: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+      rpId: 'dashboard.digitalplat.org',
+      userHandle: 'mEqCHdbXrHsyXlUjSh5Cvg-sd0U9qyzISZ1K_a3_2u0',
+    };
+    net.queue.push(
+      { body: { ok: true, csrf_token: 'T1' } },
+      { body: { ok: true, options: { challenge: 'chal' }, request_id: 'rid' } },
+      { body: { ok: true, user: { id: 1 } }, headers: { 'set-cookie': 'remember_token=rt' } },
+    );
+
+    const config = { passkey: JSON.stringify(passkey), signCounter: 50 } as {
+      passkey: string; signCounter?: number; signCounterFor?: string;
+    };
+    await loginWithPasskey(config);
+    expect(config.signCounter).toBe(51);
+    expect(config.signCounterFor).toBe(passkey.credentialId);
+  });
+
+  it('旧账号从未换过签（无 signCounter）：首次换签从 1 开始', async () => {
+    const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const passkey = {
+      credentialId: '36d61772-b56f-47b4-9944-65c47be7f611',
+      keyValue: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+      rpId: 'dashboard.digitalplat.org',
+      userHandle: 'mEqCHdbXrHsyXlUjSh5Cvg-sd0U9qyzISZ1K_a3_2u0',
+    };
+    net.queue.push(
+      { body: { ok: true, csrf_token: 'T1' } },
+      { body: { ok: true, options: { challenge: 'chal' }, request_id: 'rid' } },
+      { body: { ok: true, user: { id: 1 } }, headers: { 'set-cookie': 'remember_token=rt' } },
+    );
+
+    const config = { passkey: JSON.stringify(passkey) } as { passkey: string; signCounter?: number };
+    await loginWithPasskey(config);
+    expect(config.signCounter).toBe(1);
+  });
+});
+
