@@ -119,12 +119,20 @@ function buildBrowserHeaders(headers?: Record<string, string>): Record<string, s
   };
 }
 
-/** Set-Cookie → name→value（fetch 会把多条合并成一个字符串，按「名字=」边界切） */
+/**
+ * Set-Cookie → name→value。
+ *
+ * fetch 会把多条 Set-Cookie 合并成一个字符串，且**逗号后不一定有空格**（`a=1,b=2`）。
+ * 之前按 `, `（逗号+空格）切分，遇到无空格合并时只解析出第一条，
+ * 于是 panel_csrf_token 被丢掉、begin 永远 400 csrf_failed。
+ * 这里改成「逗号 + 可选的空白 + name=」作为边界；`Expires=Wed, 21 Oct …` 里的
+ * 逗号后面是 `21 Oct`，不匹配 name=，不会被误切。
+ */
 function parseSetCookieHeader(raw: string): Map<string, string> {
   const cookies = new Map<string, string>();
-  const segments = raw.split(/, (?=[a-zA-Z][a-zA-Z0-9._-]*=)/);
+  const segments = raw.split(/,(?=\s*[A-Za-z0-9._-]+=)/);
   for (const seg of segments) {
-    const m = seg.match(/^([^=]+)=([^;]*)/);
+    const m = seg.match(/^\s*([A-Za-z0-9._-]+)=([^;]*)/);
     if (m) cookies.set(m[1].trim(), m[2].trim());
   }
   return cookies;

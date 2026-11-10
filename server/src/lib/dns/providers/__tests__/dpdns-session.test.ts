@@ -52,13 +52,15 @@ vi.mock('../../../proxy-http', () => ({
   getProxyConfig: async () => null,
 }));
 
+// 所有用例共享同一份 mock 状态：在每个 describe 之前统一清，避免调用记录串味
+beforeEach(() => {
+  net.calls.length = 0;
+  net.requestHeaders.length = 0;
+  net.usedProxy.length = 0;
+  net.queue.length = 0;
+});
+
 describe('ensureSession 的升级兼容路径', () => {
-  beforeEach(() => {
-    net.calls.length = 0;
-    net.requestHeaders.length = 0;
-    net.usedProxy.length = 0;
-    net.queue.length = 0;
-  });
 
   it('只有旧 rememberToken 且上游返回 200：不换签、直接可用', async () => {
     const config: Parameters<typeof ensureSession>[0] = { rememberToken: 'legacy-token' };
@@ -312,6 +314,53 @@ describe('CSRF 取值顺序与代理回退', () => {
     expect(net.usedProxy[0]).toBe(true);
     expect(net.usedProxy[1]).toBe(false);
     expect(net.requestHeaders[2]['X-CSRF-Token']).toBe('T_DIRECT');
+  });
+});
+
+
+describe('Set-Cookie 合并串解析（fetch 的真实形态）', () => {
+  function makePasskey() {
+    const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    return {
+      credentialId: '36d61772-b56f-47b4-9944-65c47be7f611',
+      keyValue: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+      rpId: 'dashboard.digitalplat.org',
+      userHandle: 'mEqCHdbXrHsyXlUjSh5Cvg-sd0U9qyzISZ1K_a3_2u0',
+    };
+  }
+
+  it('逗号后没有空格时也能拿到第二个 cookie（panel_csrf_token）', async () => {
+    net.queue.push(
+      {
+        body: { ok: true, csrf_token: 'BODY' },
+        headers: { 'set-cookie': 'remember_token=rt; Path=/,panel_csrf_token=CSRF_COOKIE; Path=/' },
+      },
+      { body: { ok: true, options: { challenge: 'chal' }, request_id: 'rid' } },
+      { body: { ok: true, user: { id: 1 } }, headers: { 'set-cookie': 'remember_token=rt2' } },
+    );
+
+    const config: { passkey: string; sessionCookie?: string; csrfToken?: string } = { passkey: JSON.stringify(makePasskey()) };
+    await loginWithPasskey(config);
+
+    expect(config.sessionCookie).toContain('panel_csrf_token=CSRF_COOKIE');
+    expect(net.requestHeaders[1]['X-CSRF-Token']).toBe('CSRF_COOKIE');
+  });
+
+  it('带 Expires 属性时不会被逗号误切', async () => {
+    net.queue.push(
+      {
+        body: { ok: true, csrf_token: 'BODY' },
+        headers: {
+          'set-cookie': 'remember_token=rt; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/, panel_csrf_token=CSRF2; Path=/',
+        },
+      },
+      { body: { ok: true, options: { challenge: 'chal' }, request_id: 'rid' } },
+      { body: { ok: true, user: { id: 1 } }, headers: { 'set-cookie': 'remember_token=rt2' } },
+    );
+
+    const config: { passkey: string; sessionCookie?: string } = { passkey: JSON.stringify(makePasskey()) };
+    await loginWithPasskey(config);
+    expect(config.sessionCookie).toContain('panel_csrf_token=CSRF2');
   });
 });
 
