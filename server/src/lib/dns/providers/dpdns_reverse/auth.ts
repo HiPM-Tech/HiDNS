@@ -365,7 +365,12 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
   const isRedirect = finish.status >= 300 && finish.status < 400;
   const { json: finishBody, raw: finishRaw } = await readJson(finish);
   if (!isRedirect && (!finish.ok || !finishBody?.ok)) {
-    throw new Error(`通行密钥换签失败[finish]：${finishBody?.error || `HTTP ${finish.status}，响应 ${summarize(finishRaw)}`}`);
+    // 带上完整响应摘要：上游可能只给一句笼统的 “could not be verified”，
+    // 但响应里往往还有 reason / code，能区分是签名、challenge 还是 counter 的问题。
+    const detail = summarize(finishRaw, 300);
+    throw new Error(
+      `通行密钥换签失败[finish]：${finishBody?.error || `HTTP ${finish.status}`}${detail ? `（响应 ${detail}）` : ''}`,
+    );
   }
 
   const jar = resolveSessionJar(config);
