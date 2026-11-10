@@ -434,7 +434,8 @@ export async function authenticatedRequest(
   if (res.status === 403) {
     const probe = await res.clone().json().catch(() => null) as { code?: string } | null;
     if (probe?.code === 'csrf_failed') {
-      await ensureCsrfToken(config);
+      // 只刷新 token 常常不够：会话可能是「有效但 CSRF 绑定已丢」的状态，换签最彻底
+      await loginWithPasskey(config);
       res = await send(url, config, options);
     }
   }

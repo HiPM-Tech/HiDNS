@@ -11,7 +11,7 @@
  */
 
 import { createProviderRenewalLogger } from '../internal';
-import { authenticatedRequest, ensureCsrfToken, DpdnsAuthConfig } from './auth';
+import { authenticatedRequest, ensureCsrfToken, loginWithPasskey, DpdnsAuthConfig } from './auth';
 
 const log = createProviderRenewalLogger('DPDNS');
 
@@ -139,7 +139,9 @@ export async function listFreeDomains(
 export async function renewFreeDomain(
   config: DpdnsAuthConfig,
   domainName: string,
-  years: number = 1
+  years: number = 1,
+  /** 内部用：CSRF 失败换签后只重试一次，避免无限递归 */
+  retried = false,
 ): Promise<{ newExpiryDate: string }> {
   // Ensure CSRF token is obtained before mutating request
   await ensureCsrfToken(config);
@@ -159,6 +161,17 @@ export async function renewFreeDomain(
 
   if (!response.ok || !data.ok) {
     const errMsg = data.error || data.message || `HTTP ${response.status}`;
+
+    // 上游把 CSRF 失败放在 body.error 里（HTTP 可能仍是 200），必须换签后重试一次：
+    // 「会话有效但 CSRF 绑定丢了」的状态下，只刷新 token 是过不去的。
+    if (!retried && /csrf/i.test(errMsg)) {
+      log.sub('API').tag('FALLBACK').warn('Renewal hit CSRF failure, re-signing and retrying once', {
+        domain: domainName,
+      });
+      await loginWithPasskey(config);
+      return renewFreeDomain(config, domainName, years, true);
+    }
+
     log.sub('API').tag('ERROR').error('Renewal failed', { domain: domainName, error: errMsg });
     throw new Error(errMsg);
   }
