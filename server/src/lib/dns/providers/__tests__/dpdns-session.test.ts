@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ensureSession, loginWithPasskey, resolveSessionJar } from '../dpdns_reverse/auth';
+import { ensureSession, loginWithPasskey, nextSignCounter, resolveSessionJar } from '../dpdns_reverse/auth';
 
 /**
  * 会话视图是「新旧凭证共存」的关键：
@@ -144,5 +144,20 @@ describe('ensureSession 的升级兼容路径', () => {
   it('旧 rememberToken 失效且没有通行密钥：报错并提示补充', async () => {
     net.queue.push({ status: 401, body: { ok: false, error: 'Authentication required' } });
     await expect(ensureSession({ rememberToken: 'expired' })).rejects.toThrow(/通行密钥/);
+  });
+});
+
+describe('nextSignCounter', () => {
+  it('首次 0，之后每次 +1，300 后回绕', () => {
+    expect(nextSignCounter(undefined)).toBe(0);
+    expect(nextSignCounter(0)).toBe(1);
+    expect(nextSignCounter(1)).toBe(2);
+    expect(nextSignCounter(299)).toBe(300);
+    expect(nextSignCounter(300)).toBe(0);
+  });
+
+  it('非法值按 0 处理', () => {
+    expect(nextSignCounter(Number.NaN)).toBe(0);
+    expect(nextSignCounter(-5)).toBe(0);
   });
 });

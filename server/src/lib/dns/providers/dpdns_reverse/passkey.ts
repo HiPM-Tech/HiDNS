@@ -168,6 +168,8 @@ export function buildAssertion(
   credential: PasskeyCredential,
   challenge: string,
   origin: string = DEFAULT_DPDNS_ORIGIN,
+  /** 覆盖 signCount（默认用凭据里的 counter，通常是 0）。递增策略由调用方决定 */
+  counter?: number,
 ): PasskeyAssertion {
   const clientData = JSON.stringify({
     type: 'webauthn.get',
@@ -179,9 +181,12 @@ export function buildAssertion(
   const rpIdHash = crypto.createHash('sha256').update(credential.rpId).digest();
   // UP(0x01) | UV(0x04)：上游 userVerification=required
   const flags = Buffer.from([0x05]);
-  const counter = Buffer.alloc(4);
-  counter.writeUInt32BE(Number.parseInt(credential.counter ?? '0', 10) || 0, 0);
-  const authenticatorData = Buffer.concat([rpIdHash, flags, counter]);
+  const signCount = Number.isFinite(counter) && (counter as number) >= 0
+    ? Math.trunc(counter as number)
+    : (Number.parseInt(credential.counter ?? '0', 10) || 0);
+  const counterBytes = Buffer.alloc(4);
+  counterBytes.writeUInt32BE(signCount >>> 0, 0);
+  const authenticatorData = Buffer.concat([rpIdHash, flags, counterBytes]);
 
   const clientHash = crypto.createHash('sha256').update(clientData).digest();
   const privateKey = crypto.createPrivateKey({

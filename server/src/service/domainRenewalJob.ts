@@ -45,13 +45,14 @@ export async function executeDomainRenewal(): Promise<void> {
         // 动态认证的提供商（dpdns）会把换签结果回传；回调只对声明了 onSession 的适配器生效
         const config = {
           ...stored,
-          onSession: async (session: { sessionCookie: string; rememberToken: string | null }) => {
+          onSession: async (session: { sessionCookie: string; rememberToken: string | null; signCounter?: number }) => {
             try {
               await DnsAccountOperations.update(account.id, {
                 config: JSON.stringify({
                   ...stored,
                   sessionCookie: session.sessionCookie,
                   rememberToken: session.rememberToken ?? stored.rememberToken,
+                  signCounter: session.signCounter ?? stored.signCounter,
                 }),
               });
             } catch (e: unknown) {

@@ -142,3 +142,20 @@ describe('整份 Bitwarden 导出的嵌套结构', () => {
   });
 });
 
+
+describe('buildAssertion 的 signCount', () => {
+  it('显式 counter 写进 authenticatorData 第 33-36 字节（大端）', () => {
+    const { credential } = makeCredential();
+    const assertion = buildAssertion(credential, 'challenge', undefined, 5);
+    const authData = Buffer.from(assertion.response.authenticatorData, 'base64url');
+    expect(authData.readUInt32BE(33)).toBe(5);
+  });
+
+  it('不传 counter 时用凭据里的值（Bitwarden 默认 0）', () => {
+    const { credential } = makeCredential();
+    const assertion = buildAssertion(credential, 'challenge');
+    const authData = Buffer.from(assertion.response.authenticatorData, 'base64url');
+    expect(authData.readUInt32BE(33)).toBe(0);
+  });
+});
+

@@ -410,6 +410,8 @@ const allProviderDefinitions: ProviderDefinition[] = [
       { key: 'passkey', label: 'provider.config.passkey', type: 'password', required: false },
       // 会话主凭证：旧版由用户手抄，现在由换签自动写入；移入隐藏字段，前端不可见
       { key: 'rememberToken', label: 'provider.config.remember_token', type: 'password', required: false, hidden: true },
+      // WebAuthn signCount 游标：0→300→0，由换签流程推进
+      { key: 'signCounter', label: 'provider.config.sign_counter', type: 'text', required: false, hidden: true },
       // 完整 Cookie 串：换签产物，前端不可见、不可编辑
       { key: 'sessionCookie', label: 'provider.config.session_cookie', type: 'password', required: false, hidden: true },
     ],

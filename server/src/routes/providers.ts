@@ -186,13 +186,14 @@ router.get('/:type/renewable-domains', authMiddleware, asyncHandler(async (req: 
               // 升级前的老账号只有手抄的 rememberToken：这里必须一并传入，否则会误判为未配置凭据
               rememberToken: stored.rememberToken,
               useProxy: !!stored.useProxy,
-              onSession: async (session: { sessionCookie: string; rememberToken: string | null }) => {
+              onSession: async (session: { sessionCookie: string; rememberToken: string | null; signCounter?: number }) => {
                 try {
                   await DnsAccountOperations.update(account.id, {
                     config: JSON.stringify({
                       ...stored,
                       sessionCookie: session.sessionCookie,
                       rememberToken: session.rememberToken ?? stored.rememberToken,
+                      signCounter: session.signCounter ?? stored.signCounter,
                     }),
                   });
                 } catch {

@@ -25,11 +25,30 @@ export const DPDNS_BASE_URL = 'https://dashboard.digitalplat.org';
 const PANEL_API = `${DPDNS_BASE_URL}/_panel_api`;
 const CSRF_HEADER = 'X-CSRF-Token';
 
+/** WebAuthn signCount 上限：到这里回绕到 0（Bitwarden 导出的 counter 恒为 0，必须自己递增） */
+export const MAX_SIGN_COUNTER = 300;
+
+/**
+ * 下一次断言使用的 signCount。
+ *
+ * 部分服务端会严格校验 signCount 递增；Bitwarden 导出的 counter 恒为 0，
+ * 若一直发 0，第一次之后就会被判为「计数器未前进/疑似克隆」而拒绝。
+ * 策略：首次 0，之后每次 +1，到 MAX_SIGN_COUNTER 后回绕到 0。
+ */
+export function nextSignCounter(current?: number): number {
+  if (current === undefined || current === null) return 0;
+  const value = Math.trunc(Number(current));
+  if (!Number.isFinite(value) || value < 0) return 0;
+  return value >= MAX_SIGN_COUNTER ? 0 : value + 1;
+}
+
 export interface DpdnsSessionState {
   /** 完整 Cookie 串（remember_token / panel_session / panel_device / panel_csrf_token） */
   sessionCookie: string;
   /** 会话主凭证（从 Cookie 里抽出来单存，便于兼容历史字段与快速校验） */
   rememberToken: string | null;
+  /** 本次断言使用的 signCount，调用方需要持久化，下次继续递增 */
+  signCounter: number;
 }
 
 export interface DpdnsAuthConfig {
@@ -39,6 +58,8 @@ export interface DpdnsAuthConfig {
   sessionCookie?: string;
   /** 会话主凭证：隐藏字段，换签后由服务端写入，旧账号里可能是用户当年手抄的值 */
   rememberToken?: string;
+  /** WebAuthn signCount 游标：隐藏字段，每次换签 +1（0→300→0） */
+  signCounter?: number;
   /**
    * 强制用通行密钥换签（忽略已有会话）。
    * 用户本次提交了新的通行密钥时必须为 true：否则旧 sessionCookie/rememberToken 会让 check 走
@@ -259,9 +280,12 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
     throw new Error(`通行密钥换签失败[begin]：HTTP ${begin.status}，响应 ${summarize(beginRaw)}`);
   }
 
+  // 服务端可能严格校验 signCount 递增；Bitwarden 导出的 counter 恒为 0，必须自己推进
+  const signCounter = nextSignCounter(config.signCounter);
+
   let assertion;
   try {
-    assertion = buildAssertion(credential, beginBody.options.challenge, DEFAULT_DPDNS_ORIGIN);
+    assertion = buildAssertion(credential, beginBody.options.challenge, DEFAULT_DPDNS_ORIGIN, signCounter);
   } catch (e: unknown) {
     throw new Error(`通行密钥换签失败[sign]：${e instanceof Error ? e.message : String(e)}`);
   }
@@ -289,8 +313,9 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
 
   config.sessionCookie = buildCookieJar(jar);
   config.rememberToken = rememberToken;
+  config.signCounter = signCounter;
   verifiedAt.set(config, Date.now());
-  await config.onSession?.({ sessionCookie: config.sessionCookie ?? '', rememberToken });
+  await config.onSession?.({ sessionCookie: config.sessionCookie ?? '', rememberToken, signCounter });
 }
 
 /** 会话是否可用；不可用则换签。60s 内复用校验结果，避免每个请求都打 /auth/me */
