@@ -345,6 +345,12 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
     ? undefined
     : config.signCounter;
   const signCounter = nextSignCounter(counterBase);
+  log.sub('Auth').tag('SIGN').debug('Signing assertion', {
+    credential: credential.credentialId.slice(0, 8),
+    signCounter,
+    counterBase: counterBase ?? null,
+    hasCounterFor: Boolean(config.signCounterFor),
+  });
   if (signCounter > WARN_SIGN_COUNTER) {
     log.sub('Auth').tag('COUNTER').debug('signCount 超过软阈值，继续按标准库要求递增', { signCounter });
   }
@@ -369,7 +375,9 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
     // 但响应里往往还有 reason / code，能区分是签名、challenge 还是 counter 的问题。
     const detail = summarize(finishRaw, 300);
     throw new Error(
-      `通行密钥换签失败[finish]：${finishBody?.error || `HTTP ${finish.status}`}${detail ? `（响应 ${detail}）` : ''}`,
+      `通行密钥换签失败[finish]：${finishBody?.error || `HTTP ${finish.status}`}` +
+      `（counter=${signCounter}，credential=${credential.credentialId.slice(0, 8)}）` +
+      (detail ? `（响应 ${detail}）` : ''),
     );
   }
 
