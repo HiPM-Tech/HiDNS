@@ -69,3 +69,27 @@ export function stripHiddenConfig(
   }
   return out;
 }
+
+/** 账号凭据状态（仅对声明了 passkey 字段的提供商有意义） */
+export type CredentialState = 'passkey' | 'legacy' | 'missing';
+
+/**
+ * 派生账号的凭据状态，用于在界面上提示「该补通行密钥了」。
+ *
+ * - passkey：已配置通行密钥，换签全自动；
+ * - legacy：还没有通行密钥，但有旧版手抄的 rememberToken（有效期内可用，建议尽快补）；
+ * - missing：两者都没有，账号当前无法工作。
+ *
+ * 纯函数、无网络：只读配置里的字段，避免列表接口为了“探测”而逐个打上游。
+ */
+export function resolveCredentialState(
+  config: Record<string, unknown>,
+  supportsPasskey: boolean,
+): CredentialState | null {
+  if (!supportsPasskey) return null;
+  const passkey = typeof config.passkey === 'string' ? config.passkey.trim() : '';
+  if (passkey) return 'passkey';
+  const legacy = typeof config.rememberToken === 'string' ? config.rememberToken.trim() : '';
+  return legacy ? 'legacy' : 'missing';
+}
+

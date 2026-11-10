@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeMaskedConfig, parseConfigRecord, stripHiddenConfig, MASKED_CONFIG_VALUE } from '../account-config';
+import { mergeMaskedConfig, parseConfigRecord, resolveCredentialState, stripHiddenConfig, MASKED_CONFIG_VALUE } from '../account-config';
 
 describe('parseConfigRecord', () => {
   it('兼容字符串与对象两种存储形态', () => {
@@ -50,6 +50,29 @@ describe('隐藏字段（hidden）', () => {
   it('stripHiddenConfig 只剔除指定键，其余原样返回', () => {
     expect(stripHiddenConfig({ passkey: 'pk', sessionCookie: 'c', zone: 'z' }, ['sessionCookie']))
       .toEqual({ passkey: 'pk', zone: 'z' });
+  });
+});
+
+
+describe('resolveCredentialState', () => {
+  it('已配置通行密钥', () => {
+    expect(resolveCredentialState({ passkey: '{"credentialId":"x"}' }, true)).toBe('passkey');
+  });
+
+  it('只有旧版会话凭证：提示可补但当前可用', () => {
+    expect(resolveCredentialState({ rememberToken: 'legacy' }, true)).toBe('legacy');
+  });
+
+  it('两者都没有', () => {
+    expect(resolveCredentialState({}, true)).toBe('missing');
+  });
+
+  it('空白字符串不算已配置', () => {
+    expect(resolveCredentialState({ passkey: '   ', rememberToken: ' ' }, true)).toBe('missing');
+  });
+
+  it('未声明 passkey 字段的提供商返回 null（不对其他 provider 显示徽标）', () => {
+    expect(resolveCredentialState({ apiKey: 'k' }, false)).toBeNull();
   });
 });
 

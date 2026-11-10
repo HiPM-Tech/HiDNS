@@ -9,6 +9,8 @@ export interface AccountRow {
   enabled?: boolean | number;
   created_by?: number | null;
   team_id?: number | null;
+  /** 服务端派生的凭据状态：passkey=已配通行密钥；legacy=仅旧版会话凭证；missing=两者都没有 */
+  credential_state?: 'passkey' | 'legacy' | 'missing';
 }
 
 export interface ProviderConfigField {

@@ -131,7 +131,17 @@ export function AccountsPage() {
                 ) : (
                   rows.map((account) => (
                     <TableRow key={account.id}>
-                      <TableCell className="font-medium">{account.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          <span>{account.name}</span>
+                          {account.credential_state === 'legacy' && (
+                            <Badge variant="warning" title="当前仍可用旧版会话凭证，建议在编辑里补充通行密钥">建议补通行密钥</Badge>
+                          )}
+                          {account.credential_state === 'missing' && (
+                            <Badge variant="destructive" title="既没有通行密钥，也没有可用的旧版会话凭证">缺少凭据</Badge>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell>
                         <Badge variant="secondary">{providerNameMap.get(account.type) ?? account.type}</Badge>
                       </TableCell>

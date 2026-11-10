@@ -8,7 +8,7 @@ import { normalizeProviderType } from '../lib/dns/providerAlias';
 import { isAdmin, isSuper, normalizeRole, ROLE_ADMIN } from '../utils/roles';
 import { parseInteger, sendError, sendSuccess, sendServerError } from '../utils/http';
 import { accountEventData } from '../utils/accountEvent';
-import { mergeMaskedConfig, parseConfigRecord, stripHiddenConfig } from '../service/account-config';
+import { mergeMaskedConfig, parseConfigRecord, resolveCredentialState, stripHiddenConfig } from '../service/account-config';
 import { wsService } from '../service/websocket';
 import { getAccountAudienceUserIds } from './audience';
 import { logAuditOperation } from '../service/audit';
@@ -135,8 +135,13 @@ router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response)
 
   // Mask config secrets unless showDnsProviderSecrets is enabled
   const safe = accounts.map(a => {
+    const rawConfig = parseConfigRecord(a.config);
     // 隐藏字段（会话 Cookie 等）无论如何都不回传：它们由服务端维护，暴露出去等于交出账号
-    const cfg = stripHiddenConfig(parseConfigRecord(a.config), hiddenConfigKeys(a.type));
+    const cfg = stripHiddenConfig(rawConfig, hiddenConfigKeys(a.type));
+    // 凭据状态（passkey / 仅旧版 token / 都缺）用于界面提示，纯派生、不触发网络
+    const supportsPasskey = (getProvider(normalizeProviderType(a.type))?.configFields ?? [])
+      .some((field) => field.key === 'passkey');
+    const credentialState = resolveCredentialState(rawConfig, supportsPasskey);
     const masked: Record<string, string> = {};
     if (showSecrets) {
       // Return actual values
@@ -145,7 +150,13 @@ router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response)
       // Mask all values
       for (const k of Object.keys(cfg)) masked[k] = '***';
     }
-    return { ...a, type: normalizeProviderType(a.type), config: masked, enabled: Boolean(a.enabled) };
+    return {
+      ...a,
+      type: normalizeProviderType(a.type),
+      config: masked,
+      enabled: Boolean(a.enabled),
+      ...(credentialState ? { credential_state: credentialState } : {}),
+    };
   });
 
   // Pagination (only when page param is provided)
