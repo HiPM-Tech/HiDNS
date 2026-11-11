@@ -311,8 +311,11 @@ async function attemptPasskeyLogin(
   credential: NonNullable<ReturnType<typeof parsePasskeyCredential>>,
   signCounter: number,
 ): Promise<PasskeyAttempt> {
+  // 必须把三个会话字段全部清掉：只要 rememberToken 还在，resolveSessionJar 就会构造出
+  // 一条「旧会话」Cookie，换签实际是在旧会话上做升级，拿到的 CSRF 绑定与后续写请求不匹配。
   config.sessionCookie = undefined;
   config.csrfToken = undefined;
+  config.rememberToken = undefined;
 
   const csrf = await ensureCsrfToken(config);
   if (!csrf) return { ok: false, retryable: false, error: '通行密钥换签失败[csrf]：未能获取 CSRF token' };
