@@ -14,7 +14,7 @@
  *
  * 所有请求统一走 fetchWithFallback（代理环境下原生 fetch 会挂死，见 root.ai.md §DNS提供商适配器 1）。
  */
-import { createProviderAuthLogger, fetchWithFallback } from '../internal';
+import { createProviderAuthLogger, fetchWithFallback, isTruthyFlag } from '../internal';
 import {
   buildAssertion,
   parsePasskeyCredential,
@@ -216,7 +216,7 @@ export async function send(
   const res = await fetchWithFallback(
     url,
     { ...options, headers },
-    extra.direct ? false : (config.useProxy ?? false),
+    extra.direct ? false : isTruthyFlag(config.useProxy),
     'DPDNS',
   );
   absorbCookies(config, res);
@@ -239,7 +239,7 @@ export async function ensureCsrfToken(config: DpdnsAuthConfig): Promise<string |
   let res = await send(`${PANEL_API}/api/security/csrf`, config);
   let pairs = extractSetCookies(res);
 
-  if (pairs.length === 0 && config.useProxy) {
+  if (pairs.length === 0 && isTruthyFlag(config.useProxy)) {
     log.sub('Auth').tag('CSRF').warn('CSRF 响应没有 Set-Cookie，改为直连重试', {});
     res = await send(`${PANEL_API}/api/security/csrf`, config, {}, { direct: true });
     pairs = extractSetCookies(res);

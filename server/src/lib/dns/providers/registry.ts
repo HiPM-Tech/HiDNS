@@ -41,7 +41,7 @@ export interface ProviderConfigFieldOption {
 export interface ProviderConfigField {
   key: string;
   label: string;
-  type: 'text' | 'password' | 'select';
+  type: 'text' | 'password' | 'select' | 'boolean';
   required: boolean;
   group?: string;
   options?: ProviderConfigFieldOption[];
@@ -487,8 +487,24 @@ export function getProviderDefinitions(): ProviderDefinition[] {
   return providerDefinitions;
 }
 
+/**
+ * 所有账号通用的网络开关：关闭即直连（默认），开启后经「系统设置 → 网络」里配置的代理。
+ * 统一注入，避免 26 个 provider 各写一遍。
+ */
+const PROXY_FIELD: ProviderConfigField = {
+  key: 'useProxy',
+  label: 'provider.config.use_proxy',
+  type: 'boolean',
+  required: false,
+};
+
 export function getProviderInfoList(): ProviderInfo[] {
-  return providerDefinitions.map(({ adapterFactory, ...providerInfo }) => providerInfo);
+  return providerDefinitions.map(({ adapterFactory, ...providerInfo }) => ({
+    ...providerInfo,
+    configFields: providerInfo.configFields.some((field) => field.key === 'useProxy')
+      ? providerInfo.configFields
+      : [...providerInfo.configFields, PROXY_FIELD],
+  }));
 }
 
 /**

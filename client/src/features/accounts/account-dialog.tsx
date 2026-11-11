@@ -5,6 +5,7 @@ import { Info, Loader2 } from 'lucide-react';
 import {
   Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Label,
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Switch,
 } from '../../ui';
 import type { AccountRow, AccountPayload, ProviderInfo } from './api';
 import { useSaveAccount } from './use-accounts';
@@ -119,6 +120,21 @@ export function AccountDialog({ open, onOpenChange, providers, account }: Accoun
           </div>
 
           {fields.map((field) => (
+            field.type === 'boolean' ? (
+              <div key={field.key} className="flex items-start justify-between gap-3 rounded-md border border-border p-3 sm:col-span-2">
+                <div className="space-y-0.5">
+                  <Label htmlFor={`config-${field.key}`}>{configFieldLabel(field.label)}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    关闭时直接连接；开启后经「系统设置 → 网络」里配置的代理访问。
+                  </p>
+                </div>
+                <Switch
+                  id={`config-${field.key}`}
+                  checked={config[field.key] === 'true'}
+                  onCheckedChange={(checked) => setConfig((prev) => ({ ...prev, [field.key]: checked ? 'true' : 'false' }))}
+                />
+              </div>
+            ) : (
             <div key={field.key} className={field.type === 'select' ? 'space-y-1.5' : 'space-y-1.5 sm:col-span-2'}>
               <Label htmlFor={`config-${field.key}`}>
                 {configFieldLabel(field.label)}
@@ -154,6 +170,7 @@ export function AccountDialog({ open, onOpenChange, providers, account }: Accoun
                 </p>
               )}
             </div>
+            )
           ))}
 
           <div className="space-y-1.5 sm:col-span-2">

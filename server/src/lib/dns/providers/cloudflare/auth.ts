@@ -1,4 +1,4 @@
-import { fetchWithFallback } from '../internal';
+import { fetchWithFallback, isTruthyFlag } from '../internal';
 
 export interface CloudflareAuthConfig {
   email?: string;
@@ -47,7 +47,7 @@ export async function authenticatedRequest(
       ...options,
       headers,
     },
-    config.useProxy ?? false,
+    isTruthyFlag(config.useProxy),
     'Cloudflare'
   );
 }

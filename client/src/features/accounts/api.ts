@@ -16,7 +16,7 @@ export interface AccountRow {
 export interface ProviderConfigField {
   key: string;
   label: string;
-  type: 'text' | 'password' | 'select';
+  type: 'text' | 'password' | 'select' | 'boolean';
   required: boolean;
   group?: string;
   options?: Array<{ label: string; value: string }>;
