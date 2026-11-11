@@ -122,7 +122,7 @@ function LoginLimitCard({ onError, onSaved }: { onError: (e: unknown, f: string)
                   ))}
                 </ul>
               )}
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Input placeholder="用户名或 IP" value={identifier} onChange={(event) => setIdentifier(event.target.value)} aria-label="解锁目标" />
                 <Button variant="outline" size="sm" onClick={() => void unlockAccount()} disabled={unlock.isPending}>
                   {unlock.isPending ? <Loader2 className="animate-spin" /> : <Unlock className="h-4 w-4" />}解锁

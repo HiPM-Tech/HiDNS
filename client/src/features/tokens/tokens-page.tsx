@@ -41,6 +41,9 @@ export function TokensPage() {
   const rows = tokens.data ?? [];
   const currentRoleLevel = Number(user?.role_level ?? 0);
 
+  // 只有被点的那一行被禁用：isPending 是全局的，直接用会让整页开关一起灰掉
+  const togglingId = toggle.isPending ? toggle.variables?.id : null;
+
   const handleToggle = async (token: TokenRow) => {
     setActionError(null);
     try {
@@ -166,7 +169,7 @@ export function TokensPage() {
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => void handleToggle(token)} disabled={toggle.isPending}>
+                          <Button variant="ghost" size="sm" onClick={() => void handleToggle(token)} disabled={togglingId === token.id}>
                             {isTokenActive(token) ? '停用' : '启用'}
                           </Button>
                           <Button

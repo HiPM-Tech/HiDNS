@@ -44,6 +44,9 @@ export function WorkflowsPage() {
 
   const rows = workflows.data ?? [];
 
+  // 只有被点的那一行显示检查动画
+  const testingId = test.isPending ? test.variables : null;
+
   const runTest = async (row: WorkflowRow) => {
     setError(null); setNotice(null);
     try {
@@ -158,7 +161,7 @@ export function WorkflowsPage() {
                           <History className="h-4 w-4" />记录
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => void runTest(row)} disabled={test.isPending}>
-                          {test.isPending ? <Loader2 className="animate-spin" /> : <FlaskConical className="h-4 w-4" />}检查
+                          {testingId === row.id ? <Loader2 className="animate-spin" /> : <FlaskConical className="h-4 w-4" />}检查
                         </Button>
                         <Button variant="ghost" size="icon" aria-label={'编辑 ' + row.name} disabled={row.corrupted} onClick={() => setEditor({ mode: 'edit', row })}>
                           <Pencil className="h-4 w-4" />

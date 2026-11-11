@@ -173,7 +173,7 @@ function ProfileCard({ nickname: initialNickname, email: initialEmail, onError, 
           {emailChanged && (
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="settings-email-code">新邮箱验证码</Label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Input id="settings-email-code" value={code} onChange={(event) => setCode(event.target.value)} placeholder="6 位验证码" />
                 <Button variant="outline" size="sm" onClick={() => void sendCode()} disabled={sending}>
                   {sending && <Loader2 className="animate-spin" />}
@@ -313,7 +313,7 @@ function PreferencesCard({ loading, data, onError, onSaved }: {
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="settings-background">背景图地址</Label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Input
                     id="settings-background"
                     value={backgroundImage}

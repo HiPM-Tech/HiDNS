@@ -68,7 +68,7 @@ function JwtSecretCard({ onError, onSaved }: { onError: (e: unknown, f: string) 
         <CardDescription>仅初始超级管理员可查看；每次查看都会写入审计日志（可选邮件通知）。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Input
             type="password"
             autoComplete="current-password"

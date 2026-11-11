@@ -84,7 +84,7 @@ export function SystemWorkflowTab() {
               ))}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Input
                 placeholder="api.example.com"
                 value={input}
