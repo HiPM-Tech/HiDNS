@@ -100,8 +100,8 @@ describe('ensureSession 的升级兼容路径', () => {
       '/api/auth/passkey/begin',
       '/api/auth/passkey/finish',
     ]);
-    // 换签成功后会再取一次 CSRF（与服务端新会话配对）
-    expect(paths[3]).toBe('/api/security/csrf');
+    // 换签成功后不再额外取 CSRF：那会轮换 token，把刚拿到的会话弄失效
+    expect(paths).toHaveLength(3);
     expect(config.rememberToken).toBe('brand-new-token');
   });
   it('换签时保留并补齐 panel_csrf_token：header 与 cookie 必须是同一个值', async () => {
@@ -287,7 +287,7 @@ describe('CSRF 取值顺序与代理回退', () => {
     };
   }
 
-  it('body 与 cookie 不同值时以 body 为准，并同步回 cookie（header 与 cookie 同值）', async () => {
+  it('body 与 cookie 不同值时以 cookie 为准（服务端认会话里那份）', async () => {
     net.queue.push(
       { body: { ok: true, csrf_token: 'BODY_TOKEN' }, headers: { 'set-cookie': 'panel_csrf_token=COOKIE_TOKEN' } },
       { body: { ok: true, options: { challenge: 'chal' }, request_id: 'rid' } },
@@ -298,8 +298,8 @@ describe('CSRF 取值顺序与代理回退', () => {
     await loginWithPasskey(config);
 
     const beginHeaders = net.requestHeaders[1];
-    expect(beginHeaders['X-CSRF-Token']).toBe('BODY_TOKEN');
-    expect(beginHeaders.Cookie).toContain('panel_csrf_token=BODY_TOKEN');
+    expect(beginHeaders['X-CSRF-Token']).toBe('COOKIE_TOKEN');
+    expect(beginHeaders.Cookie).toContain('panel_csrf_token=COOKIE_TOKEN');
   });
 
   it('代理没带回 Set-Cookie 时直连重试一次', async () => {
@@ -401,7 +401,7 @@ describe('signCount 自愈（服务端 counter 与本地不同步）', () => {
     expect(config.signCounter).toBeGreaterThan(1000);
     expect(config.signCounterFor).toBe(passkey.credentialId);
     const csrfCalls = net.calls.filter((u) => u.includes('/api/security/csrf'));
-    expect(csrfCalls).toHaveLength(3);
+    expect(csrfCalls).toHaveLength(2);   // 两次 attempt 各一次；成功后不再刷新
   });
 
   it('凭据不存在（sign-in failed）不重试，直接失败', async () => {

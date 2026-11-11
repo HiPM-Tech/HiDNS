@@ -10,6 +10,7 @@ vi.mock('../dpdns_reverse/auth', () => ({
   ensureCsrfToken: mocks.ensureCsrfToken,
   loginWithPasskey: mocks.loginWithPasskey,
   authenticatedRequest: mocks.authenticatedRequest,
+  resolveSessionJar: () => new Map<string, string>(),
 }));
 
 import { renewFreeDomain } from '../dpdns_reverse/renewal';

@@ -11,7 +11,7 @@
  */
 
 import { createProviderRenewalLogger } from '../internal';
-import { authenticatedRequest, ensureCsrfToken, loginWithPasskey, DpdnsAuthConfig } from './auth';
+import { authenticatedRequest, ensureCsrfToken, loginWithPasskey, resolveSessionJar, DpdnsAuthConfig } from './auth';
 
 const log = createProviderRenewalLogger('DPDNS');
 
@@ -143,8 +143,17 @@ export async function renewFreeDomain(
   /** 内部用：CSRF 失败换签后只重试一次，避免无限递归 */
   retried = false,
 ): Promise<{ newExpiryDate: string }> {
-  // Ensure CSRF token is obtained before mutating request
-  await ensureCsrfToken(config);
+  // 只在完全没有 token 时才去取。
+  // 实测：每次 GET /api/security/csrf 都会让服务端轮换会话里的 CSRF，
+  // 而轮换后的值既不是旧 cookie 也不是返回的 body —— 多余的刷新会把本来能用的 token 弄失效。
+  if (!config.csrfToken) {
+    // 优先用会话 cookie 里已有的 token（DB 里存的 sessionCookie 就带着它），
+    // 这样完全不用发请求；只有连 cookie 里都没有时才去取。
+    // 关键：登录态下 GET /api/security/csrf 会重设会话 cookie，把刚换签的登录态冲掉。
+    const jarToken = resolveSessionJar(config).get('panel_csrf_token');
+    if (jarToken) config.csrfToken = jarToken;
+    else await ensureCsrfToken(config);
+  }
 
   const url = `${BASE_URL}/api/domains/${encodeURIComponent(domainName)}/renew`;
   log.sub('API').tag('REQUEST').debug('Renewing domain', { domain: domainName, years });

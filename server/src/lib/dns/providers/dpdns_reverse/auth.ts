@@ -254,10 +254,11 @@ export async function ensureCsrfToken(config: DpdnsAuthConfig): Promise<string |
 
   const jar = resolveSessionJar(config);
   const cookieToken = jar.get('panel_csrf_token');
-  // body 里的 token 才是「这次请求签发的那一份」；有会话时服务端可能只回 body、不重发 cookie，
-  // 此时若沿用旧 cookie 就会和服务端会话里的值对不上（renew 报 Invalid CSRF token）。
-  // 所以以 body 为准，并把它同步进 cookie，保证 header 与 cookie 始终同值。
-  const token = body?.csrf_token ?? cookieToken;
+  // **以 body 为准**，并同步回 cookie。
+  // 实测：finish 建立会话时服务端会轮换 CSRF token，但不重发 cookie；
+  // 随后 GET /api/security/csrf 的 body 才是新会话认的那一份（此时响应不带 Set-Cookie）。
+  // 若沿用 cookie 里的旧值，renew 必然 400 Invalid CSRF token。
+  const token = cookieToken ?? body?.csrf_token;
 
   csrfDiag.set(config, {
     cookieNames: pairs.map(([name]) => name),
@@ -346,6 +347,9 @@ async function attemptPasskeyLogin(
     return { ok: false, retryable: false, error: `通行密钥换签失败[sign]：${e instanceof Error ? e.message : String(e)}` };
   }
 
+  // 记录「完成 finish 用的那份 token」：finish 响应里的 panel_csrf_token 可能是旧值
+  const tokenUsedForFinish = config.csrfToken;
+
   // redirect: 'manual' —— 上游可能用 302 下发 Set-Cookie；跟随重定向后最终响应就看不到这些头了
   const finish = await send(`${PANEL_API}/api/auth/passkey/finish`, config, {
     method: 'POST',
@@ -377,6 +381,15 @@ async function attemptPasskeyLogin(
       error: `通行密钥换签失败[finish]：HTTP ${finish.status} 已通过，但没有下发表会话 Cookie（Set-Cookie: ${cookieNames}；响应 ${summarize(finishRaw)}）`,
     };
   }
+
+  // finish 的 Set-Cookie 里可能带一个「旧」的 panel_csrf_token，用它会让随后的写请求
+  // 全部 400 Invalid CSRF token。以「完成 finish 那一刻用的 token」为准。
+  if (tokenUsedForFinish) {
+    config.csrfToken = tokenUsedForFinish;
+    jar.set('panel_csrf_token', tokenUsedForFinish);
+    config.sessionCookie = buildCookieJar(jar);
+  }
+
   return { ok: true, signCounter };
 }
 
@@ -433,8 +446,8 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
       config.signCounter = signCounter;
       config.signCounterFor = credential.credentialId;
       verifiedAt.set(config, Date.now());
-      // 换签后用新会话再取一次 CSRF：finish 可能轮换了 token 但没有重发 cookie
-      await ensureCsrfToken(config);
+      // 不要在这里再取一次 CSRF：finish 的 Set-Cookie 已经是配套的 token，
+      // 额外一次 GET /api/security/csrf 会让服务端轮换 token，把刚拿到的那份弄失效（renew 立刻 400）。
       await config.onSession?.({
         sessionCookie: config.sessionCookie ?? '',
         rememberToken: config.rememberToken ?? null,
