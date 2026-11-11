@@ -56,6 +56,9 @@ export function DomainRenewalTab() {
   // 续期页只展示「支持续期」的提供商账户（DNS 解析账户不一定能续期）
   const accountOptions = filterAccountsByProviderCapability(allAccounts, providers.data, 'renewal');
 
+  // 只有「正在续期的那一行」显示动画：isPending 是全局的，直接用它会让整页按钮一起转圈
+  const renewingId = renew.isPending ? renew.variables : null;
+
   const handleRenew = async (row: RenewableDomainRow) => {
     setError(null); setNotice(null);
     try {
@@ -104,13 +107,13 @@ export function DomainRenewalTab() {
           </div>
         )}
 
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input className="pl-8" placeholder="搜索域名" value={keywordInput} onChange={(event) => setKeywordInput(event.target.value)} aria-label="搜索续期域名" />
           </div>
           <Select value={accountId} onValueChange={(value) => { setAccountId(value); setPage(1); }}>
-            <SelectTrigger className="w-44" aria-label="按账户筛选"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-44 shrink-0" aria-label="按账户筛选"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部账户</SelectItem>
               {accountOptions.map((account) => (
@@ -121,7 +124,7 @@ export function DomainRenewalTab() {
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={(value) => { setStatus(value as typeof status); setPage(1); }}>
-            <SelectTrigger className="w-32" aria-label="按状态筛选"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-32 shrink-0" aria-label="按状态筛选"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部状态</SelectItem>
               <SelectItem value="enabled">已启用</SelectItem>
@@ -186,8 +189,8 @@ export function DomainRenewalTab() {
                           disabled={renew.isPending || !isRenewableEnabled(row)}
                           title={isRenewableEnabled(row) ? '立即续期' : '自动续期已停用，请先开启'}
                         >
-                          {renew.isPending ? <Loader2 className="animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-                          {renew.isPending ? '续期中…' : '续期'}
+                          {renewingId === row.id ? <Loader2 className="animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                          {renewingId === row.id ? '续期中…' : '续期'}
                         </Button>
                         <Button
                           variant="ghost"

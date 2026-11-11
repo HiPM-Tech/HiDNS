@@ -59,6 +59,23 @@ describe('DomainRenewalTab', () => {
     expect((screen.getByRole('switch', { name: '自动续期 acme.net' }) as HTMLButtonElement).getAttribute('aria-checked')).toBe('false');
   });
 
+
+  it('只有被点击的那一行显示「续期中…」，其余行不动', async () => {
+    const user = userEvent.setup();
+    vi.mocked(renewalApi.list).mockResolvedValue({ list: rows as never, total: 2 });
+    let finish: (value: unknown) => void = () => {};
+    vi.mocked(renewalApi.renew).mockReturnValue(new Promise((resolve) => { finish = resolve; }) as never);
+    renderTab();
+
+    const buttons = await screen.findAllByRole('button', { name: /续期/ });
+    await user.click(buttons.find((b) => b.textContent === '续期')!);
+
+    await waitFor(() => expect(screen.getAllByText('续期中…')).toHaveLength(1));
+    // 另一行仍是「续期」，不应跟着进入动画
+    expect(screen.getAllByText('续期')).toHaveLength(1);
+
+    finish({ code: 0, msg: 'success', data: null });
+  });
   it('续期按钮调用后端', async () => {
     const user = userEvent.setup();
     vi.mocked(renewalApi.list).mockResolvedValue({ list: rows as never, total: 2 });

@@ -175,10 +175,12 @@ export function DomainsPage() {
                 aria-label="搜索域名"
               />
             </div>
-            <div className="flex gap-2">
+            {/* 小屏放不下就换行：否则每个控件被挤压，中文按钮会逐字竖排并溢出边框 */}
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant={grouping ? 'secondary' : 'outline'}
                 size="sm"
+                className="shrink-0 whitespace-nowrap"
                 aria-pressed={grouping}
                 onClick={() => { setGrouping((prev) => !prev); setPage(1); setExpandedGroups(new Set()); }}
               >
@@ -195,7 +197,7 @@ export function DomainsPage() {
                     setPage(1);
                   }}
                 >
-                  <SelectTrigger className="w-40" aria-label="分组方式">
+                  <SelectTrigger className="w-40 shrink-0" aria-label="分组方式">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -205,7 +207,7 @@ export function DomainsPage() {
                 </Select>
               )}
               <Select value={accountId} onValueChange={(value) => { setAccountId(value); setPage(1); }}>
-                <SelectTrigger className="w-44" aria-label="按账户筛选">
+                <SelectTrigger className="w-44 shrink-0" aria-label="按账户筛选">
                   <SelectValue placeholder="全部账户" />
                 </SelectTrigger>
                 <SelectContent>
@@ -218,7 +220,7 @@ export function DomainsPage() {
                 </SelectContent>
               </Select>
               <Select value={status} onValueChange={(value) => { setStatus(value as typeof status); setPage(1); }}>
-                <SelectTrigger className="w-32" aria-label="按状态筛选">
+                <SelectTrigger className="w-32 shrink-0" aria-label="按状态筛选">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

@@ -56,6 +56,9 @@ export function NsMonitorTab() {
   const total = monitors.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  // 只有被点的那一行显示检测动画
+  const recheckingDomain = recheck.isPending ? recheck.variables : null;
+
   const handleRecheck = async (row: NsMonitorRow) => {
     setError(null); setNotice(null);
     try {
@@ -156,7 +159,7 @@ export function NsMonitorTab() {
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="sm" onClick={() => void handleRecheck(row)} disabled={recheck.isPending}>
-                          {recheck.isPending ? <Loader2 className="animate-spin" /> : <Radar className="h-4 w-4" />}检测
+                          {recheckingDomain === row.domain_name ? <Loader2 className="animate-spin" /> : <Radar className="h-4 w-4" />}检测
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => setEditor({ mode: 'edit', row })}>编辑</Button>
                         <Button

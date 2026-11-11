@@ -52,6 +52,9 @@ export function ServiceMonitorTab() {
   const total = monitors.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  // 只有被点的那一行显示检测动画
+  const checkingId = check.isPending ? check.variables : null;
+
   const runCheck = async (row: MonitorRow) => {
     setError(null); setNotice(null);
     try {
@@ -170,7 +173,7 @@ export function ServiceMonitorTab() {
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="sm" onClick={() => void runCheck(row)} disabled={check.isPending}>
-                          {check.isPending ? <Loader2 className="animate-spin" /> : <Activity className="h-4 w-4" />}检测
+                          {checkingId === row.id ? <Loader2 className="animate-spin" /> : <Activity className="h-4 w-4" />}检测
                         </Button>
                         <Button variant="ghost" size="icon" aria-label={'编辑 ' + row.name} onClick={() => setEditor({ mode: 'edit', row })}>
                           <Pencil className="h-4 w-4" />
