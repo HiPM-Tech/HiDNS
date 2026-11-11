@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { configFieldLabel, providerLabel } from './provider-labels';
+import { ProviderIcon } from './provider-icon';
 import { alertVariants } from '../../ui/alert';
 import { Info, Loader2 } from 'lucide-react';
 import {
@@ -109,7 +110,12 @@ export function AccountDialog({ open, onOpenChange, providers, account }: Accoun
               <SelectTrigger id="account-provider"><SelectValue placeholder="选择提供商" /></SelectTrigger>
               <SelectContent>
                 {selectableProviders.map((item) => (
-                  <SelectItem key={item.type} value={item.type}>{providerLabel(item.type || item.name)}</SelectItem>
+                  <SelectItem key={item.type} value={item.type}>
+                    <span className="flex items-center gap-2">
+                      <ProviderIcon type={item.type} icon={item.icon} />
+                      {providerLabel(item.type || item.name)}
+                    </span>
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

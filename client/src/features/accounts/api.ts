@@ -37,6 +37,8 @@ export interface ProviderInfo {
     redirect?: boolean;
   };
   configFields: ProviderConfigField[];
+  /** 服务端给出的图标地址（/api/accounts/providers/{type}/icon），无图标时缺省 */
+  icon?: string;
   isStub?: boolean;
 }
 

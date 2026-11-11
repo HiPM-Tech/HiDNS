@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { DnsAccountOperations, TeamOperations, SettingsOperations } from '../db/bal/business-adapter';
 import { authMiddleware } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -55,8 +57,36 @@ function canManageAccount(account: DnsAccount, userId: number, role: number): bo
  *       200:
  *         description: Provider list
  */
+/** 提供商标识图标：构建时由 scripts/copy-icons.js 复制到 dist 的同名目录 */
+const PROVIDER_ICON_DIR = path.join(__dirname, '..', 'lib', 'dns', 'providers');
+const PROVIDER_ICON_EXTS = ['svg', 'png', 'ico', 'jpg', 'jpeg'];
+
+function findProviderIcon(type: string): string | null {
+  // 只允许纯标识符，避免路径穿越
+  if (!/^[a-z0-9_]+$/i.test(type)) return null;
+  for (const ext of PROVIDER_ICON_EXTS) {
+    const file = path.join(PROVIDER_ICON_DIR, type, `icon.${ext}`);
+    if (fs.existsSync(file)) return file;
+  }
+  return null;
+}
+
 router.get('/providers', authMiddleware, (_req: Request, res: Response) => {
-  sendSuccess(res, getProviders());
+  const list = getProviders().map((provider) => ({
+    ...provider,
+    icon: findProviderIcon(provider.type) ? `/api/accounts/providers/${provider.type}/icon` : undefined,
+  }));
+  sendSuccess(res, list);
+});
+
+router.get('/providers/:type/icon', authMiddleware, (req: Request, res: Response) => {
+  const file = findProviderIcon(String(req.params.type));
+  if (!file) {
+    sendError(res, 'Icon not found', 404);
+    return;
+  }
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.sendFile(file);
 });
 
 /**
