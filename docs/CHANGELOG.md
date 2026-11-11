@@ -1,5 +1,32 @@
 # 更新日志
 
+## [2.3.4] - 2026-11-11
+
+### 新功能：dpdns_reverse 通行密钥换签全面自愈
+
+- 通行密钥粘贴容错：单条对象、数组、`fido2Credentials` 片段、前后夹说明文字、整份 Bitwarden 导出都能解析；失败时提示「收到 N 字符」，不再只有笼统的「配置无效」。
+- signCount 自愈：断言被拒时按 `base → max(base+1, 时间戳秒) → base+10` 依次重试，服务端计数落后多少都能一次跨过；成功的值写回 `signCounter`，换凭据自动从 1 重新计数。
+- 换签会话与 CSRF 严格配对：登录态下不再重复 `GET /api/security/csrf`（会轮换 token 使会话失效），token 优先取自会话 cookie，`finish` 成功后保留「完成 finish 时用的那份」。
+- 启动横幅与日志打印构建 commit：`Dockerfile` 与 release workflow 注入 `GIT_SHA`，实例版本可自证。
+- 发布镜像默认 `HIDNS_LOG_LEVEL=debug`，可用 `-e HIDNS_LOG_LEVEL=info` 覆盖。
+
+### Bug 修复：续期与域名同步一直 400 / 401
+
+- 根因是 `renewal.ts` 把续期请求发往 `dash.domain.digitalplat.org`，而登录/换签在 `dashboard.digitalplat.org`；会话 cookie 域不匹配，服务端一律返回 `400 Invalid CSRF token`（`fetchAllDomains` 因此一直 401）。改为复用同一 base URL。
+- 合并 `Set-Cookie` 只解析第一条：fetch 在逗号后不一定带空格，旧正则要求 `,` 加空格，导致 `panel_csrf_token` 被丢弃。
+- `validateCredentials` 不再把异常吞成 `false`；错误按 `[csrf]/[begin]/[sign]/[finish]` 分阶段输出并附响应摘要。
+- 换签前同时清空 `sessionCookie` / `csrfToken` / `rememberToken`，避免在旧会话上「升级」。
+- 401 与 CSRF 失败（含 HTTP 200 + body.error）都会换签后重试一次。
+- `public_suffixes` 改为每 200 条多值 INSERT：一次刷新曾产生 10381 条单行 INSERT、约 3 万行日志。
+- DNSHE WHOIS 兼容 `expires_at` 字段，响应日志打印到期日与字段名。
+- 行内操作动画按行隔离：续期、NS 检测、服务检测、工作流检查、Token 启停不再「点一个全页转圈」。
+- 移动端筛选区与工具栏统一 `flex-wrap` + `shrink-0`，修复按钮文字竖排溢出（#47）。
+
+### 优化：错误现场与诊断
+
+- 续期失败日志带 `status` / `csrfHeader` / `csrfCookie` / cookie 名，可直接判断 token 与 cookie 是否同源。
+- dpdns 换签新增 `[SIGN]`（凭据指纹、signCounter、attempt）与 `[TRACE]`（请求 URL、token 前缀）日志，只打印前缀、不泄露凭据。
+
 ## [2.3.3] - 2026-10-26
 
 ### 新功能：内网 HTTP 部署可确认风险后明文登录
