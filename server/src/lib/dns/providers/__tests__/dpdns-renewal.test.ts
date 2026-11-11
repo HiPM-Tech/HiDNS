@@ -7,16 +7,20 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../dpdns_reverse/auth', () => ({
+  DPDNS_BASE_URL: 'https://dashboard.digitalplat.org',
   ensureCsrfToken: mocks.ensureCsrfToken,
   loginWithPasskey: mocks.loginWithPasskey,
   authenticatedRequest: mocks.authenticatedRequest,
+  send: mocks.authenticatedRequest,
   resolveSessionJar: () => new Map<string, string>(),
 }));
 
 import { renewFreeDomain } from '../dpdns_reverse/renewal';
 
 function jsonResponse(body: unknown) {
-  return { ok: true, status: 200, json: async () => body } as unknown as Response;
+  const res: any = { ok: true, status: 200, json: async () => body };
+  res.clone = () => res;   // 生产代码用 response.clone() 保留可重读的 body
+  return res as Response;
 }
 
 describe('renewFreeDomain 的 CSRF 自愈', () => {
@@ -42,9 +46,8 @@ describe('renewFreeDomain 的 CSRF 自愈', () => {
   });
 
   it('只重试一次：第二次仍 CSRF 失败则抛错', async () => {
-    mocks.authenticatedRequest
-      .mockResolvedValueOnce(jsonResponse({ ok: false, error: 'Invalid CSRF token' }))
-      .mockResolvedValueOnce(jsonResponse({ ok: false, error: 'Invalid CSRF token' }));
+    // 一律返回 CSRF 失败：换签后重试仍失败，只允许换签一次
+    mocks.authenticatedRequest.mockImplementation(async () => jsonResponse({ ok: false, error: 'Invalid CSRF token' }));
 
     await expect(renewFreeDomain({ passkey: '{}' }, 'demo.dpdns.org', 1)).rejects.toThrow(/CSRF/);
     expect(mocks.loginWithPasskey).toHaveBeenCalledTimes(1);

@@ -193,7 +193,7 @@ function cookieHeader(config: DpdnsAuthConfig): string {
 const csrfDiag = new WeakMap<object, { cookieNames: string[]; hadCookieToken: boolean; direct: boolean }>();
 
 /** 底层请求：自动带 Cookie 与 CSRF 头，并吸收响应里的 Set-Cookie */
-async function send(
+export async function send(
   url: string,
   config: DpdnsAuthConfig,
   options: RequestInit = {},

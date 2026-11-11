@@ -11,11 +11,14 @@
  */
 
 import { createProviderRenewalLogger } from '../internal';
-import { authenticatedRequest, ensureCsrfToken, loginWithPasskey, resolveSessionJar, DpdnsAuthConfig } from './auth';
+import { authenticatedRequest, ensureCsrfToken, loginWithPasskey, resolveSessionJar, send, DPDNS_BASE_URL, DpdnsAuthConfig } from './auth';
 
 const log = createProviderRenewalLogger('DPDNS');
 
-const BASE_URL = 'https://dash.domain.digitalplat.org/_panel_api';
+// 必须与换签（auth.ts）用同一个主机：
+// 会话 cookie 是在 dashboard.digitalplat.org 下发的，发到 dash.domain.digitalplat.org
+// 会因为域不匹配导致 CSRF 校验直接失败（400 Invalid CSRF token）。
+const BASE_URL = `${DPDNS_BASE_URL}/_panel_api`;
 
 // ============================================================================
 // 类型定义
@@ -158,28 +161,31 @@ export async function renewFreeDomain(
   const url = `${BASE_URL}/api/domains/${encodeURIComponent(domainName)}/renew`;
   log.sub('API').tag('REQUEST').debug('Renewing domain', { domain: domainName, years });
 
-  const response = await authenticatedRequest(url, config, {
-    method: 'POST',
-    body: JSON.stringify({
-      renewal_type: 'free',
-      years,
-    }),
+  const payload = JSON.stringify({ renewal_type: 'free', years });
+
+  // 直接用 send 发一次，不经过 authenticatedRequest：后者的 ensureSession 会先打 /auth/me，
+  // 在「DB 里的会话已过期」场景下会先换签再重发，把刚建立的会话又绕一圈（实测反而 400 CSRF）。
+  // 这里按「浏览器同款」的顺序：带现有 sessionCookie 与 token 直接 POST；
+  // 只有真的 401 / CSRF 失败时才换签并重发一次。
+  log.sub('API').tag('TRACE').debug('Renew request context', {
+    url,
+    csrf: config.csrfToken ? `${config.csrfToken.slice(0, 6)}…` : '(none)',
+    cookieCsrf: (String(config.sessionCookie ?? '').match(/panel_csrf_token=([^;]+)/)?.[1] ?? '-').slice(0, 6),
+    cookies: Object.keys(Object.fromEntries(String(config.sessionCookie ?? '').split('; ').filter(Boolean).map((p) => [p.split('=')[0], 1]))).join(','),
   });
 
-  const data: DpdnsRenewResponse = await response.json();
+  let response = await send(url, config, { method: 'POST', body: payload });
+  let data: DpdnsRenewResponse = await response.clone().json().catch(() => ({ ok: false } as DpdnsRenewResponse));
+
+  if (response.status === 401 || (!data.ok && /csrf/i.test(String(data.error ?? '')))) {
+    log.sub('API').tag('FALLBACK').warn('Renewal needs re-sign, retrying once', { domain: domainName });
+    await loginWithPasskey(config);
+    response = await send(url, config, { method: 'POST', body: payload });
+    data = await response.clone().json().catch(() => ({ ok: false } as DpdnsRenewResponse));
+  }
 
   if (!response.ok || !data.ok) {
     const errMsg = data.error || data.message || `HTTP ${response.status}`;
-
-    // 上游把 CSRF 失败放在 body.error 里（HTTP 可能仍是 200），必须换签后重试一次：
-    // 「会话有效但 CSRF 绑定丢了」的状态下，只刷新 token 是过不去的。
-    if (!retried && /csrf/i.test(errMsg)) {
-      log.sub('API').tag('FALLBACK').warn('Renewal hit CSRF failure, re-signing and retrying once', {
-        domain: domainName,
-      });
-      await loginWithPasskey(config);
-      return renewFreeDomain(config, domainName, years, true);
-    }
 
     // 带上 CSRF 现场：header 里的 token 前缀 + 当前 cookie 名，用于判断两者是否同源
     const cookieNames = Object.keys(Object.fromEntries(
