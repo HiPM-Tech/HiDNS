@@ -1194,6 +1194,14 @@ router.get('/provider-list/:accountId', authMiddleware, asyncHandler(async (req:
     const existingForAccount = allDomains.filter((d) => d.account_id === accountId);
     const existingDomainNames = new Set(existingForAccount.map((d) => normalizeDomain(d.name)));
     const allDomainNames = new Set(allDomains.map((d) => normalizeDomain(d.name)));
+    // 续期表是独立的一套：同一个域名可以「已托管 DNS」但「还没加入续期」，
+    // 所以这里单独查 renewable_domains，供续期页过滤已入库的域名。
+    const renewableRows = await RenewableDomainOperations.getByAccountId(accountId);
+    const renewableNames = new Set(
+      renewableRows
+        .map((row) => normalizeDomain(String((row as Record<string, unknown>).full_domain ?? '')))
+        .filter(Boolean),
+    );
 
     // 返回所有域名，标记存在状态
     const tokenPayload = (req as any).tokenPayload;
@@ -1210,6 +1218,7 @@ router.get('/provider-list/:accountId', authMiddleware, asyncHandler(async (req:
         record_count: d.RecordCount ?? 0,
         exists: existingDomainNames.has(normalizedName),
         existsOther: !existingDomainNames.has(normalizedName) && allDomainNames.has(normalizedName),
+        exists_renewable: renewableNames.has(normalizedName),
         parentExists: !!parentDomain && parentDomain !== normalizedName && allDomainNames.has(normalizeDomain(parentDomain)),
       };
     });

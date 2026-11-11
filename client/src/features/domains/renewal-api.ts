@@ -26,6 +26,11 @@ export interface ProviderDomainOption {
   name: string;
   third_id?: string;
   expires_at?: string | null;
+  exists?: boolean;
+  existsOther?: boolean;
+  /** 本账号已加入续期列表 */
+  exists_renewable?: boolean;
+  parentExists?: boolean;
 }
 
 async function unwrap<T>(promise: Promise<import('../../lib/http').ApiEnvelope<T>>): Promise<T> {

@@ -99,6 +99,14 @@ export interface ProviderDomainOption {
   name: string;
   third_id?: string;
   expires_at?: string | null;
+  /** 本账号已托管该域名（domains 表） */
+  exists?: boolean;
+  /** 其它账号已托管该域名 */
+  existsOther?: boolean;
+  /** 本账号已把它加入续期列表（renewable_domains 表） */
+  exists_renewable?: boolean;
+  /** 上级域名已托管 */
+  parentExists?: boolean;
 }
 
 export async function listProviderDomains(accountId: number): Promise<ProviderDomainOption[]> {

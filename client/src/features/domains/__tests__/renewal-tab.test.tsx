@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DomainRenewalTab } from '../renewal-tab';
+import { DomainRenewalTab, filterAddableRenewalDomains } from '../renewal-tab';
 import { renewalApi } from '../renewal-api';
 
 vi.mock('../renewal-api', async (importOriginal) => {
@@ -76,6 +76,14 @@ describe('DomainRenewalTab', () => {
 
     finish({ code: 0, msg: 'success', data: null });
   });
+
+  it('过滤已入库续期的域名（exists_renewable）', () => {
+    expect(filterAddableRenewalDomains([
+      { name: 'fresh.com' },
+      { name: 'already.com', exists_renewable: true },
+    ]).map((item) => item.name)).toEqual(['fresh.com']);
+  });
+
   it('续期按钮调用后端', async () => {
     const user = userEvent.setup();
     vi.mocked(renewalApi.list).mockResolvedValue({ list: rows as never, total: 2 });

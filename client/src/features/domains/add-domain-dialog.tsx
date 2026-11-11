@@ -50,7 +50,8 @@ export function AddDomainDialog({ open, onOpenChange, onAdded }: AddDomainDialog
     onError: (err) => setError(err instanceof Error ? err.message : '添加失败'),
   });
 
-  const options = providerDomains.data ?? [];
+  // 已托管（本账号或其它账号）的域名不再列出，避免选完才报「已存在」
+  const options = (providerDomains.data ?? []).filter((item) => !item.exists && !item.existsOther);
   const allAccounts = (accounts.data ?? EMPTY_ACCOUNTS) as Array<{ id: number; name: string; type: string }>;
   // 只展示「支持 DNS 解析」的提供商账户（edgeone 等纯 CDN 账户不能拉域名）
   const accountOptions = filterAccountsByProviderCapability(allAccounts, providers.data, 'dns');
