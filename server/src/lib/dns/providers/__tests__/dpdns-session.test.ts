@@ -397,8 +397,8 @@ describe('signCount 自愈（服务端 counter 与本地不同步）', () => {
     const config: { passkey: string; signCounter?: number; signCounterFor?: string } = { passkey: JSON.stringify(passkey) };
     await loginWithPasskey(config);
 
-    // base=1 → 第一次失败 → 候选 +1 = 2
-    expect(config.signCounter).toBe(2);
+    // base=1 → 第一次失败 → 第二个候选是时间戳（保证大于任何历史 stored）
+    expect(config.signCounter).toBeGreaterThan(1000);
     expect(config.signCounterFor).toBe(passkey.credentialId);
     const csrfCalls = net.calls.filter((u) => u.includes('/api/security/csrf'));
     expect(csrfCalls).toHaveLength(3);
@@ -416,4 +416,39 @@ describe('signCount 自愈（服务端 counter 与本地不同步）', () => {
     expect(net.calls.filter((u) => u.includes('/api/security/csrf'))).toHaveLength(1);
   });
 });
+
+
+  it('固定上限会死循环：候选用时间戳跨过任意历史值', async () => {
+    const passkey = (() => {
+      const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+      return {
+        credentialId: '02c3ace8-6a41-48e0-bfff-a66c448ad1a0',
+        keyValue: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+        rpId: 'dashboard.digitalplat.org',
+        userHandle: 'mEqCHdbXrHsyXlUjSh5Cvg-sd0U9qyzISZ1K_a3_2u0',
+      };
+    })();
+
+    // 第一次用 base 失败，第二次必须用一个「远大于历史」的值并成功
+    net.queue.push(
+      { body: { ok: true, csrf_token: 'T1' } },
+      { body: { ok: true, options: { challenge: 'c1' }, request_id: 'r1' } },
+      { status: 401, body: { ok: false, code: 'security_error', error: 'Passkey sign-in could not be verified.' } },
+      { body: { ok: true, csrf_token: 'T2' } },
+      { body: { ok: true, options: { challenge: 'c2' }, request_id: 'r2' } },
+      { body: { ok: true, user: { id: 1 } }, headers: { 'set-cookie': 'remember_token=rt' } },
+      { body: { ok: true, csrf_token: 'T3' } },
+    );
+
+    const config: { passkey: string; signCounter?: number; signCounterFor?: string } = {
+      passkey: JSON.stringify(passkey),
+      signCounter: 33,
+      signCounterFor: passkey.credentialId,
+    };
+    await loginWithPasskey(config);
+
+    const now = Math.floor(Date.now() / 1000);
+    expect(config.signCounter).toBeGreaterThanOrEqual(now - 2);
+    expect(config.signCounter).toBeGreaterThan(1000);
+  });
 

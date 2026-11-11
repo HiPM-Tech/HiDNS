@@ -406,8 +406,17 @@ export async function loginWithPasskey(config: DpdnsAuthConfig): Promise<void> {
     ? undefined
     : config.signCounter;
   const base = nextSignCounter(counterBase);
-  // 候选值：本地推导值 → +1 → +10 → +100 → 1000（服务端只要求 next > stored）
-  const candidates = Array.from(new Set([base, base + 1, base + 10, base + 100, 1000]));
+  // 候选值必须能「跨过任意历史值」。
+  // 只用固定上限（如 1000）会死循环：某次用 1000 成功后服务端 stored=1000，
+  // 下次 1000 不再 > stored，候选全废。时间戳（秒）天然单调且远大于任何历史 counter，
+  // 本地状态即便丢失，也能一次跳到服务端之上；末尾再留 +1/+10 兜底「要求严格连续」的实现。
+  const now = Math.floor(Date.now() / 1000);
+  const candidates = Array.from(new Set([
+    base,
+    Math.max(base + 1, now),
+    Math.max(base + 2, now + 1),
+    base + 10,
+  ]));
 
   let lastError: string | null = null;
   for (let i = 0; i < candidates.length; i += 1) {
