@@ -1,5 +1,20 @@
 # 更新日志
 
+## [2.3.5] - 2026-11-11
+
+### 新功能：账号级「使用代理」开关
+
+- 新增/编辑 DNS 账号时多一个通用开关：**使用代理**（默认关闭，即直连）。关闭时直接连接，开启后经「系统设置 → 网络」里配置的代理访问。
+- `ProviderConfigField` 增加 `boolean` 类型，账号对话框渲染为 Switch；`getProviderInfoList()` 统一注入 `useProxy` 字段，26 个 provider 自动覆盖，无需逐个声明。
+- config 中以 `'true'`/`'false'` 存储，新增 `isTruthyFlag()` 归一，避免 `'false'` 被 `!!value` 判成真；dpdns / cloudflare / qingcloud 三处读取统一改用它。
+
+### Bug 修复：无
+
+### 优化：可选网络路径
+
+- 之前账号级没有「是否直连」的入口，只能改库或改全局代理配置；现在每个账号可独立选择。
+- 新增用例：每个 provider 都带且仅带一个 `useProxy` 字段（类型 boolean、非必填）。
+
 ## [2.3.4] - 2026-11-11
 
 ### 新功能：dpdns_reverse 通行密钥换签全面自愈
