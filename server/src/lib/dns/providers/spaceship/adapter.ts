@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, safeString, toNumber, fetchWithFallback } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, safeString, toNumber, fetchWithFallback, isTruthyFlag } from '../internal';
 export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('Spaceship');
@@ -20,7 +20,7 @@ export class SpaceshipAdapter extends BaseAdapter {
       apiKey: safeString(config.apiKey) || safeString(config.apikey),
       apiSecret: safeString(config.apiSecret) || safeString(config.apisecret),
       domain: safeString(config.domain),
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
   }
 
@@ -128,6 +128,63 @@ export class SpaceshipAdapter extends BaseAdapter {
     return null;
   }
 
+  /**
+   * 拉取该域名的**全部**原始记录（Spaceship 的 PUT 是「全量保存」，必须先读后写）。
+   * 单页上限 500，按 total 循环直到取完。
+   */
+  private async fetchAllRawRecords(): Promise<Dict[]> {
+    const all: Dict[] = [];
+    let skip = 0;
+    const take = 500;
+    for (let guard = 0; guard < 40; guard += 1) {
+      const data = await this.request<{ items?: Dict[]; total?: number }>(
+        'GET',
+        `/dns/records/${this.config.domain}`,
+        { take, skip },
+      );
+      const items = data.items ?? [];
+      all.push(...items);
+      const total = typeof data.total === 'number' ? data.total : all.length;
+      if (items.length === 0 || all.length >= total) break;
+      skip += take;
+    }
+    return all;
+  }
+
+  /**
+   * 全量保存。官方文档：PUT /v1/dns/records/{domain} = Save resource records，
+   * body 为 { force, items }，items 上限 500；DELETE 同路径表示「删除该域名的全部记录」。
+   * 因此「增/改/删单条」都要先读全量、改完再整体保存，绝不能只 PUT 一条（那样会把其它记录清空）。
+   */
+  private async saveAllRawRecords(items: Dict[]): Promise<void> {
+    if (items.length === 0) {
+      await this.request('DELETE', `/dns/records/${this.config.domain}`);
+      return;
+    }
+    if (items.length > 500) {
+      throw new Error('Spaceship 单次保存上限为 500 条记录，当前域名记录过多');
+    }
+    await this.request('PUT', `/dns/records/${this.config.domain}`, { force: true, items });
+  }
+
+  /** recordId 形如 type|name|value|mx，用于在原始记录里定位目标行 */
+  private parseRecordId(recordId: string): { type: string; name: string; value: string; mx: number } {
+    const parts = recordId.split('|');
+    return {
+      type: parts[0] ?? '',
+      name: parts[1] ?? '',
+      value: parts[2] ?? '',
+      mx: toNumber(parts[3] || '0', 0),
+    };
+  }
+
+  private matchesRecord(row: Dict, target: { type: string; name: string; value: string }): boolean {
+    const mapped = this.mapRecord(row);
+    return mapped.Type.toUpperCase() === target.type.toUpperCase()
+      && mapped.Name.toLowerCase() === target.name.toLowerCase()
+      && mapped.Value === target.value;
+  }
+
   async addDomainRecord(
     name: string,
     type: string,
@@ -146,7 +203,10 @@ export class SpaceshipAdapter extends BaseAdapter {
       const item = this.convertRecordItem(name, type, value, mx);
       item.ttl = toNumber(ttl, 600);
 
-      await this.request('PUT', `/dns/records/${this.config.domain}`, { force: false, items: [item] });
+      // 读全量 → 追加 → 整体保存（PUT 是全量语义）
+      const items = await this.fetchAllRawRecords();
+      items.push(item);
+      await this.saveAllRawRecords(items);
       return `${type}|${name}|${value}|${mx}`;
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
@@ -170,10 +230,20 @@ export class SpaceshipAdapter extends BaseAdapter {
         return false;
       }
 
-      const item = this.convertRecordItem(name, type, value, mx);
-      item.ttl = toNumber(ttl, 600);
+      const target = this.parseRecordId(recordId);
+      const items = await this.fetchAllRawRecords();
+      const idx = items.findIndex((row) => this.matchesRecord(row, target));
+      if (idx === -1) {
+        this.error = '未找到要更新的记录（可能已被外部修改）';
+        return false;
+      }
 
-      await this.request('PUT', `/dns/records/${this.config.domain}`, { force: true, items: [item] });
+      const next = this.convertRecordItem(name, type, value, mx);
+      next.ttl = toNumber(ttl, 600);
+      items[idx] = next;
+
+      // 读全量 → 替换目标行 → 整体保存
+      await this.saveAllRawRecords(items);
       return true;
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
@@ -187,14 +257,17 @@ export class SpaceshipAdapter extends BaseAdapter {
         return false;
       }
 
-      const parts = recordId.split('|');
-      const type = parts[0];
-      const name = parts[1];
-      const address = parts[2];
-      const mx = parts[3] || '0';
+      // 官方 DELETE /v1/dns/records/{domain} 不带请求体（等价「清空该域名全部记录」），
+      // 想删单条只能「读全量 → 过滤 → 整体保存」。
+      const target = this.parseRecordId(recordId);
+      const items = await this.fetchAllRawRecords();
+      const remaining = items.filter((row) => !this.matchesRecord(row, target));
+      if (remaining.length === items.length) {
+        this.error = '未找到要删除的记录（可能已被外部删除）';
+        return false;
+      }
 
-      const item = this.convertRecordItem(name, type, address, toNumber(mx, 0));
-      await this.request('DELETE', `/dns/records/${this.config.domain}`, item as unknown as Dict);
+      await this.saveAllRawRecords(remaining);
       return true;
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
