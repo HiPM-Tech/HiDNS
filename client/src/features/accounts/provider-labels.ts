@@ -14,6 +14,7 @@ const PROVIDER_NAMES: Record<string, string> = {
   bt: '宝塔',
   caihongdns: '彩虹 DNS 聚合',
   cloudflare: 'Cloudflare',
+  dynadot: 'Dynadot',
   dnshe: 'DNSHE',
   dnsla: 'DNS.LA',
   dnspod: '腾讯云 DNSPod',

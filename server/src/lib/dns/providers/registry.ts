@@ -236,6 +236,20 @@ const allProviderDefinitions: ProviderDefinition[] = [
     adapterFactory: (config) => new Adapters.SpaceshipAdapter(config),
   },
   {
+    type: 'dynadot',
+    name: 'provider.dynadot',
+    lineSource: 'builtin',
+    defaultLine: '0',
+    // 按官方文档（v2 RESTful + X-Signature）实现；DNS 记录资源的具体路径与字段
+    // 尚待社区用真实账号反馈校正，能力先按「支持 DNS、无续期」声明。
+    capabilities: { dns: { remark: false, status: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
+    configFields: [
+      { key: 'apiKey', label: 'provider.config.api_key', type: 'text', required: true },
+      { key: 'apiSecret', label: 'provider.config.api_secret', type: 'password', required: true },
+    ],
+    adapterFactory: (config) => new Adapters.DynadotAdapter(config),
+  },
+  {
     type: 'powerdns',
     name: 'provider.powerdns',
     lineSource: 'builtin',

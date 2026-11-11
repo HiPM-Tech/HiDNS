@@ -29,6 +29,7 @@ export { JdcloudAdapter } from './jdcloud';
 export { PowerdnsAdapter } from './powerdns';
 export { QingcloudAdapter } from './qingcloud';
 export { SpaceshipAdapter } from './spaceship';
+export { DynadotAdapter } from './dynadot';
 export { HiDNSAdapter } from './hidns';
 export { HidnsV2Adapter } from './hidns_v2';
 export { CaihongDnsAdapter } from './caihongdns';
