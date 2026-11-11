@@ -204,8 +204,14 @@ async function send(
     ...(options.headers as Record<string, string | undefined>),
     Cookie: cookieHeader(config),
   });
-  if (config.csrfToken && method !== 'GET' && method !== 'HEAD') {
-    headers[CSRF_HEADER] = config.csrfToken;
+  if (method !== 'GET' && method !== 'HEAD') {
+    // 防御性对齐：cookie 里的 panel_csrf_token 才是服务端会话的状态。
+    // 任何一条路径忘了刷新 token，这里也能保证 header 与 Cookie 同值。
+    const jarToken = resolveSessionJar(config).get('panel_csrf_token');
+    if (jarToken && config.csrfToken !== jarToken) {
+      config.csrfToken = jarToken;
+    }
+    if (config.csrfToken) headers[CSRF_HEADER] = config.csrfToken;
   }
   const res = await fetchWithFallback(
     url,
@@ -484,6 +490,8 @@ export async function authenticatedRequest(
   let res = await send(url, config, options);
   if (res.status === 401) {
     await loginWithPasskey(config);
+    // 换了新会话就必须换一份配对的 CSRF，否则重试仍会 400
+    await ensureCsrfToken(config);
     res = await send(url, config, options);
     return res;
   }

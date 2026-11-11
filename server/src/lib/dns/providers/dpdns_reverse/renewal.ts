@@ -184,6 +184,7 @@ export async function renewFreeDomain(
       error: errMsg,
       status: response.status,
       csrfHeader: config.csrfToken ? `${config.csrfToken.slice(0, 6)}…` : '(none)',
+      csrfCookie: (String(config.sessionCookie ?? '').match(/panel_csrf_token=([^;]+)/)?.[1] ?? '').slice(0, 6) + '…',
       cookieNames: cookieNames || '(none)',
     });
     throw new Error(errMsg);
