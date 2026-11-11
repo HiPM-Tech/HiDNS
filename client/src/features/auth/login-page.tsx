@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { Fingerprint, KeyRound, Loader2, LogIn, Mail, Network, Smartphone } from 'lucide-react';
 import { LogoBadge } from '../../ui/logo';
 import { startAuthentication } from '@simplewebauthn/browser';
+import { unwrapWebAuthnOptions } from '../../lib/webauthn-options';
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label } from '../../ui';
 import { copy } from '../../copy/zh-CN';
 import { ApiError } from '../../lib/http';
@@ -118,7 +119,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         setError(optionsEnvelope.msg || copy.auth.loginFailed);
         return;
       }
-      const assertion = await startAuthentication({ optionsJSON: optionsEnvelope.data as never });
+      const assertion = await startAuthentication({ optionsJSON: unwrapWebAuthnOptions(optionsEnvelope.data) as never });
       const prepared = await preparePassword(values.password);
       if (!prepared) return;
       const envelope = await authApi.login({
