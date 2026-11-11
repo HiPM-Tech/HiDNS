@@ -1,5 +1,41 @@
 # 更新日志
 
+## [2.3.7] - 2026-11-12
+
+### 新功能：Dynadot 提供商
+
+- 新增 Dynadot 接入（v2 RESTful）：`Authorization: Bearer <API_KEY>` + `X-Request-ID`，写操作按官方文档签名
+  `X-Signature = Base64(HMAC-SHA256(secret, apiKey + 换行 + fullPathAndQuery + 换行 + requestId + 换行 + body))`。
+- 支持域名列表、记录列表、记录增删改（官方明确不支持批量，每种请求仅一个对象，与 HiDNS 模型一致）。
+- 已注册为正式提供商，配置项为 API Key + API Secret；DNS 资源路径集中在单个常量，便于按社区实测反馈一处校正。
+
+### 新功能：提供商图标
+
+- `GET /api/accounts/providers/:type/icon` 输出各提供商图标（type 白名单校验防路径穿越，缓存 1 天）；`/api/accounts/providers` 返回项新增 `icon`。
+- 新增/编辑账号的「提供商」下拉显示品牌图标；无图标时回退首字母色块。
+- 图标文件早已存在（25 个）且构建时会复制进 dist，此前既无路由也无渲染，等于从未使用。
+
+### Bug 修复：Spaceship 记录增删改全部失败
+
+- 官方语义是 `PUT /v1/dns/records/{domain}` = **Save**（全量保存，items 1..500），`DELETE` 同路径**不带请求体**。
+- 原实现只 PUT 单条（全量语义下会覆盖整个 zone 或直接被拒）→ `Failed to add record`；DELETE 携带完整记录对象 → `Failed to delete record`。
+- 改为「读全量 → 追加/替换/过滤 → 整体 PUT」，改完为空时改走 DELETE；记录按 type+name+value 精确匹配。
+
+### Bug 修复：可添加域名列表没有按已入库去重
+
+- `provider-list` 端点新增 `exists_renewable`（查 renewable_domains），续期页据此过滤已入库域名。
+- 新增域名对话框过滤 `exists` / `existsOther`；`domains` 与 `renewable_domains` 两套表各自判定，互不误伤。
+
+### Bug 修复：注册/登录通行密钥报 reading 'challenge'
+
+- 服务端把 `PublicKeyCredential*OptionsJSON` 直接放在 `data` 里，前端却取 `data.options` → `undefined`，simplewebauthn 读 challenge 时抛错。
+- 注册与登录两条路径同时修正，并抽出 `unwrapWebAuthnOptions` 兼容「裸对象」与「包一层 options」两种形态（附 3 条单测）。
+
+### 优化
+
+- Spaceship / Dynadot 的 `useProxy` 统一走 `isTruthyFlag`，`'false'` 不再被判成真。
+- Dynadot 记录解析容忍 `records` / `dns` / `data` / `items` 四种包装，降低字段名猜错的风险。
+
 ## [2.3.6] - 2026-11-11
 
 ### 新功能：无
