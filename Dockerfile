@@ -77,9 +77,10 @@ ARG GIT_SHA=unknown
 ARG BUILD_TIME=unknown
 ENV HIDNS_BUILD_SHA=${GIT_SHA}
 ENV HIDNS_BUILD_TIME=${BUILD_TIME}
-# 发布镜像默认 debug 日志（CI 构建的版本用于排查现场问题）；
-# 生产稳态可用 -e HIDNS_LOG_LEVEL=info 覆盖，无需重建镜像。
-ENV HIDNS_LOG_LEVEL=debug
+# 生产镜像默认 info：稳态日志量可控。
+# 排查现场时用 -e HIDNS_LOG_LEVEL=debug 覆盖即可，无需重建镜像。
+# CI 自身的构建/测试日志由 release.yml 的 workflow 级 env 设为 debug，两者互不影响。
+ENV HIDNS_LOG_LEVEL=info
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

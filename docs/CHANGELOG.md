@@ -1,5 +1,19 @@
 # 更新日志
 
+## [2.3.6] - 2026-11-11
+
+### 新功能：无
+
+### Bug 修复：生产镜像默认日志级别被设成 debug
+
+- `Dockerfile` 的 `ENV HIDNS_LOG_LEVEL` 由 `debug` 改回 `info`：2.3.4 为了排查把发布镜像也设成了 debug，稳态日志量偏大（实测 5 分钟约 8 万行，真正的错误被淹没）。
+- CI 自身的构建/测试仍由 `release.yml` 的 workflow 级 `HIDNS_LOG_LEVEL=debug` 控制，Actions 里照样能看 debug 日志。
+- 现场排查用 `-e HIDNS_LOG_LEVEL=debug` 覆盖即可，不需要重建镜像。
+
+### 优化：日志级别边界明确
+
+- 生产默认 `info`、CI 默认 `debug`、运行期可用环境变量覆盖，三者职责分开。
+
 ## [2.3.5] - 2026-11-11
 
 ### 新功能：账号级「使用代理」开关
