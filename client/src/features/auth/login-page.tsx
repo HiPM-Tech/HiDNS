@@ -118,7 +118,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         setError(optionsEnvelope.msg || copy.auth.loginFailed);
         return;
       }
-      const assertion = await startAuthentication({ optionsJSON: optionsEnvelope.data.options as never });
+      const assertion = await startAuthentication({ optionsJSON: optionsEnvelope.data as never });
       const prepared = await preparePassword(values.password);
       if (!prepared) return;
       const envelope = await authApi.login({

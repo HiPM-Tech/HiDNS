@@ -411,7 +411,7 @@ function RegisterPasskeyButton({ onError }: { onError: (message: string) => void
     try {
       const optionsEnvelope = await securityApi.passkeyRegistrationOptions();
       if (optionsEnvelope.code !== 0) throw new Error(optionsEnvelope.msg || '获取注册参数失败');
-      const credential = await startRegistration({ optionsJSON: optionsEnvelope.data.options as never });
+      const credential = await startRegistration({ optionsJSON: optionsEnvelope.data as never });
       const verify = await securityApi.passkeyRegistrationVerify(credential);
       if (verify.code !== 0) throw new Error(verify.msg || '注册失败');
       await queryClient.invalidateQueries({ queryKey: ['security', 'passkeys'] });

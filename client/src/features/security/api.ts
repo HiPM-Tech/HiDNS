@@ -60,8 +60,9 @@ export const securityApi = {
   listPasskeys: (): Promise<import('../../lib/http').ApiEnvelope<PasskeyRow[]>> =>
     http.get<PasskeyRow[]>('/auth/webauthn/credentials'),
   deletePasskey: (id: string) => http.deleteOk<null>(`/auth/webauthn/credentials/${encodeURIComponent(id)}`),
-  passkeyRegistrationOptions: (): Promise<import('../../lib/http').ApiEnvelope<{ options: unknown }>> =>
-    http.get<{ options: unknown }>('/auth/webauthn/registration-options'),
+  // 服务端把 PublicKeyCredentialCreationOptionsJSON 直接放在 data 里（没有再包一层 options）
+  passkeyRegistrationOptions: (): Promise<import('../../lib/http').ApiEnvelope<unknown>> =>
+    http.get<unknown>('/auth/webauthn/registration-options'),
   passkeyRegistrationVerify: (credential: unknown) =>
     http.postOk<{ success: boolean }>('/auth/webauthn/registration-verify', { credential }),
 

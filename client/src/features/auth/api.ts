@@ -35,8 +35,9 @@ export const authApi = {
   login: (payload: LoginPayload): Promise<ApiEnvelope<LoginResult>> => http.post<LoginResult>('/auth/login', payload),
   me: (): Promise<ApiEnvelope<AuthUser>> => http.get<AuthUser>('/auth/me'),
   logout: (): Promise<ApiEnvelope<null>> => http.postOk<null>('/auth/logout'),
-  webauthnLoginOptions: (username: string): Promise<ApiEnvelope<{ options: unknown }>> =>
-    http.get<{ options: unknown }>('/auth/webauthn/login-options', { query: { username } }),
+  // 服务端把 PublicKeyCredentialRequestOptionsJSON 直接放在 data 里（没有再包一层 options）
+  webauthnLoginOptions: (username: string): Promise<ApiEnvelope<unknown>> =>
+    http.get<unknown>('/auth/webauthn/login-options', { query: { username } }),
   oauthStatus: (): Promise<ApiEnvelope<OAuthStatus>> => http.get<OAuthStatus>('/auth/oauth/status'),
   oauthStart: (provider?: string): Promise<ApiEnvelope<{ authUrl: string }>> =>
     http.post<{ authUrl: string }>('/auth/oauth/start', provider ? { provider } : {}),
