@@ -1,7 +1,10 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
-import { DnsAccountOperations, TeamOperations, SettingsOperations } from '../db/bal/business-adapter';
+import {
+  DnsAccountOperations, TeamOperations, SettingsOperations,
+  DomainOperations, DomainPermissionOperations, RecordOperations, NSMonitorOperations, RenewableDomainOperations,
+} from '../db/bal/business-adapter';
 import { authMiddleware } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
 import { createAdapter, getProvider, getProviders, isStubProvider } from '../lib/dns/DnsHelper';
@@ -577,6 +580,30 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req: Request, res: Res
   }
   // 收件人先算再删：账号行删除后就查不到 created_by / team_id 了
   const deletedAccountAudience = await getAccountAudienceUserIds(account);
+
+  // 级联清理：不依赖当前数据库里外键是否真的生效（历史库可能缺 FK 或未开启约束），
+  // 否则账号被删后域名会变成「既不能解析也不能删」的孤儿数据。
+  try {
+    const accountDomains = await DomainOperations.getByAccountId(id) as Array<{ id: number; name: string }>;
+    for (const domain of accountDomains) {
+      const domainId = Number(domain.id);
+      const domainName = String(domain.name ?? '');
+      try {
+        await RecordOperations.deleteByDomainId(domainId);
+        await DomainPermissionOperations.deleteByDomainId(domainId);
+        if (domainName) await NSMonitorOperations.deleteByDomainName(domainName);
+        await DomainOperations.delete(domainId);
+      } catch (error) {
+        // 单个域名清理失败不应阻断账号删除，但必须留痕
+        log.error('Failed to clean domain of deleted account', { accountId: id, domainId, error });
+      }
+    }
+    const removedRenewable = await RenewableDomainOperations.deleteByAccountId(id);
+    log.info('Account cascade cleanup done', { accountId: id, domains: accountDomains.length, removedRenewable });
+  } catch (error) {
+    log.error('Account cascade cleanup failed', { accountId: id, error });
+  }
+
   await DnsAccountOperations.delete(id);
 
   // 推送 WebSocket 消息：只推给删除前能读到该账号的用户

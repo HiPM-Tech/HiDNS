@@ -3957,6 +3957,16 @@ export const RenewableDomainOperations = {
     );
   },
 
+  /** 按账号批量删除续期域名（删除 DNS 账号时清理关联数据） */
+  async deleteByAccountId(accountId: number): Promise<number> {
+    const result = await executeInternal(
+      'DELETE FROM renewable_domains WHERE account_id = ?',
+      [accountId],
+      { operation: 'RenewableDomain.deleteByAccountId', table: 'renewable_domains' }
+    );
+    return Number((result as { changes?: number } | undefined)?.changes ?? 0);
+  },
+
   /** 检查域名是否已添加 */
   async exists(accountId: number, thirdId: string): Promise<boolean> {
     const result = await getInternal(
