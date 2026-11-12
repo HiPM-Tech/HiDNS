@@ -1,4 +1,4 @@
-import {createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveCreatedRecordId, resolveProviderLine, normalizeLine } from '../internal';
+import {createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveCreatedRecordId, resolveProviderLine, normalizeLine, isTruthyFlag } from '../internal';
 import crypto from 'node:crypto';
 export const DEFAULT_LINE = '0';
 
@@ -26,7 +26,7 @@ export class BtAdapter extends BaseAdapter {
       domain: safeString(config.domain),
       domainId: safeString(config.zoneId),
       domainType: '1',
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
     if (this.config.domainId) {
       const parts = this.config.domainId.split('|');

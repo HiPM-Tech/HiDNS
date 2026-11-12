@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine, normalizeLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine, normalizeLine, isTruthyFlag } from '../internal';
 export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('Dnsla');
@@ -32,7 +32,7 @@ export class DnslaAdapter extends BaseAdapter {
       apisecret: safeString(config.apisecret),
       domain: safeString(config.domain),
       domainId: safeString(config.zoneId),
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
   }
 

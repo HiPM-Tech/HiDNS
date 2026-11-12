@@ -1,4 +1,4 @@
-import {createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, BaseAdapter, safeString, toNumber, Dict, fetchWithFallback, resolveCreatedRecordId } from '../internal';
+import {createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, BaseAdapter, safeString, toNumber, Dict, fetchWithFallback, resolveCreatedRecordId, isTruthyFlag } from '../internal';
 export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('VPS8');
@@ -27,7 +27,7 @@ export class Vps8Adapter extends BaseAdapter {
       apiKey: safeString(config.apiKey) || safeString(config.apikey),
       client: safeString(config.client),
       domain: safeString(config.domain),
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
   }
 

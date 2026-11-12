@@ -9,8 +9,7 @@ import {
   resolveDomainIdHelper,
   Dict,
   resolveProviderLine,
-  normalizeLine,
-} from '../internal';
+  normalizeLine, isTruthyFlag } from '../internal';
 import { authenticatedRequest, type HidnsV2AuthConfig } from './auth';
 export const DEFAULT_LINE = '0';
 
@@ -74,7 +73,7 @@ export class HidnsV2Adapter implements DnsAdapter {
       domain: safeString(config.domain),
       domainId: safeString(config.domainId),
       zoneId: safeString(config.zoneId),
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
   }
 

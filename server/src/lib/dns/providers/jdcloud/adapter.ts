@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, uuid, fetchWithFallback, resolveProviderLine, normalizeLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, uuid, fetchWithFallback, resolveProviderLine, normalizeLine, isTruthyFlag } from '../internal';
 import crypto from 'node:crypto';
 export const DEFAULT_LINE = '0';
 
@@ -145,7 +145,7 @@ export class JdcloudAdapter extends BaseAdapter {
       AccessKeySecret: safeString(config.AccessKeySecret),
       domain: safeString(config.domain),
       domainId: safeString(config.zoneId),
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
     this.client = new JdcloudClient(this.config.AccessKeyId, this.config.AccessKeySecret, this.config.useProxy);
   }

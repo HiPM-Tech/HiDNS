@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, fetchWithFallback, resolveDomainIdHelper } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, fetchWithFallback, resolveDomainIdHelper, isTruthyFlag } from '../internal';
 export const DEFAULT_LINE = '0';
 
 const log = createProviderAdapterLogger('HiDNS');
@@ -53,7 +53,7 @@ export class HiDNSAdapter implements DnsAdapter {
       apiToken: config.apiToken || '',
       domain: config.domain,
       domainId: config.domainId,
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
   }
 

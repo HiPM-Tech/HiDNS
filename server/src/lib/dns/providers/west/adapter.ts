@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, safeString, toNumber, fetchWithFallback, resolveProviderLine, normalizeLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, safeString, toNumber, fetchWithFallback, resolveProviderLine, normalizeLine, isTruthyFlag } from '../internal';
 import crypto from 'node:crypto';
 export const DEFAULT_LINE = '0';
 
@@ -58,7 +58,7 @@ export class WestAdapter extends BaseAdapter implements DnsAdapter {
       username: safeString(config.username),
       apiPassword: safeString(config.api_password),
       domain: safeString(config.domain),
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
   }
 

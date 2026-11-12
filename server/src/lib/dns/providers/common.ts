@@ -1,3 +1,4 @@
+import { isTruthyFlag } from './internal';
 import crypto from 'node:crypto';
 import { DnsAdapter, DnsRecord, DomainInfo, PageResult } from '../DnsInterface';
 import {
@@ -259,7 +260,7 @@ export abstract class AliyunRpcAdapter extends BaseAdapter {
     super();
     this.accessKeyId = safeString(config.AccessKeyId);
     this.accessKeySecret = safeString(config.AccessKeySecret);
-    this.useProxy = !!config.useProxy;
+    this.useProxy = isTruthyFlag(config.useProxy);
   }
 
   protected abstract endpoint(): string;
@@ -320,7 +321,7 @@ export abstract class TencentCloudAdapter extends BaseAdapter {
     super();
     this.secretId = safeString(config.SecretId);
     this.secretKey = safeString(config.SecretKey);
-    this.useProxy = !!config.useProxy;
+    this.useProxy = isTruthyFlag(config.useProxy);
   }
 
   protected abstract service(): string;

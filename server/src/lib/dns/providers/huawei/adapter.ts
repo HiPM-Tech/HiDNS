@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, resolveDomainIdHelper, safeString, toNumber, toRecordStatus, uuid, fetchWithFallback, resolveProviderLine, normalizeLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, resolveDomainIdHelper, safeString, toNumber, toRecordStatus, uuid, fetchWithFallback, resolveProviderLine, normalizeLine, isTruthyFlag } from '../internal';
 import crypto from 'node:crypto';
 export const DEFAULT_LINE = 'default_view';
 
@@ -150,7 +150,7 @@ export class HuaweiAdapter extends BaseAdapter {
       SecretAccessKey: safeString(config.SecretAccessKey),
       domain: safeString(config.domain),
       domainId: safeString(config.zoneId),
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
     this.client = new HuaweiCloudClient(this.config.AccessKeyId, this.config.SecretAccessKey, 'dns.myhuaweicloud.com', this.config.useProxy);
   }

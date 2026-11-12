@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, fetchWithFallback, resolveDomainIdHelper, normalizeRrName, safeString, toNumber, Dict, resolveProviderLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, fetchWithFallback, resolveDomainIdHelper, normalizeRrName, safeString, toNumber, Dict, resolveProviderLine, isTruthyFlag } from '../internal';
 /**
  * Example DNS Provider Adapter - 示例 DNS 提供商适配器
  *
@@ -49,7 +49,7 @@ export class ExampleAdapter implements DnsAdapter {
       apiSecret: safeString(config.apiSecret || ''),
       domain: safeString(config.domain),
       domainId: safeString(config.zoneId), // zoneId 是前端表单字段名
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
   }
 

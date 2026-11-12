@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine, normalizeLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine, normalizeLine, isTruthyFlag } from '../internal';
 import crypto from 'node:crypto';
 export const DEFAULT_LINE = '0';
 
@@ -156,7 +156,7 @@ export class HuoshanAdapter extends BaseAdapter {
       SecretAccessKey: safeString(config.SecretAccessKey),
       domain: safeString(config.domain),
       domainId: safeString(config.zoneId),
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
     this.client = new VolcengineClient(this.config.AccessKeyId, this.config.SecretAccessKey, this.config.useProxy);
   }

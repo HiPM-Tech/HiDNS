@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, normalizeRrName, safeString, toNumber, resolveDomainIdHelper, Dict, resolveProviderLine, normalizeLine } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, normalizeRrName, safeString, toNumber, resolveDomainIdHelper, Dict, resolveProviderLine, normalizeLine, isTruthyFlag } from '../internal';
 import { buildAuthHeaders, authenticatedRequest, type DnsnekoAuthConfig } from './auth';
 export const DEFAULT_LINE = 'default';
 
@@ -58,7 +58,7 @@ export class DnsnekoAdapter implements DnsAdapter {
       domain: safeString(config.domain),
       domainId: safeString(config.domainId),
       zoneId: safeString(config.zoneId),
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
   }
 

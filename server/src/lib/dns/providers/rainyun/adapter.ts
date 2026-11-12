@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine, requireNumericRecordId, normalizeLine } from '../internal';
+import { createProviderAdapterLogger, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveProviderLine, requireNumericRecordId, normalizeLine, isTruthyFlag } from '../internal';
 export const DEFAULT_LINE = 'DEFAULT';
 
 const log = createProviderAdapterLogger('Rainyun');
@@ -50,7 +50,7 @@ export class RainyunAdapter extends BaseAdapter {
       apiKey: safeString(config.apiKey),
       domain: safeString(config.domain),
       domainId: safeString(config.zoneId),
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
   }
 

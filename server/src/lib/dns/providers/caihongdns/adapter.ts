@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, fetchWithFallback, resolveDomainIdHelper } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, fetchWithFallback, resolveDomainIdHelper, isTruthyFlag } from '../internal';
 import crypto from 'crypto';
 export const DEFAULT_LINE = '默认';
 
@@ -56,7 +56,7 @@ export class CaihongDnsAdapter implements DnsAdapter {
       apiKey: config.apiKey || '',
       domain: config.domain,
       domainId: config.domainId || config.zoneId, // Support both domainId and zoneId
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
   }
 

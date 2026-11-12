@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, resolveDomainIdHelper, safeString, toNumber, toRecordStatus, uuid, fetchWithFallback } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, BaseAdapter, Dict, normalizeRrName, resolveDomainIdHelper, safeString, toNumber, toRecordStatus, uuid, fetchWithFallback, isTruthyFlag } from '../internal';
 import crypto from 'node:crypto';
 export const DEFAULT_LINE = '0';
 
@@ -89,7 +89,7 @@ export class AliyunesaAdapter extends BaseAdapter {
       region: safeString(config.region) || 'cn-hangzhou',
       domain: safeString(config.domain),
       domainId: safeString(config.zoneId),
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
     const endpoint = `https://esa.${this.config.region}.aliyuncs.com/`;
     this.client = new AliyunEsaRpcClient(endpoint, this.config.AccessKeyId, this.config.AccessKeySecret, '2024-09-10', this.config.useProxy);

@@ -1,4 +1,4 @@
-import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, Dict, normalizeRrName, safeString, BaseAdapter, toNumber, toRecordStatus, fetchWithFallback, requireNumericRecordId } from '../internal';
+import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, asArray, Dict, normalizeRrName, safeString, BaseAdapter, toNumber, toRecordStatus, fetchWithFallback, requireNumericRecordId, isTruthyFlag } from '../internal';
 import { renewSubdomain as renewSubdomainApi } from './renewal';
 import { getWhois as getWhoisApi } from './whois';
 export const DEFAULT_LINE = '0';
@@ -74,7 +74,7 @@ export class DnsheAdapter extends BaseAdapter implements DnsAdapter {
       apiSecret: safeString(config.apiSecret),
       domain: safeString(config.domain),
       subdomainId: safeString(config.zoneId),
-      useProxy: !!config.useProxy,
+      useProxy: isTruthyFlag(config.useProxy),
     };
   }
 
