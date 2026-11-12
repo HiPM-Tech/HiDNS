@@ -16,7 +16,8 @@ export const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-1/2 top-1/2 z-50 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-5 shadow-lg animate-zoom-in',
+        // max-h + overflow-y-auto：表单过长时弹窗在视口内滚动，底部按钮始终可达（移动端尤其明显）
+        'fixed left-1/2 top-1/2 z-50 max-h-[calc(100vh-2rem)] w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg animate-zoom-in',
         className,
       )}
       {...props}
