@@ -14,6 +14,7 @@ import { getDatabaseConfig, validateConfig } from './config';
 import type { DatabaseDriver } from '../dl/types';
 import { initDriver, getCurrentDriver, closeDriver, DriverManager } from '../dl';
 import { createLogger } from '../../lib/logger';
+import { acquireTransactionSlot, inTransaction, runInTxContext } from './tx-gate';
 
 const log = createLogger('DAL').sub('Connection');
 /**
@@ -331,9 +332,20 @@ export class ConnectionManager {
       throw new Error('Database connection not initialized. Call connect() first.');
     }
 
+    // 嵌套事务：驱动层再发一次 BEGIN 会直接失败（SQLite）或语义不清，这里直接拒绝，
+    // 让调用方显式合并逻辑（BAL 内部统一用 trx.* 执行，不需要嵌套）。
+    if (inTransaction()) {
+      throw new Error('Nested transaction is not supported: call BAL operations with trx inside the callback');
+    }
+
+    const isSqlite = this.connection.type === 'sqlite';
+    // SQLite 单句柄：原子地拿到事务槽位（等待 + 占位之间不能有 await），
+    // 期间事务外的语句会在驱动入口排队。
+    const releaseTx = isSqlite ? await acquireTransactionSlot() : () => undefined;
+
     const trx = await this.connection.beginTransaction();
     try {
-      const result = await fn(trx);
+      const result = await runInTxContext(() => fn(trx));
       await trx.execute('COMMIT');
       return result;
     } catch (error) {
@@ -353,6 +365,7 @@ export class ConnectionManager {
       } catch {
         /* ignore */
       }
+      releaseTx();
     }
   }
 

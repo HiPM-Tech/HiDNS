@@ -7,6 +7,7 @@ import type { Transaction, ColumnType } from '../dal/types';
 import type { DriverConfig } from './types';
 import { BaseDriver } from './base';
 import { registerDriver } from './types';
+import { guardOutsideTransaction } from '../dal/tx-gate';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DatabaseSync } from 'node:sqlite';
@@ -79,6 +80,7 @@ export class SQLiteDriver extends BaseDriver {
   }
 
   async query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
+    await guardOutsideTransaction();
     return this.executeWithSlowQueryCheck('SQLite.query', sql, params, async () => {
       this._stats.queries++;
       try {
@@ -100,6 +102,7 @@ export class SQLiteDriver extends BaseDriver {
   }
 
   async get<T = unknown>(sql: string, params?: unknown[]): Promise<T | undefined> {
+    await guardOutsideTransaction();
     return this.executeWithSlowQueryCheck('SQLite.get', sql, params, async () => {
       this._stats.queries++;
       try {
@@ -115,6 +118,7 @@ export class SQLiteDriver extends BaseDriver {
   }
 
   async execute(sql: string, params?: unknown[]): Promise<void> {
+    await guardOutsideTransaction();
     return this.executeWithSlowQueryCheck('SQLite.execute', sql, params, async () => {
       this._stats.queries++;
       try {
@@ -142,6 +146,7 @@ export class SQLiteDriver extends BaseDriver {
   }
 
   async run(sql: string, params?: unknown[]): Promise<RunResult> {
+    await guardOutsideTransaction();
     this.ioWrites++
     const stmt = this.db!.prepare(sql);
     const result = stmt.run(...serializeParams(params || []));
