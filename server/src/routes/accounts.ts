@@ -581,30 +581,17 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req: Request, res: Res
   // 收件人先算再删：账号行删除后就查不到 created_by / team_id 了
   const deletedAccountAudience = await getAccountAudienceUserIds(account);
 
-  // 级联清理：不依赖当前数据库里外键是否真的生效（历史库可能缺 FK 或未开启约束），
-  // 否则账号被删后域名会变成「既不能解析也不能删」的孤儿数据。
+  // 级联清理：账号、域名、记录、权限、NS 监控、续期数据在**同一个事务**里删除。
+  // 不依赖数据库外键是否真的生效（历史库可能缺 FK 或未开启约束），
+  // 也不会出现「清了一半失败、账号却已删」的半清理状态。
   try {
-    const accountDomains = await DomainOperations.getByAccountId(id) as Array<{ id: number; name: string }>;
-    for (const domain of accountDomains) {
-      const domainId = Number(domain.id);
-      const domainName = String(domain.name ?? '');
-      try {
-        await RecordOperations.deleteByDomainId(domainId);
-        await DomainPermissionOperations.deleteByDomainId(domainId);
-        if (domainName) await NSMonitorOperations.deleteByDomainName(domainName);
-        await DomainOperations.delete(domainId);
-      } catch (error) {
-        // 单个域名清理失败不应阻断账号删除，但必须留痕
-        log.error('Failed to clean domain of deleted account', { accountId: id, domainId, error });
-      }
-    }
-    const removedRenewable = await RenewableDomainOperations.deleteByAccountId(id);
-    log.info('Account cascade cleanup done', { accountId: id, domains: accountDomains.length, removedRenewable });
+    const cleanup = await DnsAccountOperations.deleteWithCascade(id);
+    log.info('Account cascade cleanup done', { accountId: id, ...cleanup });
   } catch (error) {
-    log.error('Account cascade cleanup failed', { accountId: id, error });
+    log.error('Account delete with cascade failed', { accountId: id, error });
+    sendError(res, '删除账号失败：关联数据清理未完成，已回滚', 500);
+    return;
   }
-
-  await DnsAccountOperations.delete(id);
 
   // 推送 WebSocket 消息：只推给删除前能读到该账号的用户
   try {

@@ -26,6 +26,7 @@ vi.mock('../db/bal/business-adapter', () => ({
     update: vi.fn(),
     updateEnabled: vi.fn(),
     delete: vi.fn(),
+    deleteWithCascade: vi.fn(async () => ({ domains: 0, renewable: 0 })),
   },
   TeamOperations: {
     getMembers: vi.fn(async () => mocks.teamMembers),

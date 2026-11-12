@@ -603,6 +603,30 @@ export const DnsAccountOperations = {
     return executeInternal('DELETE FROM dns_accounts WHERE id = ?', [id], { operation: 'DnsAccount.delete', table: 'dns_accounts' });
   },
 
+  /**
+   * 删除账号并级联清理其域名 / 记录 / 权限 / NS 监控 / 续期数据。
+   *
+   * 放在同一个事务里：任一步失败整体回滚，不会留下「账号已删、域名还在」的半清理状态。
+   * 不依赖数据库外键是否真的生效（历史库可能缺 domains.account_id 的 CASCADE 约束）。
+   */
+  async deleteWithCascade(id: number): Promise<{ domains: number; renewable: number }> {
+    return withTransaction(async (trx) => {
+      const domains = await trx.query<{ id: number; name: string }>(
+        'SELECT id, name FROM domains WHERE account_id = ?',
+        [id],
+      );
+      for (const domain of domains) {
+        await trx.execute('DELETE FROM records WHERE domain_id = ?', [domain.id]);
+        await trx.execute('DELETE FROM domain_permissions WHERE domain_id = ?', [domain.id]);
+        if (domain.name) await trx.execute('DELETE FROM ns_monitor_domains WHERE domain_name = ?', [domain.name]);
+      }
+      await trx.execute('DELETE FROM domains WHERE account_id = ?', [id]);
+      const renewable = await trx.run('DELETE FROM renewable_domains WHERE account_id = ?', [id]);
+      await trx.execute('DELETE FROM dns_accounts WHERE id = ?', [id]);
+      return { domains: domains.length, renewable: Number(renewable?.changes ?? 0) };
+    });
+  },
+
   /** 获取账号的创建*/
   async getCreatedBy(id: number): Promise<number | undefined> {
     const result = await getInternal<{ created_by: number }>(
