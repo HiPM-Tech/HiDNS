@@ -14,7 +14,15 @@ const log = createLogger('DSM').sub('Init');
 export const ORPHAN_DOMAIN_CLEANUP_SQL = [
   'DELETE FROM dns_records WHERE domain_id IN (SELECT id FROM domains d WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = d.account_id))',
   'DELETE FROM domain_permissions WHERE domain_id IN (SELECT id FROM domains d WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = d.account_id))',
+  'DELETE FROM failover_status WHERE config_id IN (SELECT id FROM failover_configs WHERE domain_id IN (SELECT id FROM domains d WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = d.account_id)))',
+  'DELETE FROM failover_configs WHERE domain_id IN (SELECT id FROM domains d WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = d.account_id))',
+  'DELETE FROM servicemonitor_monitors WHERE domain_id IN (SELECT id FROM domains d WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = d.account_id))',
   'DELETE FROM domains WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = domains.account_id)',
+];
+
+/** 续期表的孤儿行：账号被删、续期记录还在（旧代码只删账号时留下的） */
+export const ORPHAN_RENEWABLE_CLEANUP_SQL = [
+  'DELETE FROM renewable_domains WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = renewable_domains.account_id)',
 ];
 
 export async function initializeDSM(dryRun = false): Promise<void> {
@@ -35,19 +43,19 @@ export async function initializeDSM(dryRun = false): Promise<void> {
     await reconciler.reconcile(COMPLETE_SCHEMA, { dryRun });
 
     if (!dryRun) {
-      // Data migrations are only needed when upgrading from a legacy system.
-      // A brand new database already has the complete schema after reconciliation.
-      if (isLegacy) {
-        log.info( 'Running data migrations for legacy upgrade...');
-        const runner = new DataMigrationRunner();
-        registerDefaultMigrations(runner);
-        const result = await runner.run({ dryRun });
+      // 数据迁移**每次启动都跑**：runner 自己按 schema_versions 里已记录的 migration id 做增量，
+      // 已执行过的会 skip，所以重复执行是幂等的。
+      //
+      // 之前只在 isLegacy 时跑，而 detectLegacySystem 查的是 system_type='hidns-dsm'、
+      // 写入方记的是 'hidns-migration' —— 判定恒为 true，等于靠不一致的判定在兜底。
+      // 一旦有人把判定改对，后续新增的数据迁移（含孤儿数据清理）在存量库上就再也不会执行。
+      log.info('Running data migrations...');
+      const runner = new DataMigrationRunner();
+      registerDefaultMigrations(runner);
+      const result = await runner.run({ dryRun });
 
-        if (result.failed.length > 0) {
-          log.error( 'Some migrations failed:', result.failed.map(f => f.id));
-        }
-      } else {
-        log.info( 'New database detected. Skipping data migrations.');
+      if (result.failed.length > 0) {
+        log.error('Some migrations failed:', result.failed.map(f => f.id));
       }
 
       log.info( 'Running integrity check...');
@@ -329,6 +337,35 @@ function registerDefaultMigrations(runner: DataMigrationRunner): void {
     execute: async () => {
       const conn = getConnection();
       for (const sql of ORPHAN_DOMAIN_CLEANUP_SQL) {
+        await conn.execute(sql);
+      }
+    }
+  });
+
+  /**
+   * 续期表孤儿行清理。
+   *
+   * 上面那条迁移只清 domains 子树；旧代码删账号时（只删 dns_accounts 一行、库又缺 FK）
+   * 留下的 renewable_domains 没有任何入口清理。单独一条迁移，让已经记过账的库也能再跑一次。
+   */
+  runner.register({
+    id: 'cleanup-orphan-renewables',
+    description: 'Remove renewable_domains rows whose account no longer exists',
+    dependsOn: ['cleanup-orphan-domains'],
+    condition: async () => {
+      const conn = getConnection();
+      try {
+        const res = await conn.get(
+          'SELECT COUNT(*) as cnt FROM renewable_domains r WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = r.account_id)',
+        );
+        return Number((res as any)?.cnt || 0) > 0;
+      } catch {
+        return false;
+      }
+    },
+    execute: async () => {
+      const conn = getConnection();
+      for (const sql of ORPHAN_RENEWABLE_CLEANUP_SQL) {
         await conn.execute(sql);
       }
     }
