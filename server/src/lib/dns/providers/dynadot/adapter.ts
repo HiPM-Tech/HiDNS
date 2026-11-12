@@ -28,7 +28,9 @@ export class DynadotAdapter extends BaseAdapter {
 
   async check(): Promise<boolean> {
     try {
-      await this.getDomainList();
+      // 不能用 getDomainList() 判断凭据：它把异常吞成空列表，坏凭据也会返回 true。
+      // 这里直接发一次请求，失败就上抛。
+      await dynadotRequest(this.config, 'GET', PATHS.domains, { signed: false });
       return true;
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);

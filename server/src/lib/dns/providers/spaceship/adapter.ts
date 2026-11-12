@@ -165,8 +165,13 @@ export class SpaceshipAdapter extends BaseAdapter {
         `/dns/records/${this.config.domain}`,
         { take, skip },
       );
-      const items = data.items ?? [];
-      all.push(...items);
+      // 读失败绝不能被当成「没有记录」：PUT 是全量保存，用空列表覆盖会清空该域名的全部解析。
+      // 结构异常（items 不是数组）一律中止写入。
+      const items = (data as { items?: unknown }).items;
+      if (!Array.isArray(items)) {
+        throw new Error('Spaceship 返回结构异常（items 不是数组），已中止写入以免覆盖现有记录');
+      }
+      all.push(...(items as Dict[]));
       const total = typeof data.total === 'number' ? data.total : all.length;
       if (items.length === 0 || all.length >= total) break;
       skip += take;
