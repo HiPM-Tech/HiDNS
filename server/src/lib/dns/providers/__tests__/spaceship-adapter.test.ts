@@ -79,6 +79,39 @@ describe('SpaceshipAdapter 记录写操作（全量保存语义）', () => {
     expect(payload.items[1].name).toBe('api');
   });
 
+
+  it('并发写同一域名会串行执行，不互相覆盖（lost update）', async () => {
+    const adapter = makeAdapter();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let stored: any[] = [{ type: 'A', name: 'base', ttl: 600, address: '0.0.0.0' }];
+
+    adapter.request = vi.fn(async (method: string, _path: string, payload?: any) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      try {
+        if (method === 'GET') return { items: stored.map((item) => ({ ...item })), total: stored.length };
+        if (method === 'PUT') {
+          stored = (payload.items as any[]).map((item) => ({ ...item }));
+          return undefined;
+        }
+        return undefined;
+      } finally {
+        inFlight -= 1;
+      }
+    });
+
+    await Promise.all([
+      adapter.addDomainRecord('a1', 'A', '1.1.1.1', undefined, 600, 1),
+      adapter.addDomainRecord('a2', 'A', '2.2.2.2', undefined, 600, 1),
+    ]);
+
+    // 串行：任何时刻只有一个请求在飞
+    expect(maxInFlight).toBe(1);
+    // 两次追加都保留（若并发，后一次会用旧的全量覆盖前一次）
+    expect(stored.map((item) => item.name).sort()).toEqual(['a1', 'a2', 'base']);
+  });
   it('目标记录不存在时返回 false 且不发写请求', async () => {
     const adapter = makeAdapter();
     adapter.request.mockResolvedValueOnce({ items: [api], total: 1 });

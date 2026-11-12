@@ -1,6 +1,29 @@
 import { createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, safeString, toNumber, fetchWithFallback, isTruthyFlag } from '../internal';
 export const DEFAULT_LINE = '0';
 
+/**
+ * 按域名串行化写操作。
+ *
+ * Spaceship 的 PUT 是「全量保存」：read → modify → write 之间若插入另一个写，
+ * 后写完的会把先写完的覆盖掉（典型的 lost update）。
+ * 单实例内用队列串行即可；多实例部署需要分布式锁，超出当前范围。
+ */
+const domainWriteQueues = new Map<string, Promise<unknown>>();
+
+export function withDomainLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const k = (key || '__default__').toLowerCase();
+  const prev = domainWriteQueues.get(k) ?? Promise.resolve();
+  // 前一个任务无论成功失败都要继续执行下一个
+  const run = prev.then(() => fn(), () => fn());
+  const tail = run.then(() => undefined, () => undefined);
+  domainWriteQueues.set(k, tail);
+  void tail.finally(() => {
+    // 只有自己还是队尾时才清理，避免把后来者的链丢掉
+    if (domainWriteQueues.get(k) === tail) domainWriteQueues.delete(k);
+  });
+  return run;
+}
+
 const log = createProviderAdapterLogger('Spaceship');
 interface SpaceshipConfig {
   apiKey: string;
@@ -203,11 +226,13 @@ export class SpaceshipAdapter extends BaseAdapter {
       const item = this.convertRecordItem(name, type, value, mx);
       item.ttl = toNumber(ttl, 600);
 
-      // 读全量 → 追加 → 整体保存（PUT 是全量语义）
-      const items = await this.fetchAllRawRecords();
-      items.push(item);
-      await this.saveAllRawRecords(items);
-      return `${type}|${name}|${value}|${mx}`;
+      // 读全量 → 追加 → 整体保存（PUT 是全量语义）；同域名写操作串行，避免lost update
+      return await withDomainLock(String(this.config.domain), async () => {
+        const items = await this.fetchAllRawRecords();
+        items.push(item);
+        await this.saveAllRawRecords(items);
+        return `${type}|${name}|${value}|${mx}`;
+      });
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       return null;
@@ -231,20 +256,22 @@ export class SpaceshipAdapter extends BaseAdapter {
       }
 
       const target = this.parseRecordId(recordId);
-      const items = await this.fetchAllRawRecords();
-      const idx = items.findIndex((row) => this.matchesRecord(row, target));
-      if (idx === -1) {
-        this.error = '未找到要更新的记录（可能已被外部修改）';
-        return false;
-      }
+      return await withDomainLock(String(this.config.domain), async () => {
+        const items = await this.fetchAllRawRecords();
+        const idx = items.findIndex((row) => this.matchesRecord(row, target));
+        if (idx === -1) {
+          this.error = '未找到要更新的记录（可能已被外部修改）';
+          return false;
+        }
 
-      const next = this.convertRecordItem(name, type, value, mx);
-      next.ttl = toNumber(ttl, 600);
-      items[idx] = next;
+        const next = this.convertRecordItem(name, type, value, mx);
+        next.ttl = toNumber(ttl, 600);
+        items[idx] = next;
 
-      // 读全量 → 替换目标行 → 整体保存
-      await this.saveAllRawRecords(items);
-      return true;
+        // 读全量 → 替换目标行 → 整体保存
+        await this.saveAllRawRecords(items);
+        return true;
+      });
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       return false;
@@ -260,15 +287,17 @@ export class SpaceshipAdapter extends BaseAdapter {
       // 官方 DELETE /v1/dns/records/{domain} 不带请求体（等价「清空该域名全部记录」），
       // 想删单条只能「读全量 → 过滤 → 整体保存」。
       const target = this.parseRecordId(recordId);
-      const items = await this.fetchAllRawRecords();
-      const remaining = items.filter((row) => !this.matchesRecord(row, target));
-      if (remaining.length === items.length) {
-        this.error = '未找到要删除的记录（可能已被外部删除）';
-        return false;
-      }
+      return await withDomainLock(String(this.config.domain), async () => {
+        const items = await this.fetchAllRawRecords();
+        const remaining = items.filter((row) => !this.matchesRecord(row, target));
+        if (remaining.length === items.length) {
+          this.error = '未找到要删除的记录（可能已被外部删除）';
+          return false;
+        }
 
-      await this.saveAllRawRecords(remaining);
-      return true;
+        await this.saveAllRawRecords(remaining);
+        return true;
+      });
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       return false;
