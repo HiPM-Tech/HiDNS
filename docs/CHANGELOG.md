@@ -1,5 +1,47 @@
 # 更新日志
 
+## [2.3.8] - 2026-11-12
+
+### 新功能：账号删除的级联清理与存量孤儿数据修复
+
+- 删除 DNS 账号时，账号 / 域名 / 记录 / 权限 / NS 监控 / 续期数据 / failover 配置 / 服务监控在**同一个事务**里清理，失败整体回滚并返回 500（不再出现「账号已删、域名还在」）。
+- 子表清理按 `account_id` 子查询对齐，覆盖 SELECT 之后并发插入的新域名。
+- NS 监控改为「没有其它账号仍持有同名域名时才删」，与单域名删除路由口径一致（此前会误删别人的监控）。
+- 新增两条 DSM 迁移清理存量孤儿：`cleanup-orphan-domains`（domains 子树 + failover + 服务监控）、`cleanup-orphan-renewables`（续期表）；condition 只在真有孤儿时执行，幂等。
+
+### 新功能：SQLite 事务隔离
+
+- SQLite 单连接句柄下，事务期间其它请求的写入会被卷进同一事务，本事务回滚会带走别人已成功提交的写入；并发两个事务时第二个 `BEGIN` 直接报 `cannot start a transaction within a transaction`。
+- 新增 `dal/tx-gate.ts`：事务上下文用 AsyncLocalStorage 标记，驱动入口 `query/get/execute/run` 在事务外排队等待；事务槽位「等待 + 占位」保持原子。
+- MySQL / PostgreSQL 不受影响（每事务独占池连接）。
+
+### Bug 修复：Spaceship 记录写入
+
+- 写操作按域名串行（`withDomainLock`），避免全量 PUT 语义下的 lost update。
+- 读取到结构异常（`items` 不是数组）时**中止写入**，避免把「读失败」当成「没有记录」进而清空该域名全部解析。
+
+### Bug 修复：Dynadot 凭据校验恒真
+
+- `check()` 不再走会吞异常的 `getDomainList()`，改为直接发一次请求，坏凭据无法通过校验建号。
+
+### Bug 修复：数据迁移执行时机
+
+- 数据迁移改为**每次启动增量执行**（runner 按 `schema_versions` 已记录 id 跳过）。此前只在 `isLegacy` 时执行，而该判定查询的 `system_type` 与实际写入值不一致、恒为 true —— 属于靠不一致兜底的隐式耦合。
+
+### Bug 修复：账号级「使用代理」开关语义反转
+
+- 18 个 provider 的 `!!config.useProxy` 改为 `isTruthyFlag`：config 里存的是字符串 `'true'`/`'false'`，`!!'false'` 为真 —— 关掉开关反而走代理。
+
+### Bug 修复：弹窗超出屏幕无法滚动（#48）
+
+- `DialogContent` 增加 `max-h-[calc(100vh-2rem)]` 与 `overflow-y-auto`，长表单在视口内滚动，移动端底部按钮可达。
+
+### 优化：测试有效性
+
+- 新增 `server/tests/account-cascade-delete.test.ts`（6 条）：覆盖「外键关闭（历史库）」「事务回滚（触发器注入失败）」「同名域名监控保留」等此前完全没测的场景。
+- 新增 `server/tests/transaction-isolation.test.ts`（2 条）：并发删除两账号、事务回滚不带走并发写入。
+- 修正清理语句的表名（`records` → `dns_records`）：真实表名是 `dns_records`，写错会让整个删除事务回滚。
+
 ## [2.3.7] - 2026-11-12
 
 ### 新功能：Dynadot 提供商
