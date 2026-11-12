@@ -615,11 +615,31 @@ export const DnsAccountOperations = {
         'SELECT id, name FROM domains WHERE account_id = ?',
         [id],
       );
+
+      // 子表统一按 account_id 对齐（与最后一步同条件）：
+      // SELECT 之后若有并发插入的新域名，也会被这些集合删除覆盖，不会漏成孤儿。
+      const domainOfAccount = 'SELECT id FROM domains WHERE account_id = ?';
+      await trx.execute(`DELETE FROM dns_records WHERE domain_id IN (${domainOfAccount})`, [id]);
+      await trx.execute(`DELETE FROM domain_permissions WHERE domain_id IN (${domainOfAccount})`, [id]);
+      await trx.execute(
+        `DELETE FROM failover_status WHERE config_id IN (SELECT id FROM failover_configs WHERE domain_id IN (${domainOfAccount}))`,
+        [id],
+      );
+      await trx.execute(`DELETE FROM failover_configs WHERE domain_id IN (${domainOfAccount})`, [id]);
+      await trx.execute(`DELETE FROM servicemonitor_monitors WHERE domain_id IN (${domainOfAccount})`, [id]);
+
+      // NS 监控是按域名（不是按 domain_id）挂的：只有「没有其它账号仍持有同名域名」时才删，
+      // 否则删 A 账号会连带删掉 B 账号同名域名的监控（单域名删除路由也正是这么判的）。
       for (const domain of domains) {
-        await trx.execute('DELETE FROM dns_records WHERE domain_id = ?', [domain.id]);
-        await trx.execute('DELETE FROM domain_permissions WHERE domain_id = ?', [domain.id]);
-        if (domain.name) await trx.execute('DELETE FROM ns_monitor_domains WHERE domain_name = ?', [domain.name]);
+        if (!domain.name) continue;
+        const stillHeld = await trx.get<{ x: number }>(
+          'SELECT 1 AS x FROM domains WHERE name = ? AND account_id <> ? LIMIT 1',
+          [domain.name, id],
+        );
+        if (stillHeld) continue;
+        await trx.execute('DELETE FROM ns_monitor_domains WHERE domain_name = ?', [domain.name]);
       }
+
       await trx.execute('DELETE FROM domains WHERE account_id = ?', [id]);
       const renewable = await trx.run('DELETE FROM renewable_domains WHERE account_id = ?', [id]);
       await trx.execute('DELETE FROM dns_accounts WHERE id = ?', [id]);
