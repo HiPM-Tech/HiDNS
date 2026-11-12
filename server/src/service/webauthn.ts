@@ -53,6 +53,19 @@ export async function updateWebAuthnCredentialCounter(id: string, counter: numbe
   await WebAuthnOperations.updateCounter(id, counter);
 }
 
+/**
+ * 前端提交注册凭证时包了一层 { credential: RegistrationResponseJSON }，
+ * 而 simplewebauthn 的 verifyRegistrationResponse 需要的是「凭证本身」（含 id / rawId）。
+ * 直接传 body 会让它读不到 id，抛 Missing credential ID。
+ * 这里两种形态都接受，避免前后端任何一侧改动就炸。
+ */
+export function pickCredentialResponse(body: unknown): unknown {
+  if (body && typeof body === 'object' && !Array.isArray(body) && 'credential' in (body as Record<string, unknown>)) {
+    return (body as Record<string, unknown>).credential;
+  }
+  return body;
+}
+
 export async function deleteWebAuthnCredential(userId: number, id: string) {
   await WebAuthnOperations.delete(userId, id);
 

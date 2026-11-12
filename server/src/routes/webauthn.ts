@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
 import { authMiddleware } from '../middleware/auth';
-import { getUserWebAuthnCredentials, addWebAuthnCredential, deleteWebAuthnCredential, updateWebAuthnCredentialCounter } from '../service/webauthn';
+import { getUserWebAuthnCredentials, addWebAuthnCredential, deleteWebAuthnCredential, updateWebAuthnCredentialCounter, pickCredentialResponse } from '../service/webauthn';
 import { UserOperations } from '../db/bal/business-adapter';
 import crypto from 'crypto';
 import { sendError } from '../utils/http';
@@ -74,7 +74,7 @@ router.post('/registration-verify', authMiddleware, async (req: Request, res: Re
   try {
     const { rpID, origin } = resolveWebAuthnConfig(req);
     const verification = await verifyRegistrationResponse({
-      response: body,
+      response: pickCredentialResponse(body) as never,
       expectedChallenge,
       expectedOrigin: origin,
       expectedRPID: rpID,
