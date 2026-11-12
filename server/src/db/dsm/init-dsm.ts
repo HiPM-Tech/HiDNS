@@ -12,7 +12,7 @@ const log = createLogger('DSM').sub('Init');
 
 /** 孤儿域名清理 SQL（顺序敏感：先子表后主表；三库都支持 NOT EXISTS + IN 子查询） */
 export const ORPHAN_DOMAIN_CLEANUP_SQL = [
-  'DELETE FROM records WHERE domain_id IN (SELECT id FROM domains d WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = d.account_id))',
+  'DELETE FROM dns_records WHERE domain_id IN (SELECT id FROM domains d WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = d.account_id))',
   'DELETE FROM domain_permissions WHERE domain_id IN (SELECT id FROM domains d WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = d.account_id))',
   'DELETE FROM domains WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = domains.account_id)',
 ];

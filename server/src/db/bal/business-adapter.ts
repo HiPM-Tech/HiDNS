@@ -616,7 +616,7 @@ export const DnsAccountOperations = {
         [id],
       );
       for (const domain of domains) {
-        await trx.execute('DELETE FROM records WHERE domain_id = ?', [domain.id]);
+        await trx.execute('DELETE FROM dns_records WHERE domain_id = ?', [domain.id]);
         await trx.execute('DELETE FROM domain_permissions WHERE domain_id = ?', [domain.id]);
         if (domain.name) await trx.execute('DELETE FROM ns_monitor_domains WHERE domain_name = ?', [domain.name]);
       }
