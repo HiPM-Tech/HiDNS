@@ -10,6 +10,13 @@ import * as path from 'path';
 
 const log = createLogger('DSM').sub('Init');
 
+/** 孤儿域名清理 SQL（顺序敏感：先子表后主表；三库都支持 NOT EXISTS + IN 子查询） */
+export const ORPHAN_DOMAIN_CLEANUP_SQL = [
+  'DELETE FROM records WHERE domain_id IN (SELECT id FROM domains d WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = d.account_id))',
+  'DELETE FROM domain_permissions WHERE domain_id IN (SELECT id FROM domains d WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = d.account_id))',
+  'DELETE FROM domains WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = domains.account_id)',
+];
+
 export async function initializeDSM(dryRun = false): Promise<void> {
   const reconciler = new SchemaReconciler();
 
@@ -291,6 +298,39 @@ function registerDefaultMigrations(runner: DataMigrationRunner): void {
       await conn.execute(`DROP TABLE IF EXISTS ns_monitor_configs${cascade}`);
       await conn.execute(`DROP TABLE IF EXISTS ns_monitor_status${cascade}`);
       await conn.execute(`DROP TABLE IF EXISTS ns_monitor_alerts${cascade}`);
+    }
+  });
+
+  /**
+   * 孤儿域名对齐：所属账号已被删除、但域名行还留着的记录。
+   *
+   * 产生原因：删除账号时只删 dns_accounts 一行，历史库未必真的有
+   * `domains.account_id ON DELETE CASCADE` 这条外键，级联不会发生。
+   * 这些域名既不能解析也不能被用户删除，只能在这里统一清掉。
+   *
+   * 之后由删除路由显式清理（见 routes/accounts.ts），本迁移只负责存量。
+   */
+  runner.register({
+    id: 'cleanup-orphan-domains',
+    description: 'Remove domains whose account no longer exists (plus their records and permissions)',
+    dependsOn: ['cleanup-old-ns-tables'],
+    condition: async () => {
+      const conn = getConnection();
+      try {
+        const res = await conn.get(
+          'SELECT COUNT(*) as cnt FROM domains d WHERE NOT EXISTS (SELECT 1 FROM dns_accounts a WHERE a.id = d.account_id)',
+        );
+        return Number((res as any)?.cnt || 0) > 0;
+      } catch {
+        // 表还不存在（全新库）时直接跳过
+        return false;
+      }
+    },
+    execute: async () => {
+      const conn = getConnection();
+      for (const sql of ORPHAN_DOMAIN_CLEANUP_SQL) {
+        await conn.execute(sql);
+      }
     }
   });
 }
