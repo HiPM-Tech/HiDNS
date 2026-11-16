@@ -1,5 +1,6 @@
 import { BaseAdapter, Dict, DnsRecord, DomainInfo, PageResult, createProviderAdapterLogger, fetchWithFallback, isTruthyFlag, safeString, toNumber } from '../internal';
 import { DynadotAuthConfig, dynadotRequest, resolveDynadotConfig } from './auth';
+import { withDomainLock } from '../domain-lock';
 
 const log = createProviderAdapterLogger('Dynadot');
 export const DEFAULT_LINE = '0';
@@ -121,12 +122,13 @@ export class DynadotAdapter extends BaseAdapter {
   ): Promise<string | null> {
     try {
       if (!this.config.domain) return null;
-      // v2 的写路径无法从文档确定（POST/DELETE /records 各种 body 均被拒），
-      // 改用官方 api3 的 set_dns2（全量设置）：读现有 → 追加 → 全量写回。
-      const current = await this.readRawRecords();
-      current.push({ name, type, value, mx });
-      await this.saveAllRecords(current);
-      return this.buildRecordId(name, type, value, mx);
+      // set_dns2 是全量保存：同域名的写操作必须串行，否则并发时会互相覆盖
+      return await withDomainLock(String(this.config.domain), async () => {
+        const current = await this.readRawRecords();
+        current.push({ name, type, value, mx });
+        await this.saveAllRecords(current);
+        return this.buildRecordId(name, type, value, mx);
+      });
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       return null;
@@ -147,15 +149,17 @@ export class DynadotAdapter extends BaseAdapter {
     try {
       if (!this.config.domain) return false;
       const target = this.parseRecordId(recordId);
-      const current = await this.readRawRecords();
-      const idx = current.findIndex((row) => this.matchesRow(row, target));
-      if (idx === -1) {
-        this.error = '未找到要更新的记录（可能已被外部修改）';
-        return false;
-      }
-      current[idx] = { name, type, value, mx };
-      await this.saveAllRecords(current);
-      return true;
+      return await withDomainLock(String(this.config.domain), async () => {
+        const current = await this.readRawRecords();
+        const idx = current.findIndex((row) => this.matchesRow(row, target));
+        if (idx === -1) {
+          this.error = '未找到要更新的记录（可能已被外部修改）';
+          return false;
+        }
+        current[idx] = { name, type, value, mx };
+        await this.saveAllRecords(current);
+        return true;
+      });
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       return false;
@@ -166,14 +170,16 @@ export class DynadotAdapter extends BaseAdapter {
     try {
       if (!this.config.domain) return false;
       const target = this.parseRecordId(recordId);
-      const current = await this.readRawRecords();
-      const remaining = current.filter((row) => !this.matchesRow(row, target));
-      if (remaining.length === current.length) {
-        this.error = '未找到要删除的记录（可能已被外部删除）';
-        return false;
-      }
-      await this.saveAllRecords(remaining);
-      return true;
+      return await withDomainLock(String(this.config.domain), async () => {
+        const current = await this.readRawRecords();
+        const remaining = current.filter((row) => !this.matchesRow(row, target));
+        if (remaining.length === current.length) {
+          this.error = '未找到要删除的记录（可能已被外部删除）';
+          return false;
+        }
+        await this.saveAllRecords(remaining);
+        return true;
+      });
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       return false;
