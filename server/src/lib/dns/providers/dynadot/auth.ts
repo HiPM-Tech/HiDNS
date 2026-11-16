@@ -69,6 +69,8 @@ export async function dynadotRequest<T>(
     Accept: 'application/json',
     'X-Request-ID': requestId,
   };
+  // 实测：**所有**请求都要求 X-Signature，只带 Bearer 会返回
+  // { code:400, error:{description:'This command requires X-Signature...'} }
   if (options.signed !== false) {
     headers['X-Signature'] = buildSignature(config.apiKey, config.apiSecret, pathAndQuery, requestBody, requestId);
   }
@@ -97,6 +99,13 @@ export async function dynadotRequest<T>(
     throw new Error(`Dynadot 请求失败（HTTP ${res.status}）：${detail || '无响应内容'}`);
   }
 
-  log.sub('API').tag('RESPONSE').debug('Provider response', { status: res.status });
+  // 实测：业务错误也可能是 HTTP 200 + body.code !== 200，只看 HTTP 状态会把失败当成功
+  const payload = data as { code?: number; message?: string; error?: { description?: string } } | null;
+  if (payload && typeof payload.code === 'number' && payload.code !== 200) {
+    const detail = payload.error?.description || payload.message || '未知错误';
+    throw new Error(`Dynadot 请求失败（code ${payload.code}）：${detail}`);
+  }
+
+  log.sub('API').tag('RESPONSE').debug('Provider response', { status: res.status, code: payload?.code });
   return data as T;
 }

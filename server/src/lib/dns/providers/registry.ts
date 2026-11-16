@@ -240,8 +240,12 @@ const allProviderDefinitions: ProviderDefinition[] = [
     name: 'provider.dynadot',
     lineSource: 'builtin',
     defaultLine: '0',
-    // 按官方文档（v2 RESTful + X-Signature）实现；DNS 记录资源的具体路径与字段
-    // 尚待社区用真实账号反馈校正，能力先按「支持 DNS、无续期」声明。
+    // 已用真实账号实测校正：
+    //   列表 GET /restful/v2/domains → data.domain_info_list[].domain_name
+    //   记录 GET /restful/v2/domains/{d}/records → data.glue_info.dns_sub_list[].{sub_host,record_type,record_value1}
+    //   写   POST/DELETE 同路径，body { dns_sub_list:[...] }（v2 没有 PUT，修改 = 删旧 + 加新）
+    //   所有请求都必须带 X-Signature；业务错误是 HTTP 200 + body.code != 200
+    // 能力：支持 DNS 记录读写；续期接口未接。
     capabilities: { dns: { remark: false, status: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'apiKey', label: 'provider.config.api_key', type: 'text', required: true },

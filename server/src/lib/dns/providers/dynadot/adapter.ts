@@ -11,7 +11,8 @@ export const DEFAULT_LINE = '0';
  */
 const PATHS = {
   domains: '/domains',
-  dns: (domain: string) => `/domains/${encodeURIComponent(domain)}/dns`,
+  // 实测：记录端点是 /records（/dns 与 /dns_records 都返回 command not recognized）
+  records: (domain: string) => `/domains/${encodeURIComponent(domain)}/records`,
 };
 
 interface DynadotConfig extends DynadotAuthConfig {
@@ -30,7 +31,7 @@ export class DynadotAdapter extends BaseAdapter {
     try {
       // 不能用 getDomainList() 判断凭据：它把异常吞成空列表，坏凭据也会返回 true。
       // 这里直接发一次请求，失败就上抛。
-      await dynadotRequest(this.config, 'GET', PATHS.domains, { signed: false });
+      await dynadotRequest(this.config, 'GET', PATHS.domains);
       return true;
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
@@ -40,10 +41,13 @@ export class DynadotAdapter extends BaseAdapter {
 
   async getDomainList(keyword?: string, page = 1, pageSize = 100): Promise<PageResult<DomainInfo>> {
     try {
-      const data = await dynadotRequest<unknown>(this.config, 'GET', PATHS.domains, { signed: false });
-      const rows = this.pickArray(data, ['domains', 'data', 'items', 'list']);
+      const data = await dynadotRequest<unknown>(this.config, 'GET', PATHS.domains);
+      // 实测结构：{ code:200, data:{ domain_info_list: [{ domain_name, expiration_date, glue_info }] } }
+      const holder = (data ?? {}) as Record<string, unknown>;
+      const dataObj = (holder.data ?? {}) as Record<string, unknown>;
+      const rows = this.pickArray(dataObj.domain_info_list ?? holder.data, ['domain_info_list', 'domains', 'items', 'list']);
       let list = rows.map((row) => {
-        const name = safeString(row.domain) || safeString(row.domainName) || safeString(row.name);
+        const name = safeString(row.domain_name) || safeString(row.domain) || safeString(row.domainName) || safeString(row.name);
         return { Domain: name, ThirdId: name, RecordCount: 0 };
       }).filter((item) => item.Domain);
 
@@ -76,9 +80,19 @@ export class DynadotAdapter extends BaseAdapter {
         this.error = this.error || '读取记录失败：未解析到域名';
         return { total: 0, list: [] };
       }
-      const data = await dynadotRequest<unknown>(this.config, 'GET', PATHS.dns(this.config.domain), { signed: false });
-      const rows = this.pickArray(data, ['records', 'dns', 'data', 'items', 'list']);
-      let list = rows.map((row) => this.mapRecord(row));
+      const data = await dynadotRequest<unknown>(this.config, 'GET', PATHS.records(this.config.domain));
+      // 实测结构：{ data:{ glue_info:{ glue_type:'DNS', dns_sub_list:[{sub_host,record_type,record_value1}], ttl:'300' } } }
+      const holder = (data ?? {}) as Record<string, unknown>;
+      const glue = ((holder.data ?? {}) as Record<string, unknown>).glue_info as Record<string, unknown> | undefined;
+      if (glue && safeString(glue.glue_type) && safeString(glue.glue_type) !== 'DNS') {
+        // 该域名没托管在 Dynadot 的 DNS 上（例如 NS 指向 Cloudflare），没有可管理的记录。
+        // 空结果必须写 error 说明原因（全局契约：空列表不能静默）。
+        this.error = '该域名的 NS 未指向 Dynadot（无法在此管理解析记录）';
+        return { total: 0, list: [] };
+      }
+      const ttl = toNumber(glue?.ttl, 600);
+      const rows = this.pickArray(glue?.dns_sub_list ?? holder.data, ['dns_sub_list', 'records', 'items', 'list']);
+      let list = rows.map((row) => this.mapRecord(row, ttl));
       if (subdomain) {
         const target = subdomain.toLowerCase();
         list = list.filter((item) => item.Name.toLowerCase() === target);
@@ -107,9 +121,9 @@ export class DynadotAdapter extends BaseAdapter {
   ): Promise<string | null> {
     try {
       if (!this.config.domain) return null;
-      const payload = this.toPayload(name, type, value, mx, ttl, weight, remark);
-      // 文档：批量不受支持，每种请求仅处理一个对象
-      await dynadotRequest(this.config, 'POST', PATHS.dns(this.config.domain), { body: payload });
+      // 实测：POST /records 需要 { dns_sub_list: [...] }，字段为 sub_host / record_type / record_value1
+      const payload = { dns_sub_list: [this.toPayload(name, type, value, mx)], ttl: String(ttl) };
+      await dynadotRequest(this.config, 'POST', PATHS.records(this.config.domain), { body: payload });
       return this.buildRecordId(name, type, value, mx);
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
@@ -131,12 +145,13 @@ export class DynadotAdapter extends BaseAdapter {
     try {
       if (!this.config.domain) return false;
       const target = this.parseRecordId(recordId);
-      const payload = {
-        ...this.toPayload(name, type, value, mx, ttl, weight, remark),
-        // 用于定位原记录（改名/改值都要先匹配旧行）
-        original: this.toPayload(target.name, target.type, target.value, target.mx),
-      };
-      await dynadotRequest(this.config, 'PUT', PATHS.dns(this.config.domain), { body: payload });
+      // 实测：v2 没有 PUT（返回 command not recognized），修改 = 删除旧记录 + 新增新记录
+      await dynadotRequest(this.config, 'DELETE', PATHS.records(this.config.domain), {
+        body: { dns_sub_list: [this.toPayload(target.name, target.type, target.value, target.mx)] },
+      });
+      await dynadotRequest(this.config, 'POST', PATHS.records(this.config.domain), {
+        body: { dns_sub_list: [this.toPayload(name, type, value, mx)], ttl: String(ttl) },
+      });
       return true;
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
@@ -148,8 +163,8 @@ export class DynadotAdapter extends BaseAdapter {
     try {
       if (!this.config.domain) return false;
       const target = this.parseRecordId(recordId);
-      await dynadotRequest(this.config, 'DELETE', PATHS.dns(this.config.domain), {
-        body: this.toPayload(target.name, target.type, target.value, target.mx),
+      await dynadotRequest(this.config, 'DELETE', PATHS.records(this.config.domain), {
+        body: { dns_sub_list: [this.toPayload(target.name, target.type, target.value, target.mx)] },
       });
       return true;
     } catch (e) {
@@ -201,31 +216,24 @@ export class DynadotAdapter extends BaseAdapter {
     };
   }
 
-  private toPayload(
-    name: string,
-    type: string,
-    value: string,
-    mx: number,
-    ttl = 600,
-    weight?: number,
-    remark?: string,
-  ): Dict {
-    const payload: Dict = {
-      name: name === '@' ? '' : name,
-      type: type.toUpperCase(),
-      value,
-      ttl: toNumber(ttl, 600),
+  /** 实测字段：sub_host / record_type（小写）/ record_value1 */
+  private toPayload(name: string, type: string, value: string, _mx?: number): Dict {
+    return {
+      sub_host: name || '@',
+      record_type: type.toLowerCase(),
+      record_value1: value,
     };
-    if (payload.type === 'MX') payload.priority = mx;
-    if (weight !== undefined) payload.weight = weight;
-    if (remark) payload.remark = remark;
-    return payload;
   }
 
-  private mapRecord(row: Dict): DnsRecord {
-    const type = safeString(row.type || row.recordType || row.record_type).toUpperCase();
-    const value = safeString(row.value) || safeString(row.content) || safeString(row.address) || safeString(row.data);
-    const name = safeString(row.name ?? row.host ?? '@');
+  private mapRecord(row: Dict, glueTtl = 600): DnsRecord {
+    // 实测字段：{ sub_host, record_type, record_value1 }，TTL 在 glue_info 层级
+    const type = safeString(row.record_type || row.type || row.recordType).toUpperCase();
+    const value = safeString(row.record_value1)
+      || safeString(row.value)
+      || safeString(row.content)
+      || safeString(row.address)
+      || safeString(row.data);
+    const name = safeString(row.sub_host) || safeString(row.name) || safeString(row.host) || '@';
     const mx = toNumber(row.priority ?? row.mx, 0);
     return {
       RecordId: this.buildRecordId(name, type, value, mx),
@@ -234,7 +242,7 @@ export class DynadotAdapter extends BaseAdapter {
       Type: type,
       Value: value,
       Line: DEFAULT_LINE,
-      TTL: toNumber(row.ttl, 600),
+      TTL: toNumber(row.ttl ?? glueTtl, 600),
       MX: mx,
       Status: 1,
       Weight: undefined,
