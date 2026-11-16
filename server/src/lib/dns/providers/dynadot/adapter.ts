@@ -122,11 +122,15 @@ export class DynadotAdapter extends BaseAdapter {
   ): Promise<string | null> {
     try {
       if (!this.config.domain) return null;
-      // 实测（2026-11-17，三种写法均失败）：
-      //   main_record_typeN + main_recordN  -> 参数被忽略，zone 被清空（最危险）
-      //   subdomain 为空串                  -> 记录被丢弃（写入返回成功但读不回来）
-      //   subdomain 为 @                    -> Subhost 格式错误（上游校验拒绝）
-      // 结论：api3 的 set_dns2 无法写根记录，因此禁用根记录写入。
+      // 实测（2026-11-17，对照官方文档 §Set DNS2 参数表）：
+      //   文档声称 main_record_type0-19 / main_record0-19 是根记录参数，
+      //   且 add_dns_to_current_setting=1 表示「追加」而非覆盖。
+      //   实测结果：
+      //     main_record* + 覆盖模式                        -> 参数被忽略，zone 被清空
+      //     main_record* + add_dns_to_current_setting=1    -> 返回 success，记录未写入（txt / 带引号 txt / a 均如此）
+      //     subdomain 为空串                               -> 记录被丢弃
+      //     subdomain 为 @                                 -> 上游校验拒绝（Subhost 格式错误）
+      // 结论：api3 的 set_dns2 实际上写不了根记录（文档与实现不一致），因此禁用根记录写入。
       if (!name || name === '@') {
         this.error = 'Dynadot 暂不支持写入根记录（实测会导致 zone 被清空，尚未确认参数语义）';
         return null;
