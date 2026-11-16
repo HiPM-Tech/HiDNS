@@ -122,6 +122,12 @@ export class DynadotAdapter extends BaseAdapter {
   ): Promise<string | null> {
     try {
       if (!this.config.domain) return null;
+      // 实测（2026-11-17）：带 main_record* 的 set_dns2 会把整个 zone 清空（已用备份恢复）。
+      // 在根记录参数语义确认前，禁用根记录写入。
+      if (!name || name === '@') {
+        this.error = 'Dynadot 暂不支持写入根记录（实测会导致 zone 被清空，尚未确认参数语义）';
+        return null;
+      }
       // set_dns2 是全量保存：同域名的写操作必须串行，否则并发时会互相覆盖
       return await withDomainLock(String(this.config.domain), async () => {
         const { records: current, ttl: zoneTtl } = await this.fetchAllRawRecords();
@@ -149,6 +155,10 @@ export class DynadotAdapter extends BaseAdapter {
     try {
       if (!this.config.domain) return false;
       const target = this.parseRecordId(recordId);
+      if (!target.name || target.name === '@' || !name || name === '@') {
+        this.error = 'Dynadot 暂不支持修改根记录（实测会导致 zone 被清空，尚未确认参数语义）';
+        return false;
+      }
       return await withDomainLock(String(this.config.domain), async () => {
         const { records: current, ttl: zoneTtl } = await this.fetchAllRawRecords();
         const idx = current.findIndex((row) => this.matchesRow(row, target));
@@ -170,6 +180,10 @@ export class DynadotAdapter extends BaseAdapter {
     try {
       if (!this.config.domain) return false;
       const target = this.parseRecordId(recordId);
+      if (!target.name || target.name === '@') {
+        this.error = 'Dynadot 暂不支持删除根记录（实测会导致 zone 被清空，尚未确认参数语义）';
+        return false;
+      }
       return await withDomainLock(String(this.config.domain), async () => {
         const { records: current, ttl: zoneTtl } = await this.fetchAllRawRecords();
         const idx = current.findIndex((row) => this.matchesRow(row, target));
@@ -270,6 +284,11 @@ export class DynadotAdapter extends BaseAdapter {
     );
     if (mxWithoutPriority) {
       throw new Error(`检测到 MX 记录（${mxWithoutPriority.name}）但读不到优先级，已中止写入以免清零`);
+    }
+
+    const rootRecord = records.find((row) => !row.name || row.name === '@');
+    if (rootRecord) {
+      throw new Error('Dynadot 暂不支持写回含根记录的 zone（实测会导致 zone 被清空，尚未确认参数语义）');
     }
 
     const params = buildSetDns2Params(this.config.apiKey, this.config.domain, records, zoneTtl);

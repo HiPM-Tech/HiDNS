@@ -162,6 +162,35 @@ describe('Dynadot 适配器解析（真实响应结构）', () => {
     expect(mocks.setDns2).not.toHaveBeenCalled();
   });
 
+  it('根记录写入被拒绝（set_dns2 根参数语义未确认，实测会清空 zone）', async () => {
+    const adapter = makeAdapter('ddos.name');
+    adapter.setDns2Request = mocks.setDns2;
+
+    const id = await adapter.addDomainRecord('@', 'TXT', 'hidns-verify-root');
+
+    expect(id).toBeNull();
+    expect(adapter.error).toContain('根记录');
+    expect(mocks.setDns2).not.toHaveBeenCalled();
+  });
+
+  it('读回结果含根记录时拒绝整体写回（避免间接清空）', async () => {
+    const adapter = makeAdapter('ddos.name');
+    adapter.setDns2Request = mocks.setDns2;
+    mocks.dynadotRequest.mockResolvedValueOnce({
+      code: 200,
+      data: { glue_info: { glue_type: 'DNS', dns_sub_list: [
+        { sub_host: '@', record_type: 'txt', record_value1: 'spf' },
+        { sub_host: 'a', record_type: 'a', record_value1: '1.1.1.1' },
+      ] } },
+    });
+
+    const ok = await adapter.deleteDomainRecord('A|a|1.1.1.1|0');
+
+    expect(ok).toBe(false);
+    expect(adapter.error).toContain('根记录');
+    expect(mocks.setDns2).not.toHaveBeenCalled();
+  });
+
   it('接口报错时设置 error 并返回失败', async () => {
     const adapter = makeAdapter('ddos.name');
     mocks.dynadotRequest.mockRejectedValueOnce(new Error('Dynadot 请求失败（code 400）：invalid'));
