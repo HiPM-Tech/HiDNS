@@ -131,6 +131,15 @@ export class DynadotAdapter extends BaseAdapter {
       //     subdomain 为空串                               -> 记录被丢弃
       //     subdomain 为 @                                 -> 上游校验拒绝（Subhost 格式错误）
       // 结论：api3 的 set_dns2 实际上写不了根记录（文档与实现不一致），因此禁用根记录写入。
+      //
+      // v2 写路径探测（2026-11-17）：
+      //   POST / DELETE /restful/v2/domains/{d}/records 路径本身被识别
+      //   （DELETE 返回 main_record_removed_count / sub_record_removed_count，不是 command not recognized），
+      //   但记录 body 试了 10+ 种结构全部返回 Please enter at least one DNS record：
+      //     dns_sub_list / dns_records / records / 裸数组 / 追加 dns_main_list /
+      //     api3 字段名(subdomain+sub_record_type+sub_record) / 通用字段名(host+type+value) /
+      //     大写 record_type / 有无连字符的 sub_host
+      //   结论：v2 的写结构无法从公开文档或试错确定 → 写操作固定走 api3 的 set_dns2。
       if (!name || name === '@') {
         this.error = 'Dynadot 暂不支持写入根记录（实测会导致 zone 被清空，尚未确认参数语义）';
         return null;
