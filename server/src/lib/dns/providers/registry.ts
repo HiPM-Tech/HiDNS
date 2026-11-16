@@ -246,7 +246,8 @@ const allProviderDefinitions: ProviderDefinition[] = [
     //   写   POST/DELETE 同路径，body { dns_sub_list:[...] }（v2 没有 PUT，修改 = 删旧 + 加新）
     //   所有请求都必须带 X-Signature；业务错误是 HTTP 200 + body.code != 200
     // 能力：支持 DNS 记录读写；续期接口未接。
-    capabilities: { dns: { remark: false, status: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES }, log: false, renewal: false, redirect: false },
+    // 记录类型实测：PTR 返回「record_type is invalid」，其余 8 种（A/AAAA/CNAME/MX/TXT/SRV/CAA/NS）均被接受。
+    capabilities: { dns: { remark: false, status: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES.filter((type) => type !== 'PTR') }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'apiKey', label: 'provider.config.api_key', type: 'text', required: true },
       { key: 'apiSecret', label: 'provider.config.api_secret', type: 'password', required: true },
