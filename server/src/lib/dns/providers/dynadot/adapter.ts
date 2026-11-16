@@ -1,4 +1,4 @@
-import { BaseAdapter, Dict, DnsRecord, DomainInfo, PageResult, createProviderAdapterLogger, safeString, toNumber } from '../internal';
+import { BaseAdapter, Dict, DnsRecord, DomainInfo, PageResult, createProviderAdapterLogger, fetchWithFallback, isTruthyFlag, safeString, toNumber } from '../internal';
 import { DynadotAuthConfig, dynadotRequest, resolveDynadotConfig } from './auth';
 
 const log = createProviderAdapterLogger('Dynadot');
@@ -121,9 +121,11 @@ export class DynadotAdapter extends BaseAdapter {
   ): Promise<string | null> {
     try {
       if (!this.config.domain) return null;
-      // 实测：POST /records 需要 { dns_sub_list: [...] }，字段为 sub_host / record_type / record_value1
-      const payload = { dns_sub_list: [this.toPayload(name, type, value, mx)], ttl: String(ttl) };
-      await dynadotRequest(this.config, 'POST', PATHS.records(this.config.domain), { body: payload });
+      // v2 的写路径无法从文档确定（POST/DELETE /records 各种 body 均被拒），
+      // 改用官方 api3 的 set_dns2（全量设置）：读现有 → 追加 → 全量写回。
+      const current = await this.readRawRecords();
+      current.push({ name, type, value, mx });
+      await this.saveAllRecords(current);
       return this.buildRecordId(name, type, value, mx);
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
@@ -145,13 +147,14 @@ export class DynadotAdapter extends BaseAdapter {
     try {
       if (!this.config.domain) return false;
       const target = this.parseRecordId(recordId);
-      // 实测：v2 没有 PUT（返回 command not recognized），修改 = 删除旧记录 + 新增新记录
-      await dynadotRequest(this.config, 'DELETE', PATHS.records(this.config.domain), {
-        body: { dns_sub_list: [this.toPayload(target.name, target.type, target.value, target.mx)] },
-      });
-      await dynadotRequest(this.config, 'POST', PATHS.records(this.config.domain), {
-        body: { dns_sub_list: [this.toPayload(name, type, value, mx)], ttl: String(ttl) },
-      });
+      const current = await this.readRawRecords();
+      const idx = current.findIndex((row) => this.matchesRow(row, target));
+      if (idx === -1) {
+        this.error = '未找到要更新的记录（可能已被外部修改）';
+        return false;
+      }
+      current[idx] = { name, type, value, mx };
+      await this.saveAllRecords(current);
       return true;
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
@@ -163,9 +166,13 @@ export class DynadotAdapter extends BaseAdapter {
     try {
       if (!this.config.domain) return false;
       const target = this.parseRecordId(recordId);
-      await dynadotRequest(this.config, 'DELETE', PATHS.records(this.config.domain), {
-        body: { dns_sub_list: [this.toPayload(target.name, target.type, target.value, target.mx)] },
-      });
+      const current = await this.readRawRecords();
+      const remaining = current.filter((row) => !this.matchesRow(row, target));
+      if (remaining.length === current.length) {
+        this.error = '未找到要删除的记录（可能已被外部删除）';
+        return false;
+      }
+      await this.saveAllRecords(remaining);
       return true;
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
@@ -191,6 +198,51 @@ export class DynadotAdapter extends BaseAdapter {
     return false;
   }
 
+
+  /** 读取全部记录（原始形态），供写操作「读-改-写」使用 */
+  private async readRawRecords(): Promise<Array<{ name: string; type: string; value: string; mx?: number }>> {
+    const page = await this.getDomainRecords();
+    return page.list.map((record) => ({
+      name: record.Name,
+      type: record.Type,
+      value: record.Value,
+      mx: record.MX,
+    }));
+  }
+
+  private matchesRow(
+    row: { name: string; type: string; value: string },
+    target: { name: string; type: string; value: string },
+  ): boolean {
+    return row.type.toUpperCase() === target.type.toUpperCase()
+      && row.name.toLowerCase() === target.name.toLowerCase()
+      && row.value === target.value;
+  }
+
+  /**
+   * 全量写回。v2 的 POST/DELETE /records 在文档里没有给出可用结构（实测各种 body 均被拒），
+   * 改用官方 api3 的 set_dns2：根记录用 main_record*，子记录用 subdomain* / sub_record*。
+   */
+  private async saveAllRecords(records: Array<{ name: string; type: string; value: string; mx?: number }>): Promise<void> {
+    if (!this.config.domain) throw new Error('未解析到域名');
+    if (records.length === 0) {
+      this.error = 'Dynadot 的 set_dns2 至少需要保留一条记录，无法删除最后一条';
+      throw new Error(this.error);
+    }
+
+    const params = buildSetDns2Params(this.config.apiKey, this.config.domain, records);
+
+    const url = `https://api.dynadot.com/api3.json?${params.toString()}`;
+    const res = await fetchWithFallback(url, { method: 'GET', headers: { Accept: 'application/json' } }, isTruthyFlag(this.config.useProxy), 'Dynadot');
+    const text = await res.text();
+    let payload: { SetDnsResponse?: { ResponseCode?: number; Status?: string; Error?: string } } | null = null;
+    try { payload = JSON.parse(text); } catch { payload = null; }
+    const body = payload?.SetDnsResponse;
+    if (!res.ok || body?.ResponseCode !== 0) {
+      const detail = body?.Error || body?.Status || text.slice(0, 160) || `HTTP ${res.status}`;
+      throw new Error(`Dynadot set_dns2 失败：${detail}`);
+    }
+  }
   private pickArray(data: unknown, keys: string[]): Dict[] {
     if (Array.isArray(data)) return data as Dict[];
     if (data && typeof data === 'object') {
@@ -250,4 +302,37 @@ export class DynadotAdapter extends BaseAdapter {
       UpdateTime: undefined,
     };
   }
+}
+
+/**
+ * 构造 api3 的 set_dns2 查询参数（全量设置）。
+ * 根记录用 main_record*，子记录用 subdomain* / sub_record*；MX 的优先级放在 main_recordx*。
+ */
+export function buildSetDns2Params(
+  apiKey: string,
+  domain: string,
+  records: Array<{ name: string; type: string; value: string; mx?: number }>,
+): URLSearchParams {
+  const params = new URLSearchParams();
+  params.set('key', apiKey);
+  params.set('command', 'set_dns2');
+  params.set('domain', domain);
+  let mainIndex = 0;
+  let subIndex = 0;
+  for (const record of records) {
+    const type = record.type.toLowerCase();
+    const isRoot = !record.name || record.name === '@';
+    if (isRoot) {
+      params.set(`main_record_type${mainIndex}`, type);
+      params.set(`main_record${mainIndex}`, record.value);
+      if (type === 'mx' && typeof record.mx === 'number') params.set(`main_recordx${mainIndex}`, String(record.mx));
+      mainIndex += 1;
+    } else {
+      params.set(`subdomain${subIndex}`, record.name);
+      params.set(`sub_record_type${subIndex}`, type);
+      params.set(`sub_record${subIndex}`, record.value);
+      subIndex += 1;
+    }
+  }
+  return params;
 }

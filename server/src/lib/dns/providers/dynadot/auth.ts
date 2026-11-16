@@ -95,7 +95,15 @@ export async function dynadotRequest<T>(
 
   if (!res.ok) {
     const payload = (data ?? {}) as Record<string, unknown>;
-    const detail = safeString(payload.message) || safeString(payload.error) || safeString(payload.detail) || text.slice(0, 160);
+    // 实测：具体原因在 error.description 里（嵌套对象），只看 message 会丢掉关键信息
+    const nested = payload.error && typeof payload.error === 'object'
+      ? safeString((payload.error as Record<string, unknown>).description)
+      : '';
+    const detail = nested
+      || safeString(payload.message)
+      || safeString(payload.error)
+      || safeString(payload.detail)
+      || text.slice(0, 160);
     throw new Error(`Dynadot 请求失败（HTTP ${res.status}）：${detail || '无响应内容'}`);
   }
 

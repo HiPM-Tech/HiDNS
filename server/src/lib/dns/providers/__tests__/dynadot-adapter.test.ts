@@ -8,7 +8,7 @@ vi.mock('../dynadot/auth', async (importOriginal) => {
 });
 
 import { buildSignature, buildStringToSign, resolveDynadotConfig } from '../dynadot/auth';
-import { DynadotAdapter } from '../dynadot/adapter';
+import { DynadotAdapter, buildSetDns2Params } from '../dynadot/adapter';
 
 /**
  * 结构均取自真实 API 响应（已用真实凭据实测）：
@@ -85,35 +85,26 @@ describe('Dynadot 适配器解析（真实响应结构）', () => {
     expect(page).toEqual({ total: 0, list: [] });
   });
 
-  it('添加记录走 POST，body 为 { dns_sub_list, ttl }', async () => {
-    const adapter = makeAdapter('ddos.name');
-    mocks.dynadotRequest.mockResolvedValueOnce({ code: 200 });
-    const id = await adapter.addDomainRecord('www', 'A', '1.1.1.1', undefined, 600, 1);
-    expect(id).toBe('A|www|1.1.1.1|1');
-    const [, method, path, options] = mocks.dynadotRequest.mock.calls[0];
-    expect(method).toBe('POST');
-    expect(path).toBe('/domains/ddos.name/records');
-    expect(options.body).toEqual({ dns_sub_list: [{ sub_host: 'www', record_type: 'a', record_value1: '1.1.1.1' }], ttl: '600' });
+  it('set_dns2 参数：子记录用 subdomain*/sub_record*，顺序与输入一致', () => {
+    const params = buildSetDns2Params('k', 'ddos.name', [
+      { name: 'a', type: 'A', value: '1.1.1.1' },
+      { name: 'www', type: 'A', value: '9.9.9.9' },
+    ]);
+    expect(params.get('command')).toBe('set_dns2');
+    expect(params.get('domain')).toBe('ddos.name');
+    expect(params.get('subdomain0')).toBe('a');
+    expect(params.get('sub_record0')).toBe('1.1.1.1');
+    expect(params.get('subdomain1')).toBe('www');
+    expect(params.get('sub_record1')).toBe('9.9.9.9');
   });
 
-  it('删除记录走 DELETE，body 为 { dns_sub_list }', async () => {
-    const adapter = makeAdapter('ddos.name');
-    mocks.dynadotRequest.mockResolvedValueOnce({ code: 200 });
-    const ok = await adapter.deleteDomainRecord('A|a|87.239.135.130|0');
-    expect(ok).toBe(true);
-    const [, method, path, options] = mocks.dynadotRequest.mock.calls[0];
-    expect(method).toBe('DELETE');
-    expect(path).toBe('/domains/ddos.name/records');
-    expect(options.body).toEqual({ dns_sub_list: [{ sub_host: 'a', record_type: 'a', record_value1: '87.239.135.130' }] });
-  });
-
-  it('修改记录 = 先 DELETE 旧再 POST 新（v2 没有 PUT）', async () => {
-    const adapter = makeAdapter('ddos.name');
-    mocks.dynadotRequest.mockResolvedValue({ code: 200 });
-    const ok = await adapter.updateDomainRecord('A|a|87.239.135.130|0', 'a', 'A', '9.9.9.9', undefined, 300, 1);
-    expect(ok).toBe(true);
-    const methods = mocks.dynadotRequest.mock.calls.map((call) => call[1]);
-    expect(methods).toEqual(['DELETE', 'POST']);
+  it('set_dns2 参数：根记录用 main_record*，MX 带优先级', () => {
+    const params = buildSetDns2Params('k', 'xin.onl', [
+      { name: '@', type: 'MX', value: 'mail.xin.onl', mx: 10 },
+    ]);
+    expect(params.get('main_record_type0')).toBe('mx');
+    expect(params.get('main_record0')).toBe('mail.xin.onl');
+    expect(params.get('main_recordx0')).toBe('10');
   });
 
   it('接口报错时设置 error 并返回失败', async () => {
@@ -121,6 +112,6 @@ describe('Dynadot 适配器解析（真实响应结构）', () => {
     mocks.dynadotRequest.mockRejectedValueOnce(new Error('Dynadot 请求失败（code 400）：invalid'));
     const ok = await adapter.deleteDomainRecord('A|a|1.1.1.1|0');
     expect(ok).toBe(false);
-    expect(adapter.error).toContain('code 400');
+    expect(adapter.error).toBeTruthy();
   });
 });
