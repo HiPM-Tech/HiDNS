@@ -276,6 +276,18 @@ export async function fetchWithProxy(url: string, options: RequestInit = {}): Pr
  * @param useProxy 是否使用代理
  * @param providerName 提供商名称（用于日志）
  */
+/**
+ * URL 脱敏：把查询串里的凭据类参数打码后再进日志。
+ *
+ * 有些上游（Dynadot api3）只接受 `?key=...` 形式的凭据，URL 一旦被完整打印就会把密钥写进日志。
+ */
+export function redactUrl(url: string): string {
+  return String(url ?? '').replace(
+    /([?&](?:key|api_key|apikey|api_secret|secret|token|access_token|auth)=)[^&]*/gi,
+    '$1***',
+  );
+}
+
 export async function fetchWithFallback(
   url: string,
   options: RequestInit = {},
@@ -303,7 +315,7 @@ export async function fetchWithFallback(
   // 尝试使用代理（设置较短的超时时间）
   const proxyStartTime = Date.now();
   try {
-    log.info(`[${providerName}] Trying proxy request to ${url}`);
+    log.info(`[${providerName}] Trying proxy request to ${redactUrl(url)}`);
     const agent = createProxyAgent(proxyConfig);
     if (!agent) {
       throw new Error('Failed to create proxy agent');

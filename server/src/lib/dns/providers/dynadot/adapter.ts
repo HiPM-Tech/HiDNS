@@ -124,9 +124,9 @@ export class DynadotAdapter extends BaseAdapter {
       if (!this.config.domain) return null;
       // set_dns2 是全量保存：同域名的写操作必须串行，否则并发时会互相覆盖
       return await withDomainLock(String(this.config.domain), async () => {
-        const current = await this.readRawRecords();
+        const { records: current, ttl: zoneTtl } = await this.fetchAllRawRecords();
         current.push({ name, type, value, mx });
-        await this.saveAllRecords(current);
+        await this.saveAllRecords(current, zoneTtl);
         return this.buildRecordId(name, type, value, mx);
       });
     } catch (e) {
@@ -150,14 +150,14 @@ export class DynadotAdapter extends BaseAdapter {
       if (!this.config.domain) return false;
       const target = this.parseRecordId(recordId);
       return await withDomainLock(String(this.config.domain), async () => {
-        const current = await this.readRawRecords();
+        const { records: current, ttl: zoneTtl } = await this.fetchAllRawRecords();
         const idx = current.findIndex((row) => this.matchesRow(row, target));
         if (idx === -1) {
           this.error = '未找到要更新的记录（可能已被外部修改）';
           return false;
         }
         current[idx] = { name, type, value, mx };
-        await this.saveAllRecords(current);
+        await this.saveAllRecords(current, zoneTtl);
         return true;
       });
     } catch (e) {
@@ -171,13 +171,15 @@ export class DynadotAdapter extends BaseAdapter {
       if (!this.config.domain) return false;
       const target = this.parseRecordId(recordId);
       return await withDomainLock(String(this.config.domain), async () => {
-        const current = await this.readRawRecords();
-        const remaining = current.filter((row) => !this.matchesRow(row, target));
-        if (remaining.length === current.length) {
+        const { records: current, ttl: zoneTtl } = await this.fetchAllRawRecords();
+        const idx = current.findIndex((row) => this.matchesRow(row, target));
+        if (idx === -1) {
           this.error = '未找到要删除的记录（可能已被外部删除）';
           return false;
         }
-        await this.saveAllRecords(remaining);
+        // 只删第一条匹配：同名同类型的重复记录不应被一次全删
+        current.splice(idx, 1);
+        await this.saveAllRecords(current, zoneTtl);
         return true;
       });
     } catch (e) {
@@ -205,15 +207,40 @@ export class DynadotAdapter extends BaseAdapter {
   }
 
 
-  /** 读取全部记录（原始形态），供写操作「读-改-写」使用 */
-  private async readRawRecords(): Promise<Array<{ name: string; type: string; value: string; mx?: number }>> {
-    const page = await this.getDomainRecords();
-    return page.list.map((record) => ({
-      name: record.Name,
-      type: record.Type,
-      value: record.Value,
-      mx: record.MX,
-    }));
+  /**
+   * 读取全部记录（写路径专用）。
+   *
+   * 与 getDomainRecords 的区别（审核 P0）：
+   * - 不复用会吞异常、会按 pageSize 截断的列表接口；
+   * - 请求失败 / 结构异常 / 域名未托管在 Dynadot → 一律抛错，绝不返回空数组冒充「没有记录」；
+   * - 否则一次网络抖动就会让 add 把整域写回成 1 条。
+   */
+  private async fetchAllRawRecords(): Promise<{ records: Array<{ name: string; type: string; value: string; mx?: number }>; ttl?: number }> {
+    if (!this.config.domain) throw new Error('未解析到域名');
+    const holder = await dynadotRequest<unknown>(this.config, 'GET', PATHS.records(this.config.domain));
+    const data = ((holder ?? {}) as Record<string, unknown>).data as Record<string, unknown> | undefined;
+    const glue = data?.glue_info as Record<string, unknown> | undefined;
+    const glueType = safeString(glue?.glue_type);
+    if (glueType && glueType !== 'DNS') {
+      throw new Error('该域名的 NS 未指向 Dynadot，无法写回解析记录');
+    }
+    const list = glue?.dns_sub_list;
+    if (!Array.isArray(list)) {
+      throw new Error('Dynadot 返回结构异常（dns_sub_list 不是数组），已中止写入以免覆盖现有记录');
+    }
+    const glueTtl = toNumber(glue?.ttl, Number.NaN);
+    const records = list.map((row) => {
+      const rowObj = row as Dict;
+      const type = safeString(rowObj.record_type).toUpperCase();
+      return {
+        name: safeString(rowObj.sub_host) || '@',
+        type,
+        value: safeString(rowObj.record_value1),
+        // 响应里没有独立的优先级字段：MX 的优先级无法读回时保持 undefined，由 saveAllRecords 拒绝写入
+        mx: type === 'MX' ? toNumber(rowObj.priority ?? rowObj.mx ?? Number.NaN, Number.NaN) : undefined,
+      };
+    });
+    return { records, ttl: Number.isFinite(glueTtl) ? glueTtl : undefined };
   }
 
   private matchesRow(
@@ -229,26 +256,40 @@ export class DynadotAdapter extends BaseAdapter {
    * 全量写回。v2 的 POST/DELETE /records 在文档里没有给出可用结构（实测各种 body 均被拒），
    * 改用官方 api3 的 set_dns2：根记录用 main_record*，子记录用 subdomain* / sub_record*。
    */
-  private async saveAllRecords(records: Array<{ name: string; type: string; value: string; mx?: number }>): Promise<void> {
+  private async saveAllRecords(
+    records: Array<{ name: string; type: string; value: string; mx?: number }>,
+    zoneTtl?: number,
+  ): Promise<void> {
     if (!this.config.domain) throw new Error('未解析到域名');
     if (records.length === 0) {
-      this.error = 'Dynadot 的 set_dns2 至少需要保留一条记录，无法删除最后一条';
-      throw new Error(this.error);
+      throw new Error('Dynadot 的 set_dns2 至少需要保留一条记录，无法删除最后一条');
+    }
+    // MX 优先级读不回来时拒绝写回：否则会把优先级清零，直接影响收信
+    const mxWithoutPriority = records.find(
+      (row) => row.type.toUpperCase() === 'MX' && !(typeof row.mx === 'number' && Number.isFinite(row.mx)),
+    );
+    if (mxWithoutPriority) {
+      throw new Error(`检测到 MX 记录（${mxWithoutPriority.name}）但读不到优先级，已中止写入以免清零`);
     }
 
-    const params = buildSetDns2Params(this.config.apiKey, this.config.domain, records);
+    const params = buildSetDns2Params(this.config.apiKey, this.config.domain, records, zoneTtl);
+    await this.setDns2Request(params);
+  }
 
+  /** 发送 api3 的 set_dns2；抽成独立方法，便于测试替换与单点维护 */
+  private async setDns2Request(params: URLSearchParams): Promise<void> {
     const url = `https://api.dynadot.com/api3.json?${params.toString()}`;
     const res = await fetchWithFallback(url, { method: 'GET', headers: { Accept: 'application/json' } }, isTruthyFlag(this.config.useProxy), 'Dynadot');
     const text = await res.text();
     let payload: { SetDnsResponse?: { ResponseCode?: number; Status?: string; Error?: string } } | null = null;
     try { payload = JSON.parse(text); } catch { payload = null; }
     const body = payload?.SetDnsResponse;
-    if (!res.ok || body?.ResponseCode !== 0) {
+    if (!res.ok || body?.ResponseCode !== 0 || safeString(body?.Error)) {
       const detail = body?.Error || body?.Status || text.slice(0, 160) || `HTTP ${res.status}`;
       throw new Error(`Dynadot set_dns2 失败：${detail}`);
     }
   }
+
   private pickArray(data: unknown, keys: string[]): Dict[] {
     if (Array.isArray(data)) return data as Dict[];
     if (data && typeof data === 'object') {
@@ -318,11 +359,13 @@ export function buildSetDns2Params(
   apiKey: string,
   domain: string,
   records: Array<{ name: string; type: string; value: string; mx?: number }>,
+  ttl?: number,
 ): URLSearchParams {
   const params = new URLSearchParams();
   params.set('key', apiKey);
   params.set('command', 'set_dns2');
   params.set('domain', domain);
+  if (typeof ttl === 'number' && Number.isFinite(ttl)) params.set('ttl', String(ttl));
   let mainIndex = 0;
   let subIndex = 0;
   for (const record of records) {

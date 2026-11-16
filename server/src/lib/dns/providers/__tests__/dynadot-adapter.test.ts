@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ dynadotRequest: vi.fn() }));
+const mocks = vi.hoisted(() => ({ dynadotRequest: vi.fn(), setDns2: vi.fn() }));
 
 vi.mock('../dynadot/auth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../dynadot/auth')>();
@@ -105,6 +105,61 @@ describe('Dynadot 适配器解析（真实响应结构）', () => {
     expect(params.get('main_record_type0')).toBe('mx');
     expect(params.get('main_record0')).toBe('mail.xin.onl');
     expect(params.get('main_recordx0')).toBe('10');
+  });
+
+  it('读失败时绝不写回（一次网络抖动不能清空整域记录）', async () => {
+    const adapter = makeAdapter('ddos.name');
+    adapter.setDns2Request = mocks.setDns2;
+    mocks.dynadotRequest.mockRejectedValueOnce(new Error('network down'));
+
+    const id = await adapter.addDomainRecord('www', 'A', '1.1.1.1');
+
+    expect(id).toBeNull();
+    expect(mocks.setDns2).not.toHaveBeenCalled();
+    expect(adapter.error).toContain('network down');
+  });
+
+  it('结构异常时绝不写回', async () => {
+    const adapter = makeAdapter('ddos.name');
+    adapter.setDns2Request = mocks.setDns2;
+    mocks.dynadotRequest.mockResolvedValueOnce({ code: 200, data: { glue_info: { glue_type: 'DNS' } } });
+
+    const id = await adapter.addDomainRecord('www', 'A', '1.1.1.1');
+
+    expect(id).toBeNull();
+    expect(mocks.setDns2).not.toHaveBeenCalled();
+  });
+
+  it('120 条记录全量写回，不截断，并带回 zone TTL', async () => {
+    const adapter = makeAdapter('ddos.name');
+    adapter.setDns2Request = mocks.setDns2;
+    const list = Array.from({ length: 120 }, (_, i) => ({ sub_host: `h${i}`, record_type: 'a', record_value1: `10.0.0.${i}` }));
+    mocks.dynadotRequest.mockResolvedValueOnce({ code: 200, data: { glue_info: { glue_type: 'DNS', dns_sub_list: list, ttl: '300' } } });
+
+    await adapter.addDomainRecord('newrec', 'A', '1.1.1.1');
+
+    const params = mocks.setDns2.mock.calls[0][0] as URLSearchParams;
+    expect(params.get('subdomain119')).toBe('h119');
+    expect(params.get('subdomain120')).toBe('newrec');
+    expect(params.get('ttl')).toBe('300');
+  });
+
+  it('MX 优先级读不回时拒绝写回', async () => {
+    const adapter = makeAdapter('ddos.name');
+    adapter.setDns2Request = mocks.setDns2;
+    mocks.dynadotRequest.mockResolvedValueOnce({
+      code: 200,
+      data: { glue_info: { glue_type: 'DNS', dns_sub_list: [
+        { sub_host: '@', record_type: 'mx', record_value1: 'mail.ddos.name' },
+        { sub_host: 'a', record_type: 'a', record_value1: '1.1.1.1' },
+      ] } },
+    });
+
+    const ok = await adapter.deleteDomainRecord('A|a|1.1.1.1|0');
+
+    expect(ok).toBe(false);
+    expect(adapter.error).toContain('MX');
+    expect(mocks.setDns2).not.toHaveBeenCalled();
   });
 
   it('接口报错时设置 error 并返回失败', async () => {
