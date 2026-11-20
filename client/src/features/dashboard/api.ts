@@ -1,4 +1,5 @@
 import { http } from '../../lib/http';
+import { parseServerTime } from '../../lib/format';
 
 export interface DashboardDomain {
   id: number;
@@ -85,7 +86,7 @@ export async function fetchDashboard(): Promise<DashboardSnapshot> {
   const cutoff = Date.now() - DAY_MS;
   const last24h = (logs ?? []).filter((log) => {
     if (!log.created_at) return false;
-    const time = new Date(log.created_at).getTime();
+    const time = parseServerTime(log.created_at)?.getTime() ?? Number.NaN;
     return Number.isFinite(time) && time >= cutoff;
   }).length;
   return { domains: domains.list, domainTotal: domains.total, accounts, users, logs, last24h };

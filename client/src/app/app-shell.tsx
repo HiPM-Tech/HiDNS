@@ -67,6 +67,7 @@ export function AppShell({ user, children }: AppShellProps) {
 
   const title = findNavLabel(location.pathname);
   const initials = (user.nickname || user.username || '?').slice(0, 1).toUpperCase();
+  const avatarImage = (preferences.data?.avatarImage ?? '').trim();
   const ThemeIcon = mode === 'dark' ? Moon : mode === 'light' ? Sun : Monitor;
 
   return (
@@ -182,9 +183,19 @@ export function AppShell({ user, children }: AppShellProps) {
                   className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
                   aria-label="账户菜单"
                 >
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
-                    {initials}
-                  </span>
+                  {avatarImage ? (
+                    <img
+                      src={avatarImage}
+                      alt={user.nickname || user.username || '头像'}
+                      className="h-7 w-7 rounded-full object-cover"
+                      // 链接失效时回退到昵称首字母，避免顶栏出现破图（issue #53）
+                      onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                    />
+                  ) : (
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+                      {initials}
+                    </span>
+                  )}
                   <span className="hidden max-w-32 truncate sm:inline">{user.nickname || user.username}</span>
                 </button>
               </DropdownMenu.Trigger>
