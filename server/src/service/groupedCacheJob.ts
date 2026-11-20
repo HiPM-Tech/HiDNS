@@ -73,7 +73,12 @@ export async function bumpCacheVersion(): Promise<number> {
 
 async function updateCachedList(userId: number, cacheType: 'domain' | 'account', change: { type: 'create' | 'update' | 'delete'; item: any }): Promise<void> {
   const cached = await getCachedGroupedData(userId, cacheType);
-  if (!cached) return;
+  if (!cached) {
+    // 没有缓存行时增量无处可写：直接 bump 版本，让下一次请求按需全量重建。
+    // 不 bump 会留下「版本一致但缓存缺这条」的脏读（issue #58 的现象）。
+    await bumpCacheVersion();
+    return;
+  }
   let { data } = cached;
   if (change.type === 'delete') {
     data = data.filter((d: any) => d.id !== change.item.id);
@@ -99,7 +104,11 @@ export function submitGroupedCacheUpdate(userId: number, cacheType: 'domain' | '
       timeout: 30000,
     },
     () => updateCachedList(userId, cacheType, change),
-  ).catch((err: Error) => log.warn('Cache update task failed', { error: err }));
+  ).catch(async (err: Error) => {
+    log.warn('Cache update task failed', { error: err });
+    // 增量失败必须让缓存失效，否则该用户会一直读到缺项的快照
+    try { await bumpCacheVersion(); } catch { /* 忽略 */ }
+  });
 }
 
 // ─── Periodic Full Refresh ───────────────────────────────────────────────────

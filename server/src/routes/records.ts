@@ -199,6 +199,21 @@ async function updateDomainRecordCount(domainId: number, count: number): Promise
 }
 
 /**
+ * 写操作后刷新 domains.record_count（仪表盘的「解析总数」读的就是这一列）。
+ *
+ * 之前只有 GET 列表会刷新它，新增/删除记录后总数停在旧值（issue #54）。
+ * 统计失败不影响主流程，最多是数字晚一次刷新。
+ */
+async function refreshDomainRecordCount(adapter: any, localDomainId: number): Promise<void> {
+  try {
+    const list = await adapter.getDomainRecords();
+    await updateDomainRecordCount(localDomainId, list.total);
+  } catch {
+    /* 统计失败不阻断写操作 */
+  }
+}
+
+/**
  * @swagger
  * /api/domains/{domainId}/records:
  *   get:
@@ -603,6 +618,7 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
       if (!redirectOk) { sendError(res, '设置记录重定向失败'); return; }
     }
     await logAuditOperation(req.user!.userId, 'add_record', access.domain.name, { name, type, value, redirect: redirectResult.target }, req);
+    await refreshDomainRecordCount(dnsAdapter, access.domain.id);
 
     // 获取新创建的记录数据用于 WebSocket 推送
     const newRecord = await dnsAdapter.getDomainRecordInfo(recordId);
@@ -985,6 +1001,7 @@ router.delete('/:recordId', authMiddleware, requireTokenDomainPermission('domain
       return;
     }
     await logAuditOperation(req.user!.userId, 'delete_record', access.domain.name, { recordId }, req);
+    await refreshDomainRecordCount(dnsAdapter, access.domain.id);
 
     if (previousForEvent) {
       publishRecordEvent({

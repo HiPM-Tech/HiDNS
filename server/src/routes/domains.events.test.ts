@@ -46,6 +46,10 @@ vi.mock('../db/bal/business-adapter', () => ({
     getAll: vi.fn(async () => []),
     updateRecordCount: vi.fn(async () => undefined),
   },
+  GroupedDomainsCacheOperations: {
+    delete: vi.fn(async () => undefined),
+    get: vi.fn(async () => null),
+  },
   DnsAccountOperations: {
     getById: vi.fn(async () => ({ id: 5, type: 'cloudflare', config: '{}', created_by: 100, enabled: 1 })),
     getCreatedBy: vi.fn(async () => 100),

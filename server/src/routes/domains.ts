@@ -12,7 +12,7 @@ import { logAuditOperation } from '../service/audit';
 import { parseInteger, sendError, sendSuccess, sendServerError } from '../utils/http';
 import { createLogger } from '../lib/logger';
 import { publishDomainEvent } from '../lib/domain-event-bus';
-import { DomainOperations, DnsAccountOperations, DomainPermissionOperations, TeamOperations, RenewableDomainOperations, UserPreferencesOperations, NSMonitorOperations, SystemCacheOperations, WhoisOperations } from '../db/bal/business-adapter';
+import { DomainOperations, DnsAccountOperations, DomainPermissionOperations, TeamOperations, RenewableDomainOperations, UserPreferencesOperations, NSMonitorOperations, SystemCacheOperations, WhoisOperations, GroupedDomainsCacheOperations } from '../db/bal/business-adapter';
 import { syncDomainWhois } from '../service/whois';
 import { getRootDomain, queryWhois, groupDomains } from '../service/whois';
 import { getCachedGroupedData, setCachedGroupedData, getCacheVersion, bumpCacheVersion, submitGroupedCacheUpdate } from '../service/groupedCacheJob';
@@ -973,6 +973,9 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
       if (req.user!.userId !== 0) {
         await submitGroupedCacheUpdate(0, 'domain', { type: 'create', item: newDomain });
       }
+      // 增量任务是异步的：删掉该用户的缓存行，保证下一次分组视图请求按需全量重建，
+      // 否则「刚新增的域名在分组视图里看不到」（issue #58）。
+      await GroupedDomainsCacheOperations.delete(req.user!.userId, 'domain');
     }
   }
 
