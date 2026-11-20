@@ -130,18 +130,24 @@ describe('Dynadot 适配器解析（真实响应结构）', () => {
     expect(mocks.setDns2).not.toHaveBeenCalled();
   });
 
-  it('120 条记录全量写回，不截断，并带回 zone TTL', async () => {
+  it('记录数达到上游 100 条上限时拒绝写入（覆盖写回会丢记录）', async () => {
     const adapter = makeAdapter('ddos.name');
     adapter.setDns2Request = mocks.setDns2;
-    const list = Array.from({ length: 120 }, (_, i) => ({ sub_host: `h${i}`, record_type: 'a', record_value1: `10.0.0.${i}` }));
-    mocks.dynadotRequest.mockResolvedValueOnce({ code: 200, data: { glue_info: { glue_type: 'DNS', dns_sub_list: list, ttl: '300' } } });
+    const list = Array.from({ length: 100 }, (_, i) => ({
+      sub_host: `h${i}`,
+      record_type: 'a',
+      record_value1: `10.0.0.${(i % 254) + 1}`,
+    }));
+    mocks.dynadotRequest.mockResolvedValue({
+      code: 200,
+      data: { glue_info: { glue_type: 'DNS', dns_sub_list: list, ttl: '300' } },
+    });
 
-    await adapter.addDomainRecord('newrec', 'A', '1.1.1.1');
+    const id = await adapter.addDomainRecord('newrec', 'A', '1.1.1.1');
 
-    const params = mocks.setDns2.mock.calls[0][0] as URLSearchParams;
-    expect(params.get('subdomain119')).toBe('h119');
-    expect(params.get('subdomain120')).toBe('newrec');
-    expect(params.get('ttl')).toBe('300');
+    expect(id).toBeNull();
+    expect(adapter.error).toContain('100 条');
+    expect(mocks.setDns2).not.toHaveBeenCalled();
   });
 
   it('MX 优先级：读 record_value2，写 sub_recordx', async () => {

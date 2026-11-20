@@ -277,6 +277,16 @@ export class DynadotAdapter extends BaseAdapter {
     if (!Array.isArray(subList)) {
       throw new Error('Dynadot 返回结构异常（dns_sub_list 不是数组），已中止写入以免覆盖现有记录');
     }
+    // 实测（2026-11-21）：v2 GET 与 api3 get_dns 对 dns_sub_list 都有 100 条硬上限，
+    // 传 take/limit/page/pageSize 均无效。记录数达到上限时读不全，覆盖写回会丢掉剩余记录，因此拒绝写入。
+    const readableLimit = 100;
+    if (subList.length >= readableLimit) {
+      throw new Error(
+        `Dynadot 记录接口最多返回 ${readableLimit} 条（实测硬上限，无法分页），当前 zone 已达到上限，` +
+        '无法安全执行全量写回（继续写会丢掉超出的记录）',
+      );
+    }
+
     // 根记录（dns_main_list）必须一起读出来：set_dns2 是覆盖语义，漏读根记录会在写回时把它清掉
     const list = [...(Array.isArray(mainList) ? mainList : []), ...(Array.isArray(subList) ? subList : [])];
     const glueTtl = toNumber(glue?.ttl, Number.NaN);
