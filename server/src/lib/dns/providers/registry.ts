@@ -247,7 +247,7 @@ const allProviderDefinitions: ProviderDefinition[] = [
     //   所有请求都必须带 X-Signature；业务错误是 HTTP 200 + body.code != 200
     // 能力：支持 DNS 记录读写；续期接口未接。
     // 记录类型实测：PTR 返回「record_type is invalid」，其余 8 种（A/AAAA/CNAME/MX/TXT/SRV/CAA/NS）均被接受。
-    // 根记录实测：set_dns2 的 main_record* 被忽略且会清空 zone，subdomain 空串或 @ 均不成立 —— 根记录写入已禁用。
+    // 根记录：读 dns_main_list、写 main_record*（必须覆盖模式 + TXT 带引号 + 与全部 subdomain* 一起提交），已实测通过。
     capabilities: { dns: { remark: false, status: false, weight: false, proxiable: false, cnameFlattening: false, recordTypes: COMMON_RECORD_TYPES.filter((type) => type !== 'PTR') }, log: false, renewal: false, redirect: false },
     configFields: [
       { key: 'apiKey', label: 'provider.config.api_key', type: 'text', required: true },

@@ -54,6 +54,7 @@ export {
   AliyunRpcAdapter,
   TencentCloudAdapter,
   toNumber,
+  parseOptionalNumber,
   toRecordStatus,
   resolveDomainIdHelper,
   resolveCreatedRecordId,

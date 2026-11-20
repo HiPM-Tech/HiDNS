@@ -1,4 +1,4 @@
-import { BaseAdapter, Dict, DnsRecord, DomainInfo, PageResult, createProviderAdapterLogger, fetchWithFallback, isTruthyFlag, safeString, toNumber } from '../internal';
+import { BaseAdapter, Dict, DnsRecord, DomainInfo, PageResult, createProviderAdapterLogger, fetchWithFallback, isTruthyFlag, parseOptionalNumber, safeString, toNumber } from '../internal';
 import { DynadotAuthConfig, dynadotRequest, resolveDynadotConfig } from './auth';
 import { withDomainLock } from '../domain-lock';
 
@@ -109,8 +109,31 @@ export class DynadotAdapter extends BaseAdapter {
     }
   }
 
-  async getDomainRecordInfo(_recordId: string): Promise<DnsRecord | null> {
-    return null;
+  async getDomainRecordInfo(recordId: string): Promise<DnsRecord | null> {
+    try {
+      if (!this.config.domain) return null;
+      const target = this.parseRecordId(recordId);
+      const { records } = await this.fetchAllRawRecords();
+      const row = records.find((item) => this.matchesRow(item, target));
+      if (!row) return null;
+      return {
+        RecordId: this.buildRecordId(row.name, row.type, row.value, row.mx ?? 0),
+        Domain: this.config.domain,
+        Name: row.name || '@',
+        Type: row.type,
+        Value: row.value,
+        Line: DEFAULT_LINE,
+        TTL: 600,
+        MX: row.mx ?? 0,
+        Status: 1,
+        Weight: undefined,
+        Remark: undefined,
+        UpdateTime: undefined,
+      };
+    } catch (e) {
+      this.error = e instanceof Error ? e.message : String(e);
+      return null;
+    }
   }
 
   async addDomainRecord(
@@ -177,7 +200,9 @@ export class DynadotAdapter extends BaseAdapter {
           this.error = '未找到要更新的记录（可能已被外部修改）';
           return false;
         }
-        current[idx] = { name, type, value, mx };
+        // 服务层传的 mx 可能是 0/缺省；改 value 时不能把已有 MX 优先级清掉
+        const nextMx = type.toUpperCase() === 'MX' && (!Number.isFinite(mx) || mx <= 0) ? target.mx : mx;
+        current[idx] = { name, type, value, mx: nextMx };
         await this.saveAllRecords(current, zoneTtl);
         return true;
       });
@@ -247,8 +272,10 @@ export class DynadotAdapter extends BaseAdapter {
     }
     const mainList = glue?.dns_main_list;
     const subList = glue?.dns_sub_list;
-    if (!Array.isArray(mainList) && !Array.isArray(subList)) {
-      throw new Error('Dynadot 返回结构异常（main/sub 记录都不是数组），已中止写入以免覆盖现有记录');
+    // 注意：dns_main_list 在「无根记录」时可能缺失，dns_sub_list 则总会返回。
+    // 只要 sub 缺失就视为结构异常并中止——否则只剩根记录写回会把全部子记录清空。
+    if (!Array.isArray(subList)) {
+      throw new Error('Dynadot 返回结构异常（dns_sub_list 不是数组），已中止写入以免覆盖现有记录');
     }
     // 根记录（dns_main_list）必须一起读出来：set_dns2 是覆盖语义，漏读根记录会在写回时把它清掉
     const list = [...(Array.isArray(mainList) ? mainList : []), ...(Array.isArray(subList) ? subList : [])];
@@ -260,20 +287,22 @@ export class DynadotAdapter extends BaseAdapter {
         name: safeString(rowObj.sub_host) || '@',
         type,
         value: safeString(rowObj.record_value1),
-        // 响应里没有独立的优先级字段：MX 的优先级无法读回时保持 undefined，由 saveAllRecords 拒绝写入
-        mx: type === 'MX' ? toNumber(rowObj.record_value2 ?? rowObj.priority ?? Number.NaN, Number.NaN) : undefined,
+        // 优先级在 record_value2；空串/null 要当成「读不到」而不是 0（Number('') === 0）
+        mx: type === 'MX' ? parseOptionalNumber(rowObj.record_value2 ?? rowObj.priority) : undefined,
       };
     });
     return { records, ttl: Number.isFinite(glueTtl) ? glueTtl : undefined };
   }
 
   private matchesRow(
-    row: { name: string; type: string; value: string },
-    target: { name: string; type: string; value: string },
+    row: { name: string; type: string; value: string; mx?: number },
+    target: { name: string; type: string; value: string; mx?: number },
   ): boolean {
     return row.type.toUpperCase() === target.type.toUpperCase()
       && row.name.toLowerCase() === target.name.toLowerCase()
-      && row.value === target.value;
+      && row.value === target.value
+      // 同名同值的 MX 可能有不同优先级，必须一并比较，否则会误删/误改另一条
+      && (row.mx ?? 0) === (target.mx ?? 0);
   }
 
   /**
@@ -290,8 +319,34 @@ export class DynadotAdapter extends BaseAdapter {
     }
 
 
+    // MX 优先级读不到时拒绝写回：覆盖语义下会把它清零，直接影响收信
+    const mxWithoutPriority = records.find(
+      (row) => row.type.toUpperCase() === 'MX' && !(typeof row.mx === 'number' && Number.isFinite(row.mx) && row.mx > 0),
+    );
+    if (mxWithoutPriority) {
+      throw new Error(`检测到 MX 记录（${mxWithoutPriority.name}）但读不到有效优先级，已中止写入以免清零`);
+    }
+
+    // 写前校验：覆盖语义下，任何一条无效记录都会让上游丢弃它（甚至整批），宁可直接失败
+    const allowedTypes = new Set(['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'CAA', 'NS']);
+    for (const row of records) {
+      const type = row.type.toUpperCase();
+      if (!allowedTypes.has(type)) throw new Error(`Dynadot 不支持写入记录类型 ${row.type}`);
+      if (!row.value) throw new Error(`记录 ${row.name || '@'} ${type} 的值为空，已中止写入以免丢记录`);
+    }
+
     const params = buildSetDns2Params(this.config.apiKey, this.config.domain, records, zoneTtl);
     await this.setDns2Request(params);
+
+    // 写后回读校验：set_dns2 存在「返回 success 但没写入」的分支（实测见上），只看 ResponseCode 不够
+    const { records: after } = await this.fetchAllRawRecords();
+    const norm = (row: { name: string; type: string; value: string; mx?: number }) =>
+      `${(row.name || '@').toLowerCase()}|${row.type.toUpperCase()}|${row.type.toUpperCase() === 'TXT' ? row.value.replace(/^"|"$/g, '') : row.value}|${row.type.toUpperCase() === 'MX' ? (row.mx ?? 0) : 0}`;
+    const expected = new Set(records.map(norm));
+    const actual = new Set(after.map(norm));
+    if (expected.size !== actual.size || [...expected].some((key) => !actual.has(key))) {
+      throw new Error(`写入后校验失败：预期 ${expected.size} 条，实际 ${actual.size} 条（zone 可能已被部分修改）`);
+    }
   }
 
   /** 发送 api3 的 set_dns2；抽成独立方法，便于测试替换与单点维护 */
@@ -320,7 +375,12 @@ export class DynadotAdapter extends BaseAdapter {
   }
 
   private buildRecordId(name: string, type: string, value: string, mx: number): string {
-    return `${type}|${name}|${value}|${mx}`;
+    // 根记录读回一律是 @（不是空串），TXT 读回带引号 —— ID 必须与读回形态一致，否则删/改匹配不上
+    const normalizedName = name || '@';
+    const upperType = type.toUpperCase();
+    const normalizedValue = upperType === 'TXT' && !/^".*"$/.test(value) ? `"${value}"` : value;
+    const normalizedMx = upperType === 'MX' ? mx : 0;
+    return `${upperType}|${normalizedName}|${normalizedValue}|${normalizedMx}`;
   }
 
   private parseRecordId(recordId: string): { type: string; name: string; value: string; mx: number } {
@@ -390,7 +450,12 @@ export function buildSetDns2Params(
   for (const record of records) {
     const type = record.type.toLowerCase();
     // 实测：TXT 值必须带引号，否则上游判定该记录无效并丢弃（覆盖模式下等于丢记录）
-    const value = type === 'txt' && !/^".*"$/.test(record.value) ? `"${record.value}"` : record.value;
+    const quoted = /^".*"$/.test(record.value);
+    if (type === 'txt' && !quoted && record.value.includes('"')) {
+      // 内部引号不转义会拼出畸形串（如 SPF 里的 "_spf.example.com"），宁可直接失败
+      throw new Error(`TXT 记录（${record.name || '@'}）的值包含未转义的引号，无法安全写回`);
+    }
+    const value = type === 'txt' && !quoted ? `"${record.value}"` : record.value;
     const isRoot = !record.name || record.name === '@';
     if (isRoot) {
       params.set(`main_record_type${mainIndex}`, type);

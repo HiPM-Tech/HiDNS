@@ -164,6 +164,67 @@ describe('Dynadot 适配器解析（真实响应结构）', () => {
     expect(params.get('sub_record0')).toBe('mail.ddos.name');
   });
 
+  it('根记录写入走 main_record*，TXT 自动加引号', async () => {
+    const adapter = makeAdapter('ddos.name');
+    adapter.setDns2Request = mocks.setDns2;
+    mocks.dynadotRequest
+      .mockResolvedValueOnce({
+        code: 200,
+        data: { glue_info: { glue_type: 'DNS', dns_sub_list: [{ sub_host: 'a', record_type: 'a', record_value1: '1.1.1.1' }], ttl: '300' } },
+      })
+      .mockResolvedValueOnce({
+        code: 200,
+        data: { glue_info: {
+          glue_type: 'DNS',
+          dns_main_list: [{ record_type: 'txt', record_value1: '"hello"' }],
+          dns_sub_list: [{ sub_host: 'a', record_type: 'a', record_value1: '1.1.1.1' }],
+          ttl: '300',
+        } },
+      });
+
+    const id = await adapter.addDomainRecord('@', 'TXT', 'hello', undefined, 300, 1);
+
+    expect(id).toBe('TXT|@|"hello"|0');
+    const params = mocks.setDns2.mock.calls[0][0] as URLSearchParams;
+    expect(params.get('main_record_type0')).toBe('txt');
+    expect(params.get('main_record0')).toBe('"hello"');
+    expect(params.get('subdomain0')).toBe('a');
+  });
+
+  it('读回同时解析 dns_main_list（根，Name 显示为 @）与 dns_sub_list', async () => {
+    const adapter = makeAdapter('ddos.name');
+    mocks.dynadotRequest.mockResolvedValue({
+      code: 200,
+      data: { glue_info: {
+        glue_type: 'DNS',
+        dns_main_list: [{ record_type: 'txt', record_value1: '"hello"' }],
+        dns_sub_list: [{ sub_host: 'a', record_type: 'a', record_value1: '1.1.1.1' }],
+        ttl: '300',
+      } },
+    });
+
+    const page = await adapter.getDomainRecords();
+
+    expect(page.total).toBe(2);
+    expect(page.list[0]).toMatchObject({ Name: '@', Type: 'TXT' });
+    expect(page.list[1]).toMatchObject({ Name: 'a', Type: 'A' });
+  });
+
+  it('dns_sub_list 缺失时中止写入（不能只凭根记录覆盖整个 zone）', async () => {
+    const adapter = makeAdapter('ddos.name');
+    adapter.setDns2Request = mocks.setDns2;
+    mocks.dynadotRequest.mockResolvedValue({
+      code: 200,
+      data: { glue_info: { glue_type: 'DNS', dns_main_list: [{ record_type: 'txt', record_value1: '"x"' }] } },
+    });
+
+    const id = await adapter.addDomainRecord('www', 'A', '1.1.1.1');
+
+    expect(id).toBeNull();
+    expect(adapter.error).toContain('结构异常');
+    expect(mocks.setDns2).not.toHaveBeenCalled();
+  });
+
   it('接口报错时设置 error 并返回失败', async () => {
     const adapter = makeAdapter('ddos.name');
     mocks.dynadotRequest.mockRejectedValueOnce(new Error('Dynadot 请求失败（code 400）：invalid'));

@@ -86,6 +86,19 @@ export function asArray<T = unknown>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+/**
+ * 与 toNumber 的区别：无法解析时返回 NaN 而不是 0。
+ *
+ * 用于「0 是合法值但缺失不等于 0」的场景（例如 MX 优先级：空串经 Number('') 会变成 0，
+ * 直接把缺失的优先级写成 0 会中断收信）。
+ */
+export function parseOptionalNumber(value: unknown): number {
+  if (value === undefined || value === null) return Number.NaN;
+  if (typeof value === 'string' && value.trim() === '') return Number.NaN;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : Number.NaN;
+}
+
 export function toNumber(value: unknown, fallback = 0): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
