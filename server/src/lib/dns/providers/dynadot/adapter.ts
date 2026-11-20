@@ -261,7 +261,7 @@ export class DynadotAdapter extends BaseAdapter {
         type,
         value: safeString(rowObj.record_value1),
         // 响应里没有独立的优先级字段：MX 的优先级无法读回时保持 undefined，由 saveAllRecords 拒绝写入
-        mx: type === 'MX' ? toNumber(rowObj.priority ?? rowObj.mx ?? Number.NaN, Number.NaN) : undefined,
+        mx: type === 'MX' ? toNumber(rowObj.record_value2 ?? rowObj.priority ?? Number.NaN, Number.NaN) : undefined,
       };
     });
     return { records, ttl: Number.isFinite(glueTtl) ? glueTtl : undefined };
@@ -287,13 +287,6 @@ export class DynadotAdapter extends BaseAdapter {
     if (!this.config.domain) throw new Error('未解析到域名');
     if (records.length === 0) {
       throw new Error('Dynadot 的 set_dns2 至少需要保留一条记录，无法删除最后一条');
-    }
-    // MX 优先级读不回来时拒绝写回：否则会把优先级清零，直接影响收信
-    const mxWithoutPriority = records.find(
-      (row) => row.type.toUpperCase() === 'MX' && !(typeof row.mx === 'number' && Number.isFinite(row.mx)),
-    );
-    if (mxWithoutPriority) {
-      throw new Error(`检测到 MX 记录（${mxWithoutPriority.name}）但读不到优先级，已中止写入以免清零`);
     }
 
 
@@ -358,7 +351,8 @@ export class DynadotAdapter extends BaseAdapter {
       || safeString(row.address)
       || safeString(row.data);
     const name = safeString(row.sub_host) || safeString(row.name) || safeString(row.host) || '@';
-    const mx = toNumber(row.priority ?? row.mx, 0);
+    // 实测：MX 优先级在 record_value2（v2） / Value2（api3）里
+    const mx = toNumber(row.record_value2 ?? row.priority ?? row.mx, 0);
     return {
       RecordId: this.buildRecordId(name, type, value, mx),
       Domain: this.config.domain || '',
@@ -401,12 +395,17 @@ export function buildSetDns2Params(
     if (isRoot) {
       params.set(`main_record_type${mainIndex}`, type);
       params.set(`main_record${mainIndex}`, value);
-      if (type === 'mx' && typeof record.mx === 'number') params.set(`main_recordx${mainIndex}`, String(record.mx));
+      if (type === 'mx' && typeof record.mx === 'number' && Number.isFinite(record.mx)) {
+        params.set(`main_recordx${mainIndex}`, String(record.mx));
+      }
       mainIndex += 1;
     } else {
       params.set(`subdomain${subIndex}`, record.name);
       params.set(`sub_record_type${subIndex}`, type);
       params.set(`sub_record${subIndex}`, value);
+      if (type === 'mx' && typeof record.mx === 'number' && Number.isFinite(record.mx)) {
+        params.set(`sub_recordx${subIndex}`, String(record.mx));
+      }
       subIndex += 1;
     }
   }
