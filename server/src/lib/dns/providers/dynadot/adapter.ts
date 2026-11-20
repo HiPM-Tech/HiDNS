@@ -459,6 +459,8 @@ export function buildSetDns2Params(
   let subIndex = 0;
   for (const record of records) {
     const type = record.type.toLowerCase();
+    // 实测：SRV/CAA 的值是单字段完整串（SRV: "priority weight port target"；CAA: "flags tag value"），
+    // 上游不拆字段、读回 record_value1 即完整值，因此不需要 sub_recordx。
     // 实测：TXT 值必须带引号，否则上游判定该记录无效并丢弃（覆盖模式下等于丢记录）
     const quoted = /^".*"$/.test(record.value);
     if (type === 'txt' && !quoted && record.value.includes('"')) {

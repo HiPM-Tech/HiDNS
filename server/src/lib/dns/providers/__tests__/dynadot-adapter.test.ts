@@ -231,6 +231,17 @@ describe('Dynadot 适配器解析（真实响应结构）', () => {
     expect(mocks.setDns2).not.toHaveBeenCalled();
   });
 
+  it('SRV / CAA 的值按单字段完整串写入，不附加 sub_recordx', () => {
+    const params = buildSetDns2Params('k', 'ddos.name', [
+      { name: '_sip._tcp', type: 'SRV', value: '10 20 5060 sipserver.example.com' },
+      { name: 'caa-probe', type: 'CAA', value: String.raw`0 issue "letsencrypt.org"` },
+    ]);
+    expect(params.get('sub_record_type0')).toBe('srv');
+    expect(params.get('sub_record0')).toBe('10 20 5060 sipserver.example.com');
+    expect(params.get('sub_recordx0')).toBeNull();
+    expect(params.get('sub_record1')).toBe(String.raw`0 issue "letsencrypt.org"`);
+  });
+
   it('接口报错时设置 error 并返回失败', async () => {
     const adapter = makeAdapter('ddos.name');
     mocks.dynadotRequest.mockRejectedValueOnce(new Error('Dynadot 请求失败（code 400）：invalid'));
