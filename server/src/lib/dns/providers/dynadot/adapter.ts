@@ -92,7 +92,10 @@ export class DynadotAdapter extends BaseAdapter {
         return { total: 0, list: [] };
       }
       const ttl = toNumber(glue?.ttl, 600);
-      const rows = this.pickArray(glue?.dns_sub_list ?? holder.data, ['dns_sub_list', 'records', 'items', 'list']);
+      // 根记录在 dns_main_list（无 sub_host），子记录在 dns_sub_list
+      const mainRows = this.pickArray(glue?.dns_main_list, ['dns_main_list']);
+      const subRows = this.pickArray(glue?.dns_sub_list ?? holder.data, ['dns_sub_list', 'records', 'items', 'list']);
+      const rows = [...mainRows, ...subRows];
       let list = rows.map((row) => this.mapRecord(row, ttl));
       if (subdomain) {
         const target = subdomain.toLowerCase();
@@ -140,10 +143,6 @@ export class DynadotAdapter extends BaseAdapter {
       //     api3 字段名(subdomain+sub_record_type+sub_record) / 通用字段名(host+type+value) /
       //     大写 record_type / 有无连字符的 sub_host
       //   结论：v2 的写结构无法从公开文档或试错确定 → 写操作固定走 api3 的 set_dns2。
-      if (!name || name === '@') {
-        this.error = 'Dynadot 暂不支持写入根记录（实测会导致 zone 被清空，尚未确认参数语义）';
-        return null;
-      }
       // set_dns2 是全量保存：同域名的写操作必须串行，否则并发时会互相覆盖
       return await withDomainLock(String(this.config.domain), async () => {
         const { records: current, ttl: zoneTtl } = await this.fetchAllRawRecords();
@@ -171,10 +170,6 @@ export class DynadotAdapter extends BaseAdapter {
     try {
       if (!this.config.domain) return false;
       const target = this.parseRecordId(recordId);
-      if (!target.name || target.name === '@' || !name || name === '@') {
-        this.error = 'Dynadot 暂不支持修改根记录（实测会导致 zone 被清空，尚未确认参数语义）';
-        return false;
-      }
       return await withDomainLock(String(this.config.domain), async () => {
         const { records: current, ttl: zoneTtl } = await this.fetchAllRawRecords();
         const idx = current.findIndex((row) => this.matchesRow(row, target));
@@ -196,10 +191,6 @@ export class DynadotAdapter extends BaseAdapter {
     try {
       if (!this.config.domain) return false;
       const target = this.parseRecordId(recordId);
-      if (!target.name || target.name === '@') {
-        this.error = 'Dynadot 暂不支持删除根记录（实测会导致 zone 被清空，尚未确认参数语义）';
-        return false;
-      }
       return await withDomainLock(String(this.config.domain), async () => {
         const { records: current, ttl: zoneTtl } = await this.fetchAllRawRecords();
         const idx = current.findIndex((row) => this.matchesRow(row, target));
@@ -254,10 +245,13 @@ export class DynadotAdapter extends BaseAdapter {
     if (glueType && glueType !== 'DNS') {
       throw new Error('该域名的 NS 未指向 Dynadot，无法写回解析记录');
     }
-    const list = glue?.dns_sub_list;
-    if (!Array.isArray(list)) {
-      throw new Error('Dynadot 返回结构异常（dns_sub_list 不是数组），已中止写入以免覆盖现有记录');
+    const mainList = glue?.dns_main_list;
+    const subList = glue?.dns_sub_list;
+    if (!Array.isArray(mainList) && !Array.isArray(subList)) {
+      throw new Error('Dynadot 返回结构异常（main/sub 记录都不是数组），已中止写入以免覆盖现有记录');
     }
+    // 根记录（dns_main_list）必须一起读出来：set_dns2 是覆盖语义，漏读根记录会在写回时把它清掉
+    const list = [...(Array.isArray(mainList) ? mainList : []), ...(Array.isArray(subList) ? subList : [])];
     const glueTtl = toNumber(glue?.ttl, Number.NaN);
     const records = list.map((row) => {
       const rowObj = row as Dict;
@@ -302,10 +296,6 @@ export class DynadotAdapter extends BaseAdapter {
       throw new Error(`检测到 MX 记录（${mxWithoutPriority.name}）但读不到优先级，已中止写入以免清零`);
     }
 
-    const rootRecord = records.find((row) => !row.name || row.name === '@');
-    if (rootRecord) {
-      throw new Error('Dynadot 暂不支持写回含根记录的 zone（实测会导致 zone 被清空，尚未确认参数语义）');
-    }
 
     const params = buildSetDns2Params(this.config.apiKey, this.config.domain, records, zoneTtl);
     await this.setDns2Request(params);
@@ -405,16 +395,18 @@ export function buildSetDns2Params(
   let subIndex = 0;
   for (const record of records) {
     const type = record.type.toLowerCase();
+    // 实测：TXT 值必须带引号，否则上游判定该记录无效并丢弃（覆盖模式下等于丢记录）
+    const value = type === 'txt' && !/^".*"$/.test(record.value) ? `"${record.value}"` : record.value;
     const isRoot = !record.name || record.name === '@';
     if (isRoot) {
       params.set(`main_record_type${mainIndex}`, type);
-      params.set(`main_record${mainIndex}`, record.value);
+      params.set(`main_record${mainIndex}`, value);
       if (type === 'mx' && typeof record.mx === 'number') params.set(`main_recordx${mainIndex}`, String(record.mx));
       mainIndex += 1;
     } else {
       params.set(`subdomain${subIndex}`, record.name);
       params.set(`sub_record_type${subIndex}`, type);
-      params.set(`sub_record${subIndex}`, record.value);
+      params.set(`sub_record${subIndex}`, value);
       subIndex += 1;
     }
   }

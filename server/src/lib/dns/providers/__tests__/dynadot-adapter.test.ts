@@ -162,33 +162,40 @@ describe('Dynadot 适配器解析（真实响应结构）', () => {
     expect(mocks.setDns2).not.toHaveBeenCalled();
   });
 
-  it('根记录写入被拒绝（set_dns2 根参数语义未确认，实测会清空 zone）', async () => {
-    const adapter = makeAdapter('ddos.name');
-    adapter.setDns2Request = mocks.setDns2;
-
-    const id = await adapter.addDomainRecord('@', 'TXT', 'hidns-verify-root');
-
-    expect(id).toBeNull();
-    expect(adapter.error).toContain('根记录');
-    expect(mocks.setDns2).not.toHaveBeenCalled();
-  });
-
-  it('读回结果含根记录时拒绝整体写回（避免间接清空）', async () => {
+  it('根记录可写：写入走 main_record*，TXT 值自动加引号', async () => {
     const adapter = makeAdapter('ddos.name');
     adapter.setDns2Request = mocks.setDns2;
     mocks.dynadotRequest.mockResolvedValueOnce({
       code: 200,
-      data: { glue_info: { glue_type: 'DNS', dns_sub_list: [
-        { sub_host: '@', record_type: 'txt', record_value1: 'spf' },
-        { sub_host: 'a', record_type: 'a', record_value1: '1.1.1.1' },
-      ] } },
+      data: { glue_info: { glue_type: 'DNS', dns_main_list: [], dns_sub_list: [{ sub_host: 'a', record_type: 'a', record_value1: '1.1.1.1' }], ttl: '300' } },
     });
 
-    const ok = await adapter.deleteDomainRecord('A|a|1.1.1.1|0');
+    const id = await adapter.addDomainRecord('@', 'TXT', 'hello', undefined, 300, 1);
 
-    expect(ok).toBe(false);
-    expect(adapter.error).toContain('根记录');
-    expect(mocks.setDns2).not.toHaveBeenCalled();
+    expect(id).toBe('TXT|@|hello|1');
+    const params = mocks.setDns2.mock.calls[0][0] as URLSearchParams;
+    expect(params.get('main_record_type0')).toBe('txt');
+    expect(params.get('main_record0')).toBe(String.raw`"hello"`);
+    expect(params.get('subdomain0')).toBe('a');
+  });
+
+  it('读回同时解析 dns_main_list（根，Name 显示为 @）与 dns_sub_list', async () => {
+    const adapter = makeAdapter('ddos.name');
+    mocks.dynadotRequest.mockResolvedValueOnce({
+      code: 200,
+      data: { glue_info: {
+        glue_type: 'DNS',
+        dns_main_list: [{ record_type: 'txt', record_value1: String.raw`"hello"` }],
+        dns_sub_list: [{ sub_host: 'a', record_type: 'a', record_value1: '1.1.1.1' }],
+        ttl: '300',
+      } },
+    });
+
+    const page = await adapter.getDomainRecords();
+
+    expect(page.total).toBe(2);
+    expect(page.list[0]).toMatchObject({ Name: '@', Type: 'TXT' });
+    expect(page.list[1]).toMatchObject({ Name: 'a', Type: 'A' });
   });
 
   it('接口报错时设置 error 并返回失败', async () => {
