@@ -50,7 +50,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   // 直接读 window.location：登录页可能在 Router 之外被渲染（测试、嵌入式），
   // 用 useSearchParams 会强制要求 Router 上下文。
   const handleSuccess = onSuccess ?? (() => window.location.assign(resolveReturnTo(window.location.search)));
-  const [step, setStep] = useState<'credentials' | '2fa' | 'reset-request' | 'reset-confirm'>('credentials');
+  const [step, setStep] = useState<'credentials' | '2fa' | 'verify-email' | 'reset-request' | 'reset-confirm'>('credentials');
   const [pendingCredentials, setPendingCredentials] = useState<Credentials | null>(null);
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +59,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     resolver: zodResolver(credentialsSchema),
     defaultValues: { username: '', password: '' },
   });
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [verifyCodeSent, setVerifyCodeSent] = useState(false);
+  const [verifyPending, setVerifyPending] = useState(false);
   const [twoFactorTypes, setTwoFactorTypes] = useState<string[]>([]);
   const [useEmailCode, setUseEmailCode] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
@@ -175,6 +178,15 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
     try {
       const envelope = await authApi.login({ username: values.username, password: prepared.password, encrypted: prepared.encrypted });
+      if (envelope.code === -4) {
+        // 未验证邮箱：先补验证，再重新登录（后端在 2FA 之后拦截）
+        const data = envelope.data as { email?: string } | undefined;
+        setPendingCredentials(values);
+        setPendingEmail(data?.email ?? '');
+        setVerifyCodeSent(false);
+        setStep('verify-email');
+        return;
+      }
       if (envelope.code === -2) {
         setPendingCredentials(values);
         setTwoFactorTypes((envelope.data as { types?: string[] } | undefined)?.types ?? []);
@@ -189,6 +201,42 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       handleSuccess(envelope.data?.user);
     } catch (err) {
       setError(describeError(err));
+    }
+  });
+
+  const submitVerifyEmail = twoFactorForm.handleSubmit(async ({ code }) => {
+    if (!pendingCredentials) {
+      setStep('credentials');
+      return;
+    }
+    setError(null);
+    setVerifyPending(true);
+    try {
+      // postOk 在 code!==0 时抛错，这里不需要再判 envelope
+      await authApi.verifyEmail(pendingCredentials.username, code);
+      // 验证通过后重新登录（此时后端不会再拦截）
+      const prepared = await preparePassword(pendingCredentials.password);
+      if (!prepared) return;
+      const envelope = await authApi.login({
+        username: pendingCredentials.username,
+        password: prepared.password,
+        encrypted: prepared.encrypted,
+      });
+      if (envelope.code === -2) {
+        setTwoFactorTypes((envelope.data as { types?: string[] } | undefined)?.types ?? []);
+        setStep('2fa');
+        twoFactorForm.reset();
+        return;
+      }
+      if (envelope.code !== 0) {
+        setError(envelope.msg || copy.auth.loginFailed);
+        return;
+      }
+      handleSuccess(envelope.data?.user);
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setVerifyPending(false);
     }
   });
 
@@ -490,6 +538,57 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                     {copy.common.back}
                   </button>
                 </div>
+              </form>
+            ) : step === 'verify-email' ? (
+              <form className="space-y-phi-6" onSubmit={submitVerifyEmail} noValidate>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    需要先验证邮箱 <span className="font-medium text-foreground">{pendingEmail || '（未填写）'}</span>，
+                    验证码将发送到这个地址。
+                  </p>
+                  <Label htmlFor="verify-code">邮箱验证码</Label>
+                  <Input
+                    id="verify-code"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    autoFocus
+                    aria-invalid={twoFactorForm.formState.errors.code ? true : undefined}
+                    {...twoFactorForm.register('code')}
+                  />
+                  {twoFactorForm.formState.errors.code && (
+                    <p className="text-xs text-destructive">{twoFactorForm.formState.errors.code.message}</p>
+                  )}
+                  <button
+                    type="button"
+                    className="text-xs text-primary underline-offset-4 hover:underline disabled:opacity-60"
+                    disabled={sendingCode || !pendingCredentials}
+                    onClick={async () => {
+                      if (!pendingCredentials) return;
+                      setSendingCode(true);
+                      try {
+                        await authApi.loginEmailCode(pendingCredentials.username);
+                        setVerifyCodeSent(true);
+                      } finally {
+                        setSendingCode(false);
+                      }
+                    }}
+                  >
+                    {sendingCode ? '发送中…' : verifyCodeSent ? '重新发送验证码' : '发送验证码'}
+                  </button>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={verifyPending}>
+                  {verifyPending ? <Loader2 className="animate-spin" aria-hidden /> : <Mail strokeWidth={1.75} aria-hidden />}
+                  {verifyPending ? '验证中…' : '验证并继续'}
+                </Button>
+
+                <button
+                  type="button"
+                  className="w-full text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  onClick={() => { setStep('credentials'); setError(null); setPendingCredentials(null); }}
+                >
+                  {copy.common.back}
+                </button>
               </form>
             ) : step === 'reset-request' ? (
               <form className="space-y-phi-6" onSubmit={submitResetRequest} noValidate>

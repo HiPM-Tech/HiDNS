@@ -206,19 +206,14 @@ router.put('/:id', authMiddleware, noTokenAuth('user management'), adminOnly, as
     }
   }
 
-  const updates: { nickname?: string; email?: string; email_verified?: number; role_level?: number; role?: string; status?: number; password_hash?: string } = {};
+  const updates: { nickname?: string; role_level?: number; role?: string; status?: number; password_hash?: string } = {};
 
   if (nickname !== undefined) {
     updates.nickname = nickname.trim() || user.username;
   }
-  if (email !== undefined) {
-    updates.email = email;
-    // 只有邮箱真的变了才复位验证状态：管理端表单恒定提交 email，
-    // 否则「只改角色 / 重置密码」也会把已验证邮箱打成未验证（与 /profile 同口径）
-    if (email !== user.email) {
-      updates.email_verified = 0;
-    }
-  }
+  // 邮箱只能由用户自己在个人资料里改（改邮箱会触发验证码，属于账号主权操作）。
+  // 管理端即使传了 email 也忽略，避免「管理员把 A 的邮箱改成 B」这类越权与继承验证状态的问题。
+  void email;
   if (role !== undefined) {
     let roleLevel = normalizeRole(role);
     // Only super admin can create other admins

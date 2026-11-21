@@ -14,7 +14,7 @@ import { systemSecurityApi } from './security-api';
 
 const LOGIN_DEFAULTS: LoginLimitConfig = { enabled: true, maxAttempts: 5, lockoutDuration: 15 };
 const SMTP_DEFAULTS: SmtpConfig = { enabled: false, host: '', port: 587, secure: false, username: '', password: '', fromEmail: '', fromName: 'HiDNS' };
-const SECURITY_DEFAULTS: SecurityConfig = { jwtViewEmailNotify: false, domainExpiryNotify: false, domainExpiryDays: 30, showDnsProviderSecrets: false };
+const SECURITY_DEFAULTS: SecurityConfig = { jwtViewEmailNotify: false, domainExpiryNotify: false, domainExpiryDays: 30, showDnsProviderSecrets: false, requireEmailVerification: true };
 const TEMPLATE_LABELS: Record<string, string> = {
   verification_code: '邮箱验证码',
   password_reset: '密码重置',
@@ -259,6 +259,12 @@ function SecurityConfigCard({ onError, onSaved }: { onError: (e: unknown, f: str
           <>
             <ToggleRow label="向管理员明文展示 DNS 凭据" hint="关闭时列表仅返回 ***，凭据不会出现在浏览器" checked={Boolean(draft.showDnsProviderSecrets)} onChange={(checked) => setDraft({ ...draft, showDnsProviderSecrets: checked })} />
             <ToggleRow label="JWT 视图发送邮件通知" hint="记录变更时通知相关用户" checked={Boolean(draft.jwtViewEmailNotify)} onChange={(checked) => setDraft({ ...draft, jwtViewEmailNotify: checked })} />
+            <ToggleRow
+              label="登录时要求验证邮箱"
+              hint="未验证邮箱的用户登录后需先完成一次邮箱验证；超级管理员豁免"
+              checked={Boolean(draft.requireEmailVerification)}
+              onChange={(checked) => setDraft({ ...draft, requireEmailVerification: checked })}
+            />
             <ToggleRow label="域名到期提醒" hint="到期前若干天发送邮件" checked={Boolean(draft.domainExpiryNotify)} onChange={(checked) => setDraft({ ...draft, domainExpiryNotify: checked })} />
             <div className="space-y-1.5">
               <Label htmlFor="expiry-days">到期提醒提前天数</Label>

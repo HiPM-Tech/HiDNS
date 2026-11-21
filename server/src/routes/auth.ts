@@ -705,6 +705,32 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
       }
     }
 
+    // 邮箱验证拦截（产品口径：未验证邮箱的用户登录后必须验证一次，超级管理员豁免，
+    // 是否启用由系统设置里的 requireEmailVerification 控制）。
+    // 放在 2FA 之后：先过第二因子，再补邮箱验证，避免两套挑战相互打断。
+    // 策略存在 system_configs.security_config 里（与系统设置页同一份数据）
+    let requireEmailVerification = true;
+    try {
+      const rawConfig = await SettingsOperations.get('security_config');
+      if (rawConfig) {
+        const parsed = JSON.parse(rawConfig) as { requireEmailVerification?: boolean };
+        if (parsed.requireEmailVerification !== undefined) requireEmailVerification = Boolean(parsed.requireEmailVerification);
+      }
+    } catch { /* 配置损坏时按默认（开启）处理 */ }
+    if (
+      requireEmailVerification
+      && authenticatedUser.email
+      && !Number((authenticatedUser as { email_verified?: number }).email_verified)
+      && Number((authenticatedUser as { role_level?: number }).role_level ?? 0) < 3
+    ) {
+      res.json({
+        code: -4,
+        msg: 'Email verification required',
+        data: { requireEmailVerification: true, email: authenticatedUser.email },
+      });
+      return;
+    }
+
     // Clear login attempts on successful login
     await clearLoginAttempts(loginIdentifier, ipAddress);
 
@@ -854,6 +880,36 @@ router.post('/login/email-code', emailLimiter, async (req: Request, res: Respons
   }
 });
 
+
+/**
+ * 验证当前用户的邮箱（登录后强制验证流程）。
+ *
+ * 只校验「发到该邮箱的验证码」，不签发 token —— 通过后前端重新走 /login。
+ * 不要求密码：验证码本身已经证明邮箱归属。
+ */
+router.post('/verify-email', emailLimiter, async (req: Request, res: Response) => {
+  const { username, code } = req.body as { username?: string; code?: string };
+  if (!username || !code) {
+    sendError(res, 'username and code are required', 400);
+    return;
+  }
+  const identifier = String(username).trim();
+  const user = (identifier.includes('@')
+    ? await UserOperations.getByEmail(identifier)
+    : await UserOperations.getByUsername(identifier)) as { id?: number; email?: string } | undefined;
+  if (!user?.id || !user.email) {
+    sendError(res, 'Invalid verification request', 400);
+    return;
+  }
+  const ok = await verifyEmailVerificationCode(Number(user.id), String(user.email), String(code), 'profile');
+  if (!ok) {
+    sendError(res, 'Invalid email verification code', 401);
+    return;
+  }
+  await UserOperations.update(Number(user.id), { email_verified: 1 });
+  await logAuditOperation(Number(user.id), 'verify_email', 'system', {}, req);
+  sendSuccess(res, { verified: true });
+});
 router.post('/oauth/start', async (req: Request, res: Response) => {
   try {
     // 未显式传 provider 时，回落到「第一个已启用」的提供商；

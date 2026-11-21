@@ -311,6 +311,8 @@ router.get('/security', authMiddleware, noTokenAuth('system settings'), adminOnl
 
   const defaultConf = {
     jwtViewEmailNotify: false,
+    // 登录后强制验证邮箱（超级管理员豁免），默认开启
+    requireEmailVerification: true,
     domainExpiryNotify: expiryNotifyValue ? (expiryNotifyValue === '1' || expiryNotifyValue === 'true') : false,
     domainExpiryDays: expiryDaysValue ? parseInt(expiryDaysValue) : 30
   };
@@ -329,10 +331,12 @@ router.get('/security', authMiddleware, noTokenAuth('system settings'), adminOnl
 });
 
 router.put('/security', authMiddleware, noTokenAuth('system settings'), adminOnly, async (req: Request, res: Response) => {
-  const { jwtViewEmailNotify, domainExpiryNotify, domainExpiryDays, showDnsProviderSecrets } = req.body;
+  const { jwtViewEmailNotify, domainExpiryNotify, domainExpiryDays, showDnsProviderSecrets, requireEmailVerification } = req.body;
   const config = {
     jwtViewEmailNotify: !!jwtViewEmailNotify,
-    showDnsProviderSecrets: !!showDnsProviderSecrets
+    showDnsProviderSecrets: !!showDnsProviderSecrets,
+    // 未传时保持默认开启（与 GET 的 defaultConf 对齐）
+    requireEmailVerification: requireEmailVerification === undefined ? true : !!requireEmailVerification,
   };
 
   await SettingsOperations.set('security_config', JSON.stringify(config));

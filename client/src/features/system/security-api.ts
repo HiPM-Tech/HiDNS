@@ -23,6 +23,8 @@ export interface SecurityConfig {
   domainExpiryNotify?: boolean;
   domainExpiryDays?: number;
   showDnsProviderSecrets?: boolean;
+  /** 登录后强制验证邮箱（超级管理员豁免） */
+  requireEmailVerification?: boolean;
 }
 
 export interface AuditRules {
