@@ -57,7 +57,8 @@ describe('SecurityPage', () => {
 
   it('未启用 2FA 时展示启用入口与空设备提示', async () => {
     renderPage();
-    expect(await screen.findByText('未启用')).toBeTruthy();
+    // TOTP 与邮箱两张卡片都会显示「未启用」，这里断言数量而不是唯一匹配
+    expect((await screen.findAllByText('未启用')).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('button', { name: '启用两步验证' })).toBeTruthy();
     expect(screen.getByText('还没有受信任的设备')).toBeTruthy();
     expect(screen.getByText('还没有注册通行密钥')).toBeTruthy();

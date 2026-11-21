@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import { getRequestIP } from '../middleware/clientIP';
 import { sendError, sendSuccess } from '../utils/http';
 import { authMiddleware, adminOnly, noTokenAuth } from '../middleware/auth';
-import { SecurityPolicyOperations, TrustedDeviceOperations, getDbType, UserOperations } from '../db/bal/business-adapter';
+import { SecurityPolicyOperations, TrustedDeviceOperations, getDbType, UserOperations, TwoFAOperations } from '../db/bal/business-adapter';
 import { getSecurityPolicy, updateSecurityPolicy, checkPasswordStrength, validatePassword, requires2FA, has2FAEnabled } from '../service/securityPolicy';
 import { generateTOTPSecret, enableTOTP, disableTOTP, getTOTPStatus, verifyTOTPToken, verifyTOTPTokenForUser, verifyBackupCode } from '../service/totp';
 import { verifyTrustedDevice, type DeviceInfo } from '../service/deviceTrust';
@@ -122,6 +122,9 @@ router.get('/2fa-status', authMiddleware, async (req, res) => {
     const policy = await getSecurityPolicy();
     const status = await getTOTPStatus(userId);
     const validationEnabled = Boolean(policy.require2FAGlobal);
+    // 邮箱第二因子（issue #43）：与 TOTP 并列，独立开关
+    const emailEnabled = await TwoFAOperations.isEmailEnabled(userId);
+    const userRow = await UserOperations.getById(userId) as { email?: string; email_verified?: number } | undefined;
     res.json({
       code: 0,
       data: {
@@ -129,12 +132,44 @@ router.get('/2fa-status', authMiddleware, async (req, res) => {
         configured: status.enabled,
         enabled: validationEnabled && status.enabled,
         validationEnabled,
+        email2FA: {
+          enabled: emailEnabled,
+          email: userRow?.email || '',
+          emailVerified: Boolean(userRow?.email_verified),
+        },
       },
       msg: 'success',
     });
   } catch (error) {
     log.error('Failed to check 2FA status:', { error });
     sendError(res, 'Failed to check 2FA status', 500);
+  }
+});
+
+/**
+ * 开启/关闭邮箱验证码作为第二因子（issue #43 C2）。
+ * 开启前要求邮箱已验证——否则用户根本收不到码。
+ */
+router.put('/2fa/email', authMiddleware, async (req, res) => {
+  try {
+    const userId = (req as any).user.userId;
+    const { enabled } = req.body as { enabled?: boolean };
+    if (enabled) {
+      const userRow = await UserOperations.getById(userId) as { email?: string; email_verified?: number } | undefined;
+      if (!userRow?.email) {
+        sendError(res, '请先在个人资料里填写邮箱', 400);
+        return;
+      }
+      if (!userRow.email_verified) {
+        sendError(res, '请先完成邮箱验证', 400);
+        return;
+      }
+    }
+    await TwoFAOperations.setEmailEnabled(userId, Boolean(enabled));
+    sendSuccess(res, { enabled: Boolean(enabled) });
+  } catch (error) {
+    log.error('Failed to toggle email 2FA:', { error });
+    sendError(res, 'Failed to toggle email 2FA', 500);
   }
 });
 

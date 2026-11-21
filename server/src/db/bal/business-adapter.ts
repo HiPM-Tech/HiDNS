@@ -1502,6 +1502,37 @@ export const TwoFAOperations = {
     return Boolean(result?.enabled);
   },
 
+  /** 邮箱验证码作为第二因子（issue #43 C2）：与 totp/webauthn 同表，type = 'email' */
+  async isEmailEnabled(userId: number): Promise<boolean> {
+    const result = await getInternal<{ enabled: number }>(
+      'SELECT enabled FROM user_2fa WHERE user_id = ? AND type = ?',
+      [userId, 'email'],
+      { operation: 'TwoFA.isEmailEnabled', table: 'user_2fa' }
+    );
+    return Boolean(result?.enabled);
+  },
+
+  async setEmailEnabled(userId: number, enabled: boolean): Promise<void> {
+    const existing = await getInternal<{ id: number }>(
+      'SELECT id FROM user_2fa WHERE user_id = ? AND type = ?',
+      [userId, 'email'],
+      { operation: 'TwoFA.setEmailEnabled.find', table: 'user_2fa' }
+    );
+    if (existing) {
+      await executeInternal(
+        'UPDATE user_2fa SET enabled = ? WHERE user_id = ? AND type = ?',
+        [enabled ? 1 : 0, userId, 'email'],
+        { operation: 'TwoFA.setEmailEnabled.update', table: 'user_2fa' }
+      );
+      return;
+    }
+    await executeInternal(
+      "INSERT INTO user_2fa (user_id, type, enabled, created_at) VALUES (?, 'email', ?, datetime('now'))",
+      [userId, enabled ? 1 : 0],
+      { operation: 'TwoFA.setEmailEnabled.insert', table: 'user_2fa' }
+    );
+  },
+
   /** 获取 TOTP 密钥 */
   async getTOTPSecret(userId: number): Promise<string | undefined> {
     const result = await getInternal<{ secret: string }>(

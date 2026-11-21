@@ -58,6 +58,12 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     resolver: zodResolver(credentialsSchema),
     defaultValues: { username: '', password: '' },
   });
+  const [twoFactorTypes, setTwoFactorTypes] = useState<string[]>([]);
+  const [useEmailCode, setUseEmailCode] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const hasEmailFactor = twoFactorTypes.includes('email');
+
   const twoFactorForm = useForm<TwoFactorForm>({
     resolver: zodResolver(twoFactorSchema),
     defaultValues: { code: '' },
@@ -170,6 +176,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       const envelope = await authApi.login({ username: values.username, password: prepared.password, encrypted: prepared.encrypted });
       if (envelope.code === -2) {
         setPendingCredentials(values);
+        setTwoFactorTypes((envelope.data as { types?: string[] } | undefined)?.types ?? []);
         setStep('2fa');
         twoFactorForm.reset();
         return;
@@ -197,8 +204,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         username: pendingCredentials.username,
         password: prepared.password,
         encrypted: prepared.encrypted,
-        totpCode: useBackupCode ? undefined : code,
+        totpCode: useBackupCode || useEmailCode ? undefined : code,
         backupCode: useBackupCode ? code : undefined,
+        emailCode: useEmailCode ? code : undefined,
       });
       if (envelope.code !== 0) {
         setError(envelope.msg || copy.auth.loginFailed);
@@ -413,7 +421,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
             ) : step === '2fa' ? (
               <form className="space-y-phi-6" onSubmit={submitTwoFactor} noValidate>
                 <div className="space-y-2">
-                  <Label htmlFor="code">{useBackupCode ? copy.auth.backupCode : copy.auth.totpCode}</Label>
+                  <Label htmlFor="code">
+                    {useEmailCode ? '邮箱验证码' : useBackupCode ? copy.auth.backupCode : copy.auth.totpCode}
+                  </Label>
                   <Input
                     id="code"
                     inputMode={useBackupCode ? 'text' : 'numeric'}
@@ -425,6 +435,36 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                   />
                   {twoFactorForm.formState.errors.code && (
                     <p className="text-xs text-destructive">{twoFactorForm.formState.errors.code.message}</p>
+                  )}
+                  {hasEmailFactor && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <button
+                        type="button"
+                        className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                        onClick={() => { setUseEmailCode((prev) => !prev); setCodeSent(false); }}
+                      >
+                        {useEmailCode ? '改用身份验证器' : '改用邮箱验证码'}
+                      </button>
+                      {useEmailCode && (
+                        <button
+                          type="button"
+                          className="text-primary underline-offset-4 hover:underline disabled:opacity-60"
+                          disabled={sendingCode}
+                          onClick={async () => {
+                            if (!pendingCredentials) return;
+                            setSendingCode(true);
+                            try {
+                              await authApi.loginEmailCode(pendingCredentials.username);
+                              setCodeSent(true);
+                            } finally {
+                              setSendingCode(false);
+                            }
+                          }}
+                        >
+                          {sendingCode ? '发送中…' : codeSent ? '重新发送' : '发送验证码'}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 

@@ -521,11 +521,12 @@ router.get('/public-key', (req: Request, res: Response) => {
  *         description: JWT token returned
  */
 router.post('/login', loginLimiter, async (req: Request, res: Response) => {
-  const { username, password, totpCode, backupCode, webauthnResponse, trustDevice, encrypted } = req.body as {
+  const { username, password, totpCode, backupCode, webauthnResponse, emailCode, trustDevice, encrypted } = req.body as {
     username: string;
     password: string;
     totpCode?: string;
     backupCode?: string;
+    emailCode?: string;
     webauthnResponse?: any;
     trustDevice?: boolean;
     encrypted?: boolean;
@@ -607,7 +608,11 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
     const totpStatus = await getTOTPStatus(authenticatedUser.id);
     const isWebauthnEnabled = await TwoFAOperations.isWebAuthnEnabled(authenticatedUser.id);
     const isTotpEnabled = totpStatus.enabled;
-    const has2FA = isTotpEnabled || isWebauthnEnabled;
+    // 邮箱验证码作为第二因子（issue #43 C2）：需要已开启且邮箱已验证，否则拿不到码
+    const isEmailEnabled = (await TwoFAOperations.isEmailEnabled(authenticatedUser.id))
+      && Boolean(authenticatedUser.email)
+      && Boolean((authenticatedUser as { email_verified?: number }).email_verified);
+    const has2FA = isTotpEnabled || isWebauthnEnabled || isEmailEnabled;
 
     // 检查是否需要强制 2FA
     const force2FA = twoFAValidationEnabled && (await requires2FA(authenticatedUser.id));
@@ -634,6 +639,17 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
         const secret = await TwoFAOperations.getTOTPSecret(authenticatedUser.id);
         if (!secret || !verifyTOTPToken(secret, totpCode)) {
           sendError(res, 'Invalid 2FA code', 401);
+          return;
+        }
+      } else if (emailCode && isEmailEnabled) {
+        const valid = await verifyEmailVerificationCode(
+          authenticatedUser.id,
+          String(authenticatedUser.email),
+          emailCode,
+          'login',
+        );
+        if (!valid) {
+          sendError(res, 'Invalid email verification code', 401);
           return;
         }
       } else if (webauthnResponse && isWebauthnEnabled) {
@@ -683,6 +699,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
         const types = [];
         if (isTotpEnabled) types.push('totp');
         if (isWebauthnEnabled) types.push('webauthn');
+        if (isEmailEnabled) types.push('email');
         res.json({ code: -2, msg: '2FA required', data: { require2FA: true, types } });
         return;
       }
@@ -804,6 +821,35 @@ router.get('/oauth/status', async (_req: Request, res: Response) => {
  *       400:
  *         description: OAuth not enabled or configuration error
  */
+/**
+ * 发送登录用邮箱验证码（第二因子，issue #43 C2）。
+ *
+ * 防枚举：无论账号是否存在、是否开启邮箱 2FA、发信是否成功，响应都一致。
+ */
+router.post('/login/email-code', emailLimiter, async (req: Request, res: Response) => {
+  try {
+    const { username } = req.body as { username?: string };
+    if (username) {
+      const user = await UserOperations.getByUsername(String(username).trim()) as
+        | { id?: number; email?: string; email_verified?: number }
+        | undefined;
+      if (user?.id && user.email) {
+        const enabled = await TwoFAOperations.isEmailEnabled(Number(user.id));
+        if (enabled && Boolean(user.email_verified)) {
+          try {
+            await sendEmailVerificationCode(Number(user.id), String(user.email), 'login');
+          } catch (error) {
+            log.warn('Failed to send login verification code', { error });
+          }
+        }
+      }
+    }
+    sendSuccess(res, { sent: true }, '如果该账号已开启邮箱验证，验证码会发送到其邮箱');
+  } catch (error) {
+    sendError(res, error instanceof Error ? error.message : 'Failed to send code', 500);
+  }
+});
+
 router.post('/oauth/start', async (req: Request, res: Response) => {
   try {
     // 未显式传 provider 时，回落到「第一个已启用」的提供商；

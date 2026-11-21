@@ -14,6 +14,8 @@ export interface TwoFactorStatus {
   configured: boolean;
   enabled: boolean;
   validationEnabled: boolean;
+  /** 邮箱验证码第二因子（issue #43） */
+  email2FA?: { enabled: boolean; email: string; emailVerified: boolean };
 }
 
 export interface TwoFactorSetup {
@@ -51,6 +53,8 @@ export const securityApi = {
 
   twoFactorStatus: (): Promise<import('../../lib/http').ApiEnvelope<TwoFactorStatus>> =>
     http.get<TwoFactorStatus>('/security/2fa-status'),
+  /** 开启/关闭邮箱验证码第二因子 */
+  setEmail2FA: (enabled: boolean) => http.putOk<{ enabled: boolean }>('/security/2fa/email', { enabled }),
   setupTwoFactor: (): Promise<import('../../lib/http').ApiEnvelope<TwoFactorSetup>> =>
     http.postOk<TwoFactorSetup>('/security/2fa/setup'),
   enableTwoFactor: (payload: { secret: string; token: string; backupCodes: string[] }) =>

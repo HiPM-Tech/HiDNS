@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { alertVariants } from '../../ui/alert';
 import { formatDate } from '../../lib/format';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Fingerprint, KeyRound, Laptop, Loader2, ShieldCheck, Trash2 } from 'lucide-react';
+import { AlertTriangle, Fingerprint, KeyRound, Laptop, Loader2, Mail, ShieldCheck, Trash2 } from 'lucide-react';
 import { startRegistration } from '@simplewebauthn/browser';
 import { describeWebAuthnError } from '../../lib/webauthn-error';
 import { unwrapWebAuthnOptions } from '../../lib/webauthn-options';
@@ -36,6 +36,7 @@ export function SecurityPage() {
   const passkeys = usePasskeys();
   const policy = useSecurityPolicy(admin);
 
+  const [emailToggling, setEmailToggling] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [disableOpen, setDisableOpen] = useState(false);
   const [pendingRemoveAll, setPendingRemoveAll] = useState(false);
@@ -94,6 +95,46 @@ export function SecurityPage() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader className="flex-row items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2"><Mail className="h-4 w-4" /> 邮箱验证码</CardTitle>
+            <CardDescription>
+              登录时把验证码发到已验证的邮箱。需要先在个人资料里填写并验证邮箱。
+            </CardDescription>
+          </div>
+          {status.isLoading
+            ? <Skeleton className="h-6 w-20" />
+            : status.data?.email2FA?.enabled
+              ? <Badge variant="success">已启用</Badge>
+              : <Badge variant="secondary">未启用</Badge>}
+        </CardHeader>
+        <CardContent className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {status.data?.email2FA?.email
+              ? status.data.email2FA.emailVerified
+                ? `验证码将发送到 ${status.data.email2FA.email}`
+                : '邮箱尚未验证，请先在个人资料里完成验证。'
+              : '尚未填写邮箱，无法启用。'}
+          </p>
+          <Button
+            size="sm"
+            variant={status.data?.email2FA?.enabled ? 'outline' : 'default'}
+            disabled={status.isLoading || emailToggling || !status.data?.email2FA?.email || !status.data?.email2FA?.emailVerified}
+            onClick={async () => {
+              setEmailToggling(true);
+              try {
+                await securityApi.setEmail2FA(!status.data?.email2FA?.enabled);
+                await status.refetch();
+              } finally {
+                setEmailToggling(false);
+              }
+            }}
+          >
+            {status.data?.email2FA?.enabled ? '停用' : '启用'}
+          </Button>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader className="flex-row items-start justify-between gap-3">
           <div>

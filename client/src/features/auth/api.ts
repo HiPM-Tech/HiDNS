@@ -33,6 +33,9 @@ export interface LoginResult {
 
 export const authApi = {
   login: (payload: LoginPayload): Promise<ApiEnvelope<LoginResult>> => http.post<LoginResult>('/auth/login', payload),
+  /** 发送登录用邮箱验证码（第二因子，issue #43） */
+  loginEmailCode: (username: string): Promise<ApiEnvelope<{ sent: boolean }>> =>
+    http.post<{ sent: boolean }>('/auth/login/email-code', { username }),
   me: (): Promise<ApiEnvelope<AuthUser>> => http.get<AuthUser>('/auth/me'),
   logout: (): Promise<ApiEnvelope<null>> => http.postOk<null>('/auth/logout'),
   // 服务端把 PublicKeyCredentialRequestOptionsJSON 直接放在 data 里（没有再包一层 options）
