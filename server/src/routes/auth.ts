@@ -1276,8 +1276,17 @@ router.put('/profile', authMiddleware, noTokenAuth('account profile'), async (re
           res.status(400).json({ code: 400, msg: 'Valid email verification code is required' });
           return;
         }
+        // 邮箱唯一：唯一索引是最后一道防线，这里先给出可读错误（issue #43 C0）
+        if (nextEmail) {
+          const occupied = await UserOperations.getByEmail(nextEmail);
+          const occupiedId = Number((occupied as { id?: number } | undefined)?.id ?? 0);
+          if (occupiedId && occupiedId !== Number(user.id)) {
+            res.status(409).json({ code: 409, msg: '该邮箱已被其它账号使用' });
+            return;
+          }
+        }
       }
-      updates.email = nextEmail;
+      updates.email = nextEmail || null;
     }
 
     await UserOperations.update(user.id as number, updates);

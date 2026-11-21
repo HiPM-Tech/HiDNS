@@ -8,7 +8,10 @@ export const COMPLETE_SCHEMA: DatabaseSchema = {
         { name: 'id', type: 'id', primaryKey: true, autoIncrement: true },
         { name: 'username', type: 'string', length: 500, unique: true, nullable: false },
         { name: 'nickname', type: 'string', length: 500, defaultValue: '' },
-        { name: 'email', type: 'string', length: 500, defaultValue: '' },
+        // 允许 NULL：空邮箱不参与唯一性（多个用户未填邮箱是常态）
+        { name: 'email', type: 'string', length: 500, nullable: true },
+        // 邮箱是否已验证：验证码登录/2FA 只对已验证邮箱开放（issue #43）
+        { name: 'email_verified', type: 'integer', defaultValue: 0 },
         { name: 'password_hash', type: 'string', length: 500, nullable: false },
         { name: 'role', type: 'string', length: 20, defaultValue: 'member' },
         { name: 'role_level', type: 'integer', defaultValue: 1 },

@@ -348,6 +348,26 @@ function registerDefaultMigrations(runner: DataMigrationRunner): void {
    * 上面那条迁移只清 domains 子树；旧代码删账号时（只删 dns_accounts 一行、库又缺 FK）
    * 留下的 renewable_domains 没有任何入口清理。单独一条迁移，让已经记过账的库也能再跑一次。
    */
+  /**
+   * 邮箱唯一性收敛（issue #43 C0）。
+   *
+   * 口径：同一邮箱绑多个账号时**保留最早注册的那一个**（id 最小），其余置空并留待用户重新绑定。
+   * 空串归一成 NULL —— 否则唯一索引会把所有未填邮箱的用户判成冲突。
+   * 每次启动都执行（幂等）：既是清理，也是「补建唯一索引」。
+   */
+  runner.register({
+    id: 'normalize-user-emails',
+    description: 'Normalize empty emails, dedupe keeping earliest id, add unique index',
+    dependsOn: ['cleanup-orphan-renewables'],
+    condition: async () => true,
+    execute: async () => {
+      const result = await normalizeUserEmails(getConnection());
+      if (result.cleared > 0) {
+        log.warn('Duplicate user emails cleared (kept earliest id)', { cleared: result.cleared });
+      }
+    }
+  });
+
   runner.register({
     id: 'cleanup-orphan-renewables',
     description: 'Remove renewable_domains rows whose account no longer exists',
@@ -370,4 +390,38 @@ function registerDefaultMigrations(runner: DataMigrationRunner): void {
       }
     }
   });
+}
+
+/**
+ * 邮箱唯一性收敛（issue #43 C0）。
+ *
+ * 口径：同一邮箱保留 id 最小的一条，其余置空。
+ *
+ * 「空」用空串而不是 NULL：SQLite 的 reconciler 不会把已有列的 NOT NULL 改掉，
+ * 老库上 UPDATE ... SET email = NULL 会直接失败。空串配合**部分唯一索引**
+ * （WHERE email <> ''）达到同样效果；MySQL 不支持部分索引则退化为普通索引 + 应用层校验。
+ *
+ * 每次启动执行（幂等）：既是清理，也是补建索引。
+ */
+export async function normalizeUserEmails(conn: {
+  execute: (sql: string, params?: unknown[]) => Promise<unknown>;
+  query: <T>(sql: string, params?: unknown[]) => Promise<T[]>;
+}): Promise<{ cleared: number }> {
+  // 旧库可能是 NULL（新 schema 允许），统一成空串
+  await conn.execute("UPDATE users SET email = '' WHERE email IS NULL");
+
+  const duplicates = await conn.query<{ email: string; keep_id: number }>(
+    "SELECT email, MIN(id) AS keep_id FROM users WHERE email IS NOT NULL AND email <> '' GROUP BY email HAVING COUNT(*) > 1",
+  );
+  for (const row of duplicates) {
+    await conn.execute("UPDATE users SET email = '' WHERE email = ? AND id <> ?", [row.email, row.keep_id]);
+  }
+
+  // 部分唯一索引：空串可以重复（未填邮箱的用户是常态）
+  try {
+    await conn.execute("CREATE UNIQUE INDEX idx_users_email ON users(email) WHERE email <> ''");
+  } catch {
+    /* 已存在，或方言不支持部分索引 */
+  }
+  return { cleared: duplicates.length };
 }
