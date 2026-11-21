@@ -26,6 +26,25 @@ export const COMPLETE_SCHEMA: DatabaseSchema = {
       ]
     },
     {
+      name: 'email_verification_codes',
+      columns: [
+        { name: 'id', type: 'id', primaryKey: true, autoIncrement: true },
+        { name: 'email', type: 'string', length: 500, nullable: false },
+        // 只存 sha256(code)，库里看不到明文验证码
+        { name: 'code_hash', type: 'string', length: 128, nullable: false },
+        { name: 'purpose', type: 'string', length: 32, defaultValue: 'profile' },
+        { name: 'user_id', type: 'integer', nullable: true },
+        { name: 'attempts', type: 'integer', defaultValue: 0 },
+        { name: 'used_at', type: 'datetime', nullable: true },
+        { name: 'expires_at', type: 'datetime', nullable: false },
+        { name: 'created_at', type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' },
+      ],
+      indexes: [
+        { name: 'idx_email_codes_email_purpose', columns: ['email', 'purpose'] },
+        { name: 'idx_email_codes_expires', columns: ['expires_at'] },
+      ]
+    },
+    {
       name: 'teams',
       columns: [
         { name: 'id', type: 'id', primaryKey: true, autoIncrement: true },

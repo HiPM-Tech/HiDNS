@@ -446,6 +446,59 @@ export function getDatabaseStats(): { queries: number; errors: number; reads: nu
 // 用户相关业务操作
 // ============================================================================
 
+/** 邮箱验证码（落库版，issue #43 C1） */
+export const EmailVerificationOperations = {
+  async create(params: {
+    email: string;
+    codeHash: string;
+    purpose: string;
+    userId?: number | null;
+    expiresAt: string;
+  }): Promise<void> {
+    return executeInternal(
+      `INSERT INTO email_verification_codes (email, code_hash, purpose, user_id, attempts, expires_at, created_at)
+       VALUES (?, ?, ?, ?, 0, ?, datetime('now'))`,
+      [params.email, params.codeHash, params.purpose, params.userId ?? null, params.expiresAt],
+      { operation: 'EmailVerification.create', table: 'email_verification_codes' }
+    );
+  },
+
+  /** 取该邮箱+用途下最新一条未使用、未过期的验证码 */
+  async findActive(email: string, purpose: string, nowIso: string): Promise<QueryResult | undefined> {
+    return getInternal(
+      `SELECT * FROM email_verification_codes
+       WHERE email = ? AND purpose = ? AND used_at IS NULL AND expires_at > ?
+       ORDER BY id DESC LIMIT 1`,
+      [email, purpose, nowIso],
+      { operation: 'EmailVerification.findActive', table: 'email_verification_codes' }
+    );
+  },
+
+  async incrementAttempts(id: number): Promise<void> {
+    return executeInternal(
+      'UPDATE email_verification_codes SET attempts = attempts + 1 WHERE id = ?',
+      [id],
+      { operation: 'EmailVerification.incrementAttempts', table: 'email_verification_codes' }
+    );
+  },
+
+  async markUsed(id: number): Promise<void> {
+    return executeInternal(
+      "UPDATE email_verification_codes SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL",
+      [id],
+      { operation: 'EmailVerification.markUsed', table: 'email_verification_codes' }
+    );
+  },
+
+  /** 清理过期/已使用的旧记录（每次发码时顺手做，避免表无限增长） */
+  async deleteStale(nowIso: string): Promise<void> {
+    return executeInternal(
+      'DELETE FROM email_verification_codes WHERE expires_at <= ? OR used_at IS NOT NULL',
+      [nowIso],
+      { operation: 'EmailVerification.deleteStale', table: 'email_verification_codes' }
+    );
+  },
+};
 export const UserOperations = {
   /** 根据ID获取用户完整信息 */
   async getById(id: number): Promise<QueryResult | undefined> {

@@ -1272,7 +1272,7 @@ router.put('/profile', authMiddleware, noTokenAuth('account profile'), async (re
     if (email !== undefined) {
       const nextEmail = email.trim();
       if (nextEmail !== user.email) {
-        if (!emailCode || !verifyEmailVerificationCode(user.id as number, nextEmail, emailCode)) {
+        if (!emailCode || !(await verifyEmailVerificationCode(user.id as number, nextEmail, emailCode))) {
           res.status(400).json({ code: 400, msg: 'Valid email verification code is required' });
           return;
         }
