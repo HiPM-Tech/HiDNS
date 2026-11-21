@@ -79,9 +79,7 @@ export function SecurityPage() {
             ? <Skeleton className="h-6 w-20" />
             : status.data?.configured
               ? <Badge variant="success">已启用</Badge>
-              : status.data?.email2FA?.rawEnabled
-                ? <Badge variant="outline">已开启但条件未满足</Badge>
-                : <Badge variant="secondary">未启用</Badge>}
+              : <Badge variant="secondary">未启用</Badge>}
         </CardHeader>
         <CardContent className="flex items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
@@ -109,7 +107,9 @@ export function SecurityPage() {
             ? <Skeleton className="h-6 w-20" />
             : status.data?.email2FA?.enabled
               ? <Badge variant="success">已启用</Badge>
-              : <Badge variant="secondary">未启用</Badge>}
+              : status.data?.email2FA?.rawEnabled
+                ? <Badge variant="outline">开关开着但不生效</Badge>
+                : <Badge variant="secondary">未启用</Badge>}
         </CardHeader>
         <CardContent className="flex items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
@@ -121,7 +121,7 @@ export function SecurityPage() {
           </p>
           <Button
             size="sm"
-            variant={status.data?.email2FA?.enabled ? 'outline' : 'default'}
+            variant={status.data?.email2FA?.rawEnabled ? 'outline' : 'default'}
             // 只要库里有开关（rawEnabled）就允许关闭，否则会出现「显示已启用但按钮被禁用」的死状态
             disabled={status.isLoading || emailToggling || (!status.data?.email2FA?.rawEnabled && (!status.data?.email2FA?.email || !status.data?.email2FA?.emailVerified))}
             onClick={async () => {
@@ -134,7 +134,7 @@ export function SecurityPage() {
               }
             }}
           >
-            {status.data?.email2FA?.enabled ? '停用' : '启用'}
+            {status.data?.email2FA?.rawEnabled ? '停用' : '启用'}
           </Button>
         </CardContent>
       </Card>

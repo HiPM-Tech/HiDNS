@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { formatDate } from '../../lib/format';
+import { COMMUNITY } from '../../lib/community';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpen, ExternalLink, Github, Info, MessageCircle, Package, Tag, Users } from 'lucide-react';
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Skeleton } from '../../ui';
@@ -7,9 +8,9 @@ import { systemApi } from '../system/api';
 
 const REPO_URL = 'https://github.com/HiPM-Tech/HiDNS';
 // 与 README 保持一致（此前 App 内是 t.me/hidns_group、文档里是 t.me/HiDNSManager，属分叉）
-const TELEGRAM_URL = 'https://t.me/HiDNSManager';
-const QQ_GROUP_NUMBER = '1134828751';
-const QQ_GROUP_URL = 'https://qm.qq.com/q/8XV9poLoGI';
+const TELEGRAM_URL = COMMUNITY.telegramUrl;
+const QQ_GROUP_NUMBER = COMMUNITY.qqGroupNumber;
+const QQ_GROUP_URL = COMMUNITY.qqGroupUrl;
 // 仓库实际协议：LICENSE 第 1 行与三处 package.json 均为 GPL-3.0（此前写成 MIT 是事实错误）
 const LICENSE = 'GPL-3.0';
 

@@ -2590,20 +2590,19 @@ export const SecurityPolicyOperations = {
     );
   },
 
-  /** 检查用户是否有 2FA */
+  /** 检查用户是否有（生效的）2FA */
   async has2FA(userId: number): Promise<boolean> {
     const dbType = process.env.DB_TYPE || 'sqlite';
-    // email 也是第二因子（issue #43），否则「只开邮箱 2FA」会被判为未设置 2FA
-    const enabledParam = [userId, 'totp', 'webauthn', 'email', 1];
-
-    const sql = dbType === 'postgresql'
-      ? 'SELECT COUNT(*) as count FROM user_2fa WHERE user_id = $1 AND type IN ($2, $3, $4) AND enabled = $5'
-      : 'SELECT COUNT(*) as count FROM user_2fa WHERE user_id = ? AND type IN (?, ?, ?) AND enabled = ?';
-
+    // totp/webauthn 只看开关；email 必须与登录侧同口径（开关 && 有邮箱 && 已验证），
+    // 否则「开关还在但邮箱未验证」会被算作有 2FA → 强制 2FA 策略被静默绕过。
+    const emailCondition = "(t.type = 'email' AND EXISTS (SELECT 1 FROM users u WHERE u.id = t.user_id AND u.email IS NOT NULL AND u.email <> '' AND u.email_verified = 1))";
+    const base = "SELECT COUNT(*) as count FROM user_2fa t WHERE t.user_id = ";
+    const rest = " AND t.enabled = 1 AND (t.type IN ('totp','webauthn') OR " + emailCondition + ")";
+    const sql = dbType === 'postgresql' ? base + '$1' + rest : base + '?' + rest;
 
     const result = await getInternal<{ count: number }>(
       sql,
-      enabledParam,
+      [userId],
       { operation: 'SecurityPolicy.has2FA', table: 'user_2fa' }
     );
     return (result?.count || 0) > 0;

@@ -212,9 +212,12 @@ router.put('/:id', authMiddleware, noTokenAuth('user management'), adminOnly, as
     updates.nickname = nickname.trim() || user.username;
   }
   if (email !== undefined) {
-    // 管理端改邮箱必须复位验证状态：否则 B 地址直接继承 A 的「已验证」（与 /profile 保持同一口径）
     updates.email = email;
-    updates.email_verified = 0;
+    // 只有邮箱真的变了才复位验证状态：管理端表单恒定提交 email，
+    // 否则「只改角色 / 重置密码」也会把已验证邮箱打成未验证（与 /profile 同口径）
+    if (email !== user.email) {
+      updates.email_verified = 0;
+    }
   }
   if (role !== undefined) {
     let roleLevel = normalizeRole(role);

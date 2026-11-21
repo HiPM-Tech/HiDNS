@@ -7,6 +7,7 @@ import { Fingerprint, KeyRound, Loader2, LogIn, Mail, Network, Smartphone, Messa
 import { LogoBadge } from '../../ui/logo';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { describeWebAuthnError } from '../../lib/webauthn-error';
+import { COMMUNITY } from '../../lib/community';
 import { unwrapWebAuthnOptions } from '../../lib/webauthn-options';
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label } from '../../ui';
 import { copy } from '../../copy/zh-CN';
@@ -569,13 +570,13 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
           </CardContent>
         </Card>
                 <a
-          href="https://qm.qq.com/q/8XV9poLoGI"
+          href={COMMUNITY.qqGroupUrl}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label="加入 HiDNS 交流群（QQ 群 1134828751）"
+          aria-label={`加入 HiDNS 交流群（QQ 群 ${COMMUNITY.qqGroupNumber}）`}
           className="mt-phi-4 inline-flex items-center gap-1 text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
         >
-          <MessageCircle className="h-3.5 w-3.5" /> 加入 HiDNS 交流群（QQ 群 1134828751）
+          <MessageCircle className="h-3.5 w-3.5" /> 加入 HiDNS 交流群（QQ 群 {COMMUNITY.qqGroupNumber}）
         </a>
       </div>
       </section>
