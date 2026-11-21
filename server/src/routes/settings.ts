@@ -2,9 +2,11 @@ import { Router, Request, Response } from 'express';
 import { authMiddleware, adminOnly, noTokenAuth } from '../middleware/auth';
 import bcrypt from 'bcryptjs';
 import { getLoginLimitConfig, updateLoginLimitConfig, getLoginAttemptStats, unlockAccount } from '../service/loginLimit';
-import { SettingsOperations, NotificationOperations, AuditRuleOperations, DomainExpiryOperations, UserOperations } from '../db/bal/business-adapter';
+import { SettingsOperations, NotificationOperations, AuditRuleOperations, DomainExpiryOperations, UserOperations, EmailTemplateOperations } from '../db/bal/business-adapter';
 import { getSmtpConfig, updateSmtpConfig, sendSmtpEmail } from '../service/smtp';
+import { DEFAULT_TEMPLATES } from '../service/emailTemplates';
 import { logAuditOperation } from '../service/audit';
+import { sendSuccess } from '../utils/http';
 import { isIP } from 'node:net';
 import { getOutboundAllowlist, reloadOutboundPolicy } from '../workflow/index';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -382,6 +384,59 @@ router.put('/smtp', authMiddleware, noTokenAuth('system settings'), adminOnly, a
   }
 });
 
+
+/**
+ * 邮件模板管理（issue #43 C3）。
+ *
+ * 表里只存「自定义」的覆盖项；没覆盖时返回默认模板，前端据此显示「已自定义 / 默认」。
+ */
+router.get('/email-templates', authMiddleware, noTokenAuth('system settings'), adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const rows = await EmailTemplateOperations.getAll() as Array<{ type: string; subject: string; body: string; updated_at?: string }>;
+    const custom = new Map(rows.map((row) => [row.type, row]));
+    const data = (Object.entries(DEFAULT_TEMPLATES) as Array<[string, { subject: string; body: string }]>).map(([type, fallback]) => {
+      const row = custom.get(type);
+      return {
+        type,
+        subject: row?.subject ?? fallback.subject,
+        body: row?.body ?? fallback.body,
+        customized: Boolean(row),
+        updatedAt: row?.updated_at ?? null,
+      };
+    });
+    sendSuccess(res, data);
+  } catch (error) {
+    log.error('Failed to load email templates', { error });
+    sendError(res, 'Failed to load email templates', 500);
+  }
+});
+
+router.put('/email-templates/:type', authMiddleware, noTokenAuth('system settings'), adminOnly, asyncHandler(async (req: Request, res: Response) => {
+  const { type } = req.params;
+  if (!(type in DEFAULT_TEMPLATES)) {
+    sendError(res, 'unknown template type', 400);
+    return;
+  }
+  const { subject, body } = req.body as { subject?: string; body?: string };
+  if (!subject?.trim() || !body?.trim()) {
+    sendError(res, 'subject 和 body 不能为空', 400);
+    return;
+  }
+  const existing = await EmailTemplateOperations.getByType(type) as { id?: number } | undefined;
+  if (existing?.id) {
+    await EmailTemplateOperations.update(Number(existing.id), { subject: subject.trim(), body });
+  } else {
+    await EmailTemplateOperations.create({ type, subject: subject.trim(), body });
+  }
+  await logAuditOperation(req.user!.userId, 'update_email_template', 'system', { type }, req);
+  sendSuccess(res, { type });
+}));
+
+router.delete('/email-templates/:type', authMiddleware, noTokenAuth('system settings'), adminOnly, asyncHandler(async (req: Request, res: Response) => {
+  await EmailTemplateOperations.deleteByType(req.params.type);
+  await logAuditOperation(req.user!.userId, 'reset_email_template', 'system', { type: req.params.type }, req);
+  sendSuccess(res, { type: req.params.type });
+}));
 router.post('/smtp/test', authMiddleware, noTokenAuth('SMTP test'), adminOnly, async (req: Request, res: Response) => {
   const { to } = req.body as { to?: string };
   try {

@@ -1,18 +1,24 @@
 import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { alertVariants } from '../../ui/alert';
-import { AlertTriangle, KeyRound, Loader2, Mail, ShieldAlert, Unlock } from 'lucide-react';
+import { AlertTriangle, FileText, KeyRound, Loader2, Mail, ShieldAlert, Unlock } from 'lucide-react';
 import {
-  Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label, Skeleton, Switch,
+  Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label, Skeleton, Switch,
 } from '../../ui';
 import {
   useAuditRules, useLoginLimit, useLoginStats, useMcpConfig, useSaveAuditRules, useSaveLoginLimit,
   useSaveMcpConfig, useSaveSecurityConfig, useSaveSmtp, useSecurityConfig, useSmtpConfig, useTestSmtp, useUnlockAccount,
 } from './use-security-tab';
-import type { AuditRules, LoginLimitConfig, SecurityConfig, SmtpConfig } from './security-api';
+import type { AuditRules, EmailTemplateRow, LoginLimitConfig, SecurityConfig, SmtpConfig } from './security-api';
+import { systemSecurityApi } from './security-api';
 
 const LOGIN_DEFAULTS: LoginLimitConfig = { enabled: true, maxAttempts: 5, lockoutDuration: 15 };
 const SMTP_DEFAULTS: SmtpConfig = { enabled: false, host: '', port: 587, secure: false, username: '', password: '', fromEmail: '', fromName: 'HiDNS' };
 const SECURITY_DEFAULTS: SecurityConfig = { jwtViewEmailNotify: false, domainExpiryNotify: false, domainExpiryDays: 30, showDnsProviderSecrets: false };
+const TEMPLATE_LABELS: Record<string, string> = {
+  verification_code: '邮箱验证码',
+  password_reset: '密码重置',
+};
 const RULES_DEFAULTS: AuditRules = { enabled: true, maxDeletionsPerHour: 10, maxFailedLogins: 5, offHoursStart: '22:00', offHoursEnd: '06:00' };
 
 export function SystemSecurityTab() {
@@ -36,6 +42,7 @@ export function SystemSecurityTab() {
 
       <LoginLimitCard onError={report} onSaved={done} />
       <SmtpCard onError={report} onSaved={done} />
+      <EmailTemplatesCard onError={report} onSaved={done} />
       <SecurityConfigCard onError={report} onSaved={done} />
       <AuditRulesCard onError={report} onSaved={done} />
       <McpCard onError={report} onSaved={done} />
@@ -385,4 +392,79 @@ function toRows(stats: unknown): Array<{ key: string; value: string }> {
     }));
   }
   return [];
+}
+
+/** 邮件模板（issue #43 C3）：默认模板 + 自定义覆盖 */
+function EmailTemplatesCard({ onError, onSaved }: { onError: (e: unknown, f: string) => void; onSaved: (m: string) => void }) {
+  const queryClient = useQueryClient();
+  const templates = useQuery({ queryKey: ['system', 'email-templates'], queryFn: () => systemSecurityApi.emailTemplates() });
+  const [drafts, setDrafts] = useState<Record<string, { subject: string; body: string }>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const draftOf = (row: EmailTemplateRow) => drafts[row.type] ?? { subject: row.subject, body: row.body };
+  const setDraft = (type: string, next: { subject: string; body: string }) =>
+    setDrafts((prev) => ({ ...prev, [type]: next }));
+
+  const save = async (row: EmailTemplateRow) => {
+    setBusy(row.type);
+    try {
+      await systemSecurityApi.updateEmailTemplate(row.type, draftOf(row));
+      await queryClient.invalidateQueries({ queryKey: ['system', 'email-templates'] });
+      onSaved('邮件模板已保存');
+    } catch (err) { onError(err, '保存邮件模板失败'); } finally { setBusy(null); }
+  };
+
+  const reset = async (row: EmailTemplateRow) => {
+    setBusy(row.type);
+    try {
+      await systemSecurityApi.resetEmailTemplate(row.type);
+      await queryClient.invalidateQueries({ queryKey: ['system', 'email-templates'] });
+      onSaved('已恢复默认模板');
+    } catch (err) { onError(err, '恢复默认模板失败'); } finally { setBusy(null); }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><FileText className="h-4 w-4" /> 邮件模板</CardTitle>
+        <CardDescription>
+          验证码类邮件的标题与正文。支持 {"{{code}}"}、{"{{ttlMinutes}}"} 变量；恢复默认不会影响发信。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {templates.isLoading ? <Skeleton className="h-24" /> : (templates.data ?? []).map((row) => {
+          const draft = draftOf(row);
+          return (
+            <div key={row.type} className="space-y-2 rounded-md border border-border p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">{TEMPLATE_LABELS[row.type] ?? row.type}</p>
+                <Badge variant={row.customized ? 'success' : 'secondary'}>{row.customized ? '已自定义' : '默认'}</Badge>
+              </div>
+              <Input
+                value={draft.subject}
+                onChange={(event) => setDraft(row.type, { ...draft, subject: event.target.value })}
+                aria-label={`${row.type} 标题`}
+                placeholder="邮件标题"
+              />
+              <textarea
+                value={draft.body}
+                onChange={(event) => setDraft(row.type, { ...draft, body: event.target.value })}
+                aria-label={`${row.type} 正文`}
+                rows={5}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" onClick={() => void save(row)} disabled={busy === row.type}>
+                  {busy === row.type ? <Loader2 className="animate-spin" /> : null}保存
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => void reset(row)} disabled={!row.customized || busy === row.type}>
+                  恢复默认
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
 }

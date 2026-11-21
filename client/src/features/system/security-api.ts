@@ -65,6 +65,15 @@ async function unwrap<T>(promise: Promise<import('../../lib/http').ApiEnvelope<T
   return envelope.data;
 }
 
+/** 邮件模板（issue #43 C3）：customized=false 表示当前用默认模板 */
+export interface EmailTemplateRow {
+  type: string;
+  subject: string;
+  body: string;
+  customized: boolean;
+  updatedAt?: string | null;
+}
+
 export const systemSecurityApi = {
   loginLimit: () => unwrap(http.get<LoginLimitConfig>('/settings/login-limit')),
   updateLoginLimit: async (payload: LoginLimitConfig) => ensureOk(await http.put<null>('/settings/login-limit', payload)),
@@ -74,6 +83,11 @@ export const systemSecurityApi = {
   smtp: () => unwrap(http.get<SmtpConfig>('/settings/smtp')),
   updateSmtp: async (payload: SmtpConfig) => ensureOk(await http.put<SmtpConfig>('/settings/smtp', payload)),
   testSmtp: (to: string) => http.postOk<null>('/settings/smtp/test', { to }),
+
+  emailTemplates: () => unwrap(http.get<EmailTemplateRow[]>('/settings/email-templates')),
+  updateEmailTemplate: (type: string, payload: { subject: string; body: string }) =>
+    http.putOk<{ type: string }>(`/settings/email-templates/${type}`, payload),
+  resetEmailTemplate: (type: string) => http.deleteOk<{ type: string }>(`/settings/email-templates/${type}`),
 
   securityConfig: () => unwrap(http.get<SecurityConfig>('/settings/security')),
   updateSecurityConfig: async (payload: SecurityConfig) => ensureOk(await http.put<null>('/settings/security', payload)),

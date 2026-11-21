@@ -2093,6 +2093,13 @@ export const EmailTemplateOperations = {
   },
 
   /** 更新模板 */
+  async deleteByType(type: string): Promise<void> {
+    return executeInternal('DELETE FROM email_templates WHERE type = ?', [type], {
+      operation: 'EmailTemplate.deleteByType',
+      table: 'email_templates',
+    });
+  },
+
   async update(id: number, updates: { subject?: string; body?: string }): Promise<void> {
     const fields = Object.keys(updates);
     if (fields.length === 0) return;
