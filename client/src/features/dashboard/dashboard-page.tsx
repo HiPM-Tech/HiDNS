@@ -186,6 +186,20 @@ export function DashboardPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* 社区入口：放在仪表盘末尾，不占首屏关键位置 */}
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+        <Users className="h-4 w-4" />
+        <span>有疑问或想反馈？加入 HIDNS 交流群（QQ 群号 1134828751）</span>
+        <a
+          href="https://qm.qq.com/q/8XV9poLoGI"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ml-auto text-primary underline-offset-4 hover:underline"
+        >
+          加群
+        </a>
+      </div>
     </div>
   );
 }

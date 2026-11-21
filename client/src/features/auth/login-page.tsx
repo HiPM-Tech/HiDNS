@@ -3,7 +3,7 @@ import { alertVariants } from '../../ui/alert';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Fingerprint, KeyRound, Loader2, LogIn, Mail, Network, Smartphone } from 'lucide-react';
+import { Fingerprint, KeyRound, Loader2, LogIn, Mail, Network, Smartphone, MessageCircle } from 'lucide-react';
 import { LogoBadge } from '../../ui/logo';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { describeWebAuthnError } from '../../lib/webauthn-error';
@@ -568,6 +568,14 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
             )}
           </CardContent>
         </Card>
+                <a
+          href="https://qm.qq.com/q/8XV9poLoGI"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-phi-4 inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          <MessageCircle className="h-3.5 w-3.5" /> 加入 HIDNS 交流群（QQ 1134828751）
+        </a>
       </div>
       </section>
     </main>

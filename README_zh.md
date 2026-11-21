@@ -431,6 +431,7 @@ HiDNS 项目采用严格的 AI 代码审核机制，确保代码质量和项目�
 
 - **GitHub 仓库**: https://github.com/HiPM-Tech/HiDNS
 - **Telegram 群组**: https://t.me/HiDNSManager
+- **QQ 群**: 1134828751（[点击加群](https://qm.qq.com/q/8XV9poLoGI)）
 - **开源协议**: GPL-3.0
 
 ## ☕ 赞助支持

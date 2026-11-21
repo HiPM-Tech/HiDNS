@@ -88,6 +88,23 @@ export function AboutPage() {
         </CardContent>
       </Card>
 
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><MessageCircle className="h-4 w-4" /> 社区</CardTitle>
+          <CardDescription>遇到问题、想要新功能，或者只是想聊聊 DNS，都欢迎进群。</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p>
+            QQ 群号：<span className="font-mono font-medium">1134828751</span>
+          </p>
+          <Button variant="outline" size="sm" asChild>
+            <a href="https://qm.qq.com/q/8XV9poLoGI" target="_blank" rel="noopener noreferrer">
+              <Users className="h-4 w-4" /> 加入 HIDNS 交流群
+            </a>
+          </Button>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Package className="h-4 w-4" /> 最新版本</CardTitle>

@@ -434,6 +434,7 @@ HiDNS adopts a strict AI code review mechanism to ensure code quality and projec
 
 - **GitHub Repository**: https://github.com/HiPM-Tech/HiDNS
 - **Telegram Group**: https://t.me/HiDNSManager
+- **QQ Group**: 1134828751 ([join](https://qm.qq.com/q/8XV9poLoGI))
 - **License**: GPL-3.0
 
 ## ☕ Sponsor
