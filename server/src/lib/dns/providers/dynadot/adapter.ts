@@ -148,24 +148,15 @@ export class DynadotAdapter extends BaseAdapter {
   ): Promise<string | null> {
     try {
       if (!this.config.domain) return null;
-      // 实测（2026-11-17，对照官方文档 §Set DNS2 参数表）：
-      //   文档声称 main_record_type0-19 / main_record0-19 是根记录参数，
-      //   且 add_dns_to_current_setting=1 表示「追加」而非覆盖。
-      //   实测结果：
-      //     main_record* + 覆盖模式                        -> 参数被忽略，zone 被清空
-      //     main_record* + add_dns_to_current_setting=1    -> 返回 success，记录未写入（txt / 带引号 txt / a 均如此）
-      //     subdomain 为空串                               -> 记录被丢弃
-      //     subdomain 为 @                                 -> 上游校验拒绝（Subhost 格式错误）
-      // 结论：api3 的 set_dns2 实际上写不了根记录（文档与实现不一致），因此禁用根记录写入。
+      // 根记录写入（2026-11-21 实测通过）：
+      //   main_record_type0 + main_record0 是正确参数，但必须满足：
+      //     1) 覆盖模式（add_dns_to_current_setting=1 对 main 无效）
+      //     2) 与全部 subdomain* 一起提交（覆盖语义）
+      //     3) TXT 值带引号，否则该记录被判无效并丢弃
+      //   读回：v2 GET 的 data.glue_info.dns_main_list 就是根记录（无 sub_host）。
       //
-      // v2 写路径探测（2026-11-17）：
-      //   POST / DELETE /restful/v2/domains/{d}/records 路径本身被识别
-      //   （DELETE 返回 main_record_removed_count / sub_record_removed_count，不是 command not recognized），
-      //   但记录 body 试了 10+ 种结构全部返回 Please enter at least one DNS record：
-      //     dns_sub_list / dns_records / records / 裸数组 / 追加 dns_main_list /
-      //     api3 字段名(subdomain+sub_record_type+sub_record) / 通用字段名(host+type+value) /
-      //     大写 record_type / 有无连字符的 sub_host
-      //   结论：v2 的写结构无法从公开文档或试错确定 → 写操作固定走 api3 的 set_dns2。
+      // v2 写路径探测（2026-11-17）：POST/DELETE /records 路径被识别，但 body 结构
+      // 试了 10+ 种全部返回 Please enter at least one DNS record → 写操作固定走 api3 set_dns2。
       // set_dns2 是全量保存：同域名的写操作必须串行，否则并发时会互相覆盖
       return await withDomainLock(String(this.config.domain), async () => {
         const { records: current, ttl: zoneTtl } = await this.fetchAllRawRecords();

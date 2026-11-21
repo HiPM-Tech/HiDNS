@@ -503,7 +503,7 @@ export const UserOperations = {
   /** 根据ID获取用户完整信息 */
   async getById(id: number): Promise<QueryResult | undefined> {
     return getInternal(
-      'SELECT id, username, nickname, email, password_hash, role_level as role, role_level, role as role_name, status, created_at, updated_at FROM users WHERE id = ?',
+      'SELECT id, username, nickname, email, email_verified, password_hash, role_level as role, role_level, role as role_name, status, created_at, updated_at FROM users WHERE id = ?',
       [id],
       { operation: 'User.getById', table: 'users' }
     );
@@ -512,7 +512,7 @@ export const UserOperations = {
   /** 根据用户名获取用户完整信*/
   async getByUsername(username: string): Promise<QueryResult | undefined> {
     return getInternal(
-      'SELECT id, username, nickname, email, password_hash, role_level as role, role_level, role as role_name, status, created_at, updated_at FROM users WHERE username = ?',
+      'SELECT id, username, nickname, email, email_verified, password_hash, role_level as role, role_level, role as role_name, status, created_at, updated_at FROM users WHERE username = ?',
       [username],
       { operation: 'User.getByUsername', table: 'users' }
     );
@@ -521,7 +521,7 @@ export const UserOperations = {
   /** 根据邮箱获取用户完整信息 */
   async getByEmail(email: string): Promise<QueryResult | undefined> {
     return getInternal(
-      'SELECT id, username, nickname, email, password_hash, role_level as role, role_level, role as role_name, status, created_at, updated_at FROM users WHERE email = ?',
+      'SELECT id, username, nickname, email, email_verified, password_hash, role_level as role, role_level, role as role_name, status, created_at, updated_at FROM users WHERE email = ?',
       [email],
       { operation: 'User.getByEmail', table: 'users' }
     );
@@ -1527,7 +1527,8 @@ export const TwoFAOperations = {
       return;
     }
     await executeInternal(
-      "INSERT INTO user_2fa (user_id, type, enabled, created_at) VALUES (?, 'email', ?, datetime('now'))",
+      // secret / backup_codes 是 NOT NULL 且无默认值；email 类型不需要它们，显式给空值
+      "INSERT INTO user_2fa (user_id, type, secret, backup_codes, enabled, created_at) VALUES (?, 'email', '', '[]', ?, datetime('now'))",
       [userId, enabled ? 1 : 0],
       { operation: 'TwoFA.setEmailEnabled.insert', table: 'user_2fa' }
     );

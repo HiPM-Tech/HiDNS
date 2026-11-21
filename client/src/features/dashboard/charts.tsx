@@ -14,39 +14,8 @@ import { daysUntil } from '../../lib/format';
 
 const SERIES_COLORS = ['rgb(59 130 246)', 'rgb(16 185 129)', 'rgb(245 158 11)', 'rgb(168 85 247)', 'rgb(244 63 94)', 'rgb(14 165 233)'];
 
-export interface ProviderShareItem { type: string; count: number; percent: number }
-
-/** 提供商占比：横向条形，标签不会像饼图那样重叠 */
-export function ProviderShareChart({ items }: { items: ProviderShareItem[] }) {
-  const rows = items.slice(0, 6);
-  const max = Math.max(1, ...rows.map((row) => row.percent));
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">提供商占比</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {rows.length === 0 && <p className="text-sm text-muted-foreground">暂无账号</p>}
-        {rows.map((row, index) => (
-          <div key={row.type} className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <span className="truncate">{row.type}</span>
-              <span className="tabular-nums text-muted-foreground">{row.count} 个 · {row.percent}%</span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full"
-                style={{ width: `${Math.max(2, (row.percent / max) * 100)}%`, backgroundColor: SERIES_COLORS[index % SERIES_COLORS.length] }}
-              />
-            </div>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
-
 const EXPIRY_BUCKETS = [
+  { label: '已过期', max: -1 },
   { label: '≤30 天', max: 30 },
   { label: '31-90 天', max: 90 },
   { label: '91-180 天', max: 180 },

@@ -830,7 +830,11 @@ router.post('/login/email-code', emailLimiter, async (req: Request, res: Respons
   try {
     const { username } = req.body as { username?: string };
     if (username) {
-      const user = await UserOperations.getByUsername(String(username).trim()) as
+      // 与 /login 对齐：含 @ 时按邮箱查，否则按用户名
+      const identifier = String(username).trim();
+      const user = (identifier.includes('@')
+        ? await UserOperations.getByEmail(identifier)
+        : await UserOperations.getByUsername(identifier)) as
         | { id?: number; email?: string; email_verified?: number }
         | undefined;
       if (user?.id && user.email) {
@@ -1333,6 +1337,8 @@ router.put('/profile', authMiddleware, noTokenAuth('account profile'), async (re
         }
       }
       updates.email = nextEmail || null;
+      // 走到这里说明验证码已通过 —— 邮箱即为已验证；清空邮箱时一并复位
+      updates.email_verified = nextEmail ? 1 : 0;
     }
 
     await UserOperations.update(user.id as number, updates);
@@ -1469,6 +1475,7 @@ router.get('/preferences', authMiddleware, async (req: Request, res: Response) =
         emailNotifications: preferences.emailNotifications,
         backgroundImage: preferences.backgroundImage,
         avatarImage: preferences.avatarImage,
+        backgroundOpacity: preferences.backgroundOpacity ?? 100,
       },
       msg: 'success',
     });
