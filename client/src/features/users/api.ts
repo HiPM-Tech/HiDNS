@@ -33,6 +33,9 @@ export interface User2faRequirement {
 }
 
 export const usersApi = {
+  /** 超管重置他人邮箱（写新邮箱并强制重新验证） */
+  resetEmail: (id: number, email: string) =>
+    http.putOk<{ id: number; email: string }>(`/users/${id}/email`, { email }),
   list: async (): Promise<UserRow[]> => {
     const data = await expectData(http.get<UserRow[] | { list?: UserRow[] }>('/users'));
     return Array.isArray(data) ? data : (data?.list ?? []);

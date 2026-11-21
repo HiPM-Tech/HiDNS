@@ -270,10 +270,34 @@ function UserDialog({ mode, user, myLevel, pending, onClose, onError, onCreate, 
   const roles = useMemo(() => assignableRoles(myLevel), [myLevel]);
   const [username, setUsername] = useState(user?.username ?? '');
   const [nickname, setNickname] = useState(user?.nickname ?? '');
-  // 邮箱只读展示：管理端不能改（改邮箱会重置验证状态，由用户本人在个人资料里完成）
+  // 邮箱默认只读；超级管理员可通过「重置邮箱」走受审计的恢复通道
   const [email] = useState(user?.email ?? '');
+  const [emailEditing, setEmailEditing] = useState(false);
+  const [emailDraft, setEmailDraft] = useState(user?.email ?? '');
+  const [emailPending, setEmailPending] = useState(false);
+  const queryClient = useQueryClient();
+  const canResetEmail = myLevel >= ROLE_SUPER && Boolean(user?.id);
   const [password, setPassword] = useState('');
   const [role, setRole] = useState(String(user ? roleLevel(user) : roles[0] ?? ROLE_USER));
+
+  const resetEmail = async () => {
+    if (!user?.id) return;
+    const next = emailDraft.trim().toLowerCase();
+    if (!next.includes('@')) {
+      onError('请输入有效邮箱');
+      return;
+    }
+    setEmailPending(true);
+    try {
+      await usersApi.resetEmail(user.id, next);
+      await queryClient.invalidateQueries({ queryKey: ['users'] });
+      setEmailEditing(false);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : '重置邮箱失败');
+    } finally {
+      setEmailPending(false);
+    }
+  };
 
   const submit = async () => {
     const trimmedUsername = username.trim();
@@ -320,9 +344,31 @@ function UserDialog({ mode, user, myLevel, pending, onClose, onError, onCreate, 
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="user-email">邮箱</Label>
-            {/* 管理端不能改邮箱：改邮箱会重置验证状态，属于账号主权操作，只能由用户本人在个人资料里完成 */}
-            <Input id="user-email" type="email" value={email} readOnly disabled placeholder="由用户本人在个人资料中修改" />
-            <p className="text-xs text-muted-foreground">邮箱由用户本人在「设置 → 个人资料」里修改并验证。</p>
+            {emailEditing ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  id="user-email"
+                  type="email"
+                  value={emailDraft}
+                  onChange={(event) => setEmailDraft(event.target.value)}
+                  placeholder="new@example.com"
+                />
+                <Button size="sm" onClick={() => void resetEmail()} disabled={emailPending}>保存</Button>
+                <Button size="sm" variant="outline" onClick={() => setEmailEditing(false)} disabled={emailPending}>取消</Button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <Input id="user-email" type="email" value={email} readOnly disabled placeholder="由用户本人在个人资料中修改" />
+                {canResetEmail && (
+                  <Button size="sm" variant="outline" onClick={() => { setEmailDraft(email); setEmailEditing(true); }}>
+                    重置邮箱
+                  </Button>
+                )}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              邮箱由用户本人在「设置 → 个人资料」里修改并验证；超级管理员可在此重置（会强制重新验证）。
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="user-role">角色</Label>

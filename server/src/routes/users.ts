@@ -6,6 +6,7 @@ import { User } from '../types';
 import { ROLE_ADMIN, ROLE_SUPER, ROLE_USER, normalizeRole } from '../utils/roles';
 import { parseInteger, sendError, sendSuccess } from '../utils/http';
 import { isValidUsername } from '../utils/validation';
+import { logAuditOperation } from '../service/audit';
 import { UserOperations } from '../db/bal/business-adapter';
 import { wsService } from '../service/websocket';
 import { getAdminAudienceUserIds } from './audience';
@@ -263,6 +264,50 @@ router.put('/:id', authMiddleware, noTokenAuth('user management'), adminOnly, as
  *       200:
  *         description: User deleted
  */
+
+/**
+ * 超管重置他人邮箱（issue #43 恢复通道）。
+ *
+ * 口径 1 把「改邮箱」收归用户本人，但「创建时把邮箱填错」会让该用户收不到验证码、
+ * 又没人能改 —— 这里给超级管理员留一个**受审计**的更正入口：
+ * 写入新邮箱并强制 email_verified = 0，用户下次登录会重新走验证。
+ */
+router.put('/:id/email', authMiddleware, noTokenAuth('user email reset'), adminOnly, async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const { email } = req.body as { email?: string };
+    if (!Number.isInteger(id) || id <= 0) {
+      sendError(res, 'Invalid user id', 400);
+      return;
+    }
+    if (typeof email !== 'string' || !email.includes('@')) {
+      sendError(res, 'Invalid email', 400);
+      return;
+    }
+    const caller = (req as any).user as { userId?: number; role_level?: number };
+    // 只有超级管理员能改他人邮箱（普通管理员也不行，避免越权接管账号）
+    if (Number(caller?.role_level ?? 0) < 3) {
+      sendError(res, 'Only super admin can reset other users\' email', 403);
+      return;
+    }
+    const target = await UserOperations.getById(id);
+    if (!target) {
+      sendError(res, 'User not found', 404);
+      return;
+    }
+    const normalized = email.trim().toLowerCase();
+    const occupied = await UserOperations.getByEmail(normalized) as { id?: number } | undefined;
+    if (occupied?.id && Number(occupied.id) !== id) {
+      sendError(res, '该邮箱已被其它账号使用', 409);
+      return;
+    }
+    await UserOperations.update(id, { email: normalized, email_verified: 0 });
+    await logAuditOperation(caller!.userId!, 'admin_reset_user_email', 'user', { targetUserId: id, email: normalized }, req);
+    sendSuccess(res, { id, email: normalized });
+  } catch (error) {
+    sendError(res, error instanceof Error ? error.message : 'Failed to reset email', 500);
+  }
+});
 router.delete('/:id', authMiddleware, noTokenAuth('user management'), adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const id = parseInteger(req.params.id, { min: 1 }) ?? 0;
   if (id === req.user!.userId) {

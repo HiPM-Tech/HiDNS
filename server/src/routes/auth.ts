@@ -950,7 +950,35 @@ router.post('/verify-email', emailLimiter, async (req: Request, res: Response) =
   }
   await UserOperations.update(Number(user.id), { email_verified: 1 });
   await logAuditOperation(Number(user.id), 'verify_email', 'system', {}, req);
-  sendSuccess(res, { verified: true });
+
+  // 验证通过后尽量直接完成登录，避免用户再输一遍密码与动态码。
+  // 但**不能绕过第二因子**：开了 2FA 的用户只告诉前端「该去 2FA」，由它接着走。
+  const fullUser = await UserOperations.getById(Number(user.id)) as
+    | { id?: number; username?: string; nickname?: string; role?: string; email_verified?: number }
+    | undefined;
+  const twoFAOn = await has2FAEnabled(Number(user.id));
+  if (twoFAOn) {
+    sendSuccess(res, { verified: true, require2FA: true });
+    return;
+  }
+
+  const token = await signToken({
+    userId: Number(fullUser?.id ?? user.id),
+    username: String(fullUser?.username ?? ''),
+    nickname: String(fullUser?.nickname ?? ''),
+    role: (Number((fullUser as { role_level?: number })?.role_level ?? 1) || 1) as 1 | 2 | 3,
+  });
+  setAuthCookie(res, token);
+  sendSuccess(res, {
+    verified: true,
+    user: {
+      id: Number(fullUser?.id ?? user.id),
+      username: fullUser?.username,
+      nickname: fullUser?.nickname,
+      email: user.email,
+      role: fullUser?.role,
+    },
+  });
 });
 router.post('/oauth/start', async (req: Request, res: Response) => {
   try {

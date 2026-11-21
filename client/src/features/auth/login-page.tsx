@@ -210,27 +210,16 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     setError(null);
     setVerifyPending(true);
     try {
-      // postOk 在 code!==0 时抛错，这里不需要再判 envelope
-      await authApi.verifyEmail(pendingCredentials.username, code);
-      // 验证通过后重新登录（此时后端不会再拦截）
-      const prepared = await preparePassword(pendingCredentials.password);
-      if (!prepared) return;
-      const envelope = await authApi.login({
-        username: pendingCredentials.username,
-        password: prepared.password,
-        encrypted: prepared.encrypted,
-      });
-      if (envelope.code === -2) {
-        setTwoFactorTypes((envelope.data as { types?: string[] } | undefined)?.types ?? []);
-        setStep('2fa');
+      // 后端在验证通过后直接签发会话（无 2FA 时）；开了 2FA 会返回 require2FA，由前端接着走第二步
+      const envelope = await authApi.verifyEmail(pendingCredentials.username, code);
+      const data = envelope.data as { verified: boolean; require2FA?: boolean; user?: unknown } | undefined;
+      if (data?.require2FA) {
+        setTwoFactorTypes([]);
         twoFactorForm.reset();
+        setStep('2fa');
         return;
       }
-      if (envelope.code !== 0) {
-        setError(envelope.msg || copy.auth.loginFailed);
-        return;
-      }
-      handleSuccess(envelope.data?.user);
+      handleSuccess(data?.user as Parameters<typeof handleSuccess>[0]);
     } catch (err) {
       setError(describeError(err));
     } finally {
