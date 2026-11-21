@@ -281,7 +281,7 @@ ${CYAN}╚═══════════════════════�
 }
 import { initRenewalSchedulers } from './service/renewalInit';
 import { wsService } from './service/websocket';
-import { initWhoisSchedulers } from './service/whois';
+import { initRdapServerList, initWhoisSchedulers } from './service/whois';
 import { createLogger } from './lib/logger';
 const log = createLogger('Server').sub('App');
 import { OAuthOperations, McpOperations } from './db/bal/business-adapter';
@@ -602,6 +602,13 @@ async function initializeApp() {
       // 初始化续期和 WHOIS 调度器
       initRenewalSchedulers();
       initWhoisSchedulers();
+
+      // RDAP 服务器列表预热（异步、失败不影响启动）。
+      // 不预热的话 rdap_server_cache 永远是空的，findRdapServer 只查表不下发，
+      // 所有依赖 IANA 兜底的顶级域（.site/.de/.fr/.xyz…）都拿不到到期时间（issue #59）。
+      void initRdapServerList().catch((err: unknown) => {
+        log.warn('RDAP server list preload failed (will fall back to WHOIS)', { error: err });
+      });
 
       startServiceMonitorJob();
       startWhoisJob();

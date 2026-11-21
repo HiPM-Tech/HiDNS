@@ -215,13 +215,21 @@ export class WhoisLookup {
   ): Promise<WhoisResult | null> {
     if (!isModeAllowed(method, modes)) return null;
     let providers = filterByMethod(findProviders(list, domain), method as any);
-    if (providers.length === 0) return null;
 
-    // 顶域 RDAP 特殊处理：优先 IANA
+    // 顶域 RDAP：**先**试 IANA 兜底，再判断 providers 是否为空。
+    // 之前先把空列表 return 掉，导致 tryIanaRdap 成了死代码——任何没有内置 RDAP 条目的后缀
+    // （.site / .de / .fr / .xyz / .top …）都拿不到到期时间（issue #59）。
     if (list === APEX_PROVIDERS && method === 'rdap') {
       const iana = await tryIanaRdap(domain);
-      if (iana) providers = [iana, ...providers.filter(p => !p.suffixes.some(s => iana.suffixes.includes(s)))];
+      if (iana) {
+        // 先用 IANA 给的服务器查一次：即使内置 providers 为空（.site/.de/.fr…）也能拿到结果
+        const result = await querySingle(domain, iana);
+        if (result?.expiryDate) return result;
+      }
+      if (providers.length === 0) return null;
     }
+
+    if (providers.length === 0) return null;
 
     const results = await Promise.all(providers.map(p => querySingle(domain, p)));
     return results.find(r => r?.expiryDate) || null;
