@@ -10,7 +10,17 @@ import { useCreateToken, useTokenDomains, useUpdateToken } from './use-tokens';
 import type { CreatedToken, TokenDomainOption, TokenRow } from './api';
 
 const EMPTY_DOMAINS: TokenDomainOption[] = [];
-const SERVICE_PRESETS = ['dns', 'mcp'];
+const SERVICE_PRESETS = ['dns', 'dns:read', 'dns:write', 'mcp', 'mcp:read', 'mcp:write'];
+
+/** 动作位的中文说明（issue #38：叠加动作位，保留模块名兼容） */
+const SERVICE_LABELS: Record<string, string> = {
+  dns: 'DNS（全部）',
+  'dns:read': 'DNS 只读',
+  'dns:write': 'DNS 读写',
+  mcp: 'MCP（全部）',
+  'mcp:read': 'MCP 只读',
+  'mcp:write': 'MCP 读写',
+};
 
 const ROLE_OPTIONS = [
   { value: '0', label: '普通用户（只读）' },
@@ -169,7 +179,7 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
                       : 'border-border text-muted-foreground hover:bg-accent',
                   )}
                 >
-                  {service}
+                  {SERVICE_LABELS[service] ?? service}
                 </button>
               ))}
               {services.filter((service) => !SERVICE_PRESETS.includes(service)).map((service) => (
@@ -180,7 +190,7 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
                   className="rounded-full border border-primary bg-primary/10 px-3 py-1 text-xs text-primary"
                   title="点击移除"
                 >
-                  {service} ×
+                  {(SERVICE_LABELS[service] ?? service)} ×
                 </button>
               ))}
               <div className="flex items-center gap-1">

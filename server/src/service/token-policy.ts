@@ -17,6 +17,9 @@ export type TokenPolicyResult =
   | { ok: true; services: string[]; maxRole: number }
   | { ok: false; status: number; message: string };
 
+/** 允许写入 allowed_services 的取值（issue #38：叠加动作位） */
+export const KNOWN_SERVICES = ['*', 'dns', 'dns:*', 'dns:read', 'dns:write', 'mcp', 'mcp:*', 'mcp:read', 'mcp:write'] as const;
+
 export function resolveTokenPolicy(input: TokenPolicyInput): TokenPolicyResult {
   const { allowedServices, maxRole, userRole } = input;
 
@@ -35,6 +38,11 @@ export function resolveTokenPolicy(input: TokenPolicyInput): TokenPolicyResult {
       .map((item) => item.trim());
     if (services.length === 0) {
       return { ok: false, status: 400, message: 'allowed_services must contain at least one service' };
+    }
+    // 白名单校验：任意字符串此前都能入库，等于把权限名当自由文本
+    const unknown = services.filter((service) => !(KNOWN_SERVICES as readonly string[]).includes(service));
+    if (unknown.length > 0) {
+      return { ok: false, status: 400, message: `unknown allowed_services: ${unknown.join(', ')}` };
     }
   }
 

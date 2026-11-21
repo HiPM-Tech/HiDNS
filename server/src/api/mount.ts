@@ -25,8 +25,10 @@ function buildServiceGate(service: string) {
       return;
     }
     (req as unknown as { tokenPayload?: unknown }).tokenPayload = payload;
-    if (!hasServicePermission(payload, service)) {
-      sendError(res, 'Token does not have permission for ' + service, 403);
+    // 动作位按 HTTP 方法推断：GET/HEAD 视为读，其余视为写
+    const action = req.method === 'GET' || req.method === 'HEAD' ? 'read' : 'write';
+    if (!hasServicePermission(payload, service, action)) {
+      sendError(res, `Token does not have permission for ${service}:${action}`, 403);
       return;
     }
     next();

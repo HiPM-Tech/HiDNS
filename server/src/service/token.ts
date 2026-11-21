@@ -171,9 +171,31 @@ export async function updateTokenPermissions(
 }
 
 // Check if token has permission for a service
-export function hasServicePermission(tokenPayload: TokenPayload, service: string): boolean {
-  return tokenPayload.allowedServices.includes(service) || 
-         tokenPayload.allowedServices.includes('*');
+/**
+ * 服务级权限：模块名 + 动作位（issue #38）。
+ *
+ * 词表（叠加式，保留模块名兼容）：
+ *   *            → 全部模块、全部动作
+ *   dns          → dns 模块全权限（历史令牌默认值，必须继续可用）
+ *   dns:read     → 只读；dns:write → 读写（写隐含读）
+ *   dns:*        → 全权限（与不带动作位等价）
+ */
+export type ServiceAction = 'read' | 'write';
+
+export function hasServicePermission(
+  tokenPayload: TokenPayload,
+  service: string,
+  action: ServiceAction = 'read',
+): boolean {
+  const allowed = tokenPayload.allowedServices ?? [];
+  if (allowed.includes('*')) return true;
+  // 兼容：不带动作位 = 整个模块（历史令牌靠这条继续工作）
+  if (allowed.includes(service)) return true;
+  if (allowed.includes(`${service}:*`)) return true;
+  if (allowed.includes(`${service}:${action}`)) return true;
+  // 写权限隐含读
+  if (action === 'read' && allowed.includes(`${service}:write`)) return true;
+  return false;
 }
 
 // Check if token has permission for a domain
