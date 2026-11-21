@@ -49,6 +49,23 @@ export const emailLimiter = rateLimit({
 });
 
 /**
+ * 邮箱验证码「校验」专用限流：与发码分开计数，避免一次输错就打满发码配额。
+ * key 用 username + 真实对端 IP，避免只按 username 被针对性耗尽。
+ */
+export const emailVerifyLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  handler: rateLimitHandler('Too many verification attempts, please try again later.'),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    const identifier = req.body?.username || req.body?.email || '';
+    const ip = req.socket?.remoteAddress || getRequestIP(req) || 'unknown';
+    return `verify:${String(identifier || ip).toLowerCase()}:${ip}`;
+  },
+});
+
+/**
  * API 端点速率限制 - 防止特定端点被滥用
  * 默认：1 分钟内最多 30 个请求
  */

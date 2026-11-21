@@ -240,6 +240,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       if (credentials) setPendingCredentials(credentials);
       setPendingEmail(envelope.data?.email ?? '');
       setVerifyCodeSent(false);
+      // 同一个 form 复用于 2FA 与邮箱验证：不清空会把上一轮的 TOTP 当成邮箱码提交
+      twoFactorForm.reset();
       setStep('verify-email');
       return true;
     }

@@ -280,19 +280,26 @@ router.put('/:id/email', authMiddleware, noTokenAuth('user email reset'), adminO
       sendError(res, 'Invalid user id', 400);
       return;
     }
-    if (typeof email !== 'string' || !email.includes('@')) {
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (typeof email !== 'string' || email.length > 254 || !emailPattern.test(email.trim())) {
       sendError(res, 'Invalid email', 400);
       return;
     }
-    const caller = (req as any).user as { userId?: number; role_level?: number };
+    // JWT 里只有 role_level（authMiddleware 已归一为数字角色），没有 role_level 字段
+    const caller = (req as any).user as { userId?: number; role?: number };
     // 只有超级管理员能改他人邮箱（普通管理员也不行，避免越权接管账号）
-    if (Number(caller?.role_level ?? 0) < 3) {
+    if (Number(caller?.role ?? 0) < 3) {
       sendError(res, 'Only super admin can reset other users\' email', 403);
       return;
     }
     const target = await UserOperations.getById(id);
     if (!target) {
       sendError(res, 'User not found', 404);
+      return;
+    }
+    // 与 PUT /users/:id 一致：不允许动另一名超管的邮箱（否则可借找回密码接管）
+    if (Number((target as { role_level?: number }).role_level ?? 0) >= ROLE_SUPER && Number(caller.userId) !== id) {
+      sendError(res, 'Cannot reset another super admin\'s email', 403);
       return;
     }
     const normalized = email.trim().toLowerCase();
@@ -302,7 +309,7 @@ router.put('/:id/email', authMiddleware, noTokenAuth('user email reset'), adminO
       return;
     }
     await UserOperations.update(id, { email: normalized, email_verified: 0 });
-    await logAuditOperation(caller!.userId!, 'admin_reset_user_email', 'user', { targetUserId: id, email: normalized }, req);
+    await logAuditOperation(caller!.userId!, 'admin_reset_user_email', 'user', { targetUserId: id, oldEmail: (target as { email?: string }).email ?? '', email: normalized }, req);
     sendSuccess(res, { id, email: normalized });
   } catch (error) {
     sendError(res, error instanceof Error ? error.message : 'Failed to reset email', 500);

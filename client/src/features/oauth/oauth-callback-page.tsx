@@ -54,7 +54,13 @@ export function OAuthCallbackPage() {
 
     void (async () => {
       try {
-        const envelope = await http.post<{ mode?: 'login' | 'bind' }>('/auth/oauth/callback', { code, state });
+        const envelope = await http.post<{ mode?: 'login' | 'bind'; email?: string }>('/auth/oauth/callback', { code, state });
+        // -4：邮箱未验证。OAuth code 已被服务端消费，无法原地继续，引导到登录页完成验证
+        if (envelope.code === -4) {
+          setPhase('error');
+          setMessage('该账号的邮箱尚未验证，请到登录页用密码登录并完成邮箱验证后重试。');
+          return;
+        }
         if (envelope.code !== 0) throw new Error(envelope.msg || '授权失败');
         const resolved = envelope.data?.mode === 'bind' ? 'bind' : 'login';
         sessionStorage.setItem(doneKey, resolved);

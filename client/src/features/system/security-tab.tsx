@@ -261,7 +261,7 @@ function SecurityConfigCard({ onError, onSaved }: { onError: (e: unknown, f: str
             <ToggleRow label="JWT 视图发送邮件通知" hint="记录变更时通知相关用户" checked={Boolean(draft.jwtViewEmailNotify)} onChange={(checked) => setDraft({ ...draft, jwtViewEmailNotify: checked })} />
             <ToggleRow
               label="登录时要求验证邮箱"
-              hint="未验证邮箱的用户登录后需先完成一次邮箱验证；超级管理员豁免"
+              hint="未验证邮箱的用户登录后需先完成一次邮箱验证；超级管理员豁免；SMTP 未启用时该策略自动不生效"
               checked={Boolean(draft.requireEmailVerification)}
               onChange={(checked) => setDraft({ ...draft, requireEmailVerification: checked })}
             />

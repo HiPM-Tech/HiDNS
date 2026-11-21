@@ -271,7 +271,7 @@ function UserDialog({ mode, user, myLevel, pending, onClose, onError, onCreate, 
   const [username, setUsername] = useState(user?.username ?? '');
   const [nickname, setNickname] = useState(user?.nickname ?? '');
   // 邮箱默认只读；超级管理员可通过「重置邮箱」走受审计的恢复通道
-  const [email] = useState(user?.email ?? '');
+  const [email, setEmail] = useState(user?.email ?? '');
   const [emailEditing, setEmailEditing] = useState(false);
   const [emailDraft, setEmailDraft] = useState(user?.email ?? '');
   const [emailPending, setEmailPending] = useState(false);
@@ -290,6 +290,7 @@ function UserDialog({ mode, user, myLevel, pending, onClose, onError, onCreate, 
     setEmailPending(true);
     try {
       await usersApi.resetEmail(user.id, next);
+      setEmail(next);
       await queryClient.invalidateQueries({ queryKey: ['users'] });
       setEmailEditing(false);
     } catch (err) {

@@ -10,7 +10,7 @@ import { sendEmailVerificationCode, verifyEmailVerificationCode } from '../servi
 import { logAuditOperation } from '../service/audit';
 import { getSmtpConfig, sendSmtpEmail } from '../service/smtp';
 import { getUserPreferences, updateUserPreferences, UserPreferences } from '../service/userPreferences';
-import { loginLimiter, emailLimiter } from '../middleware/rateLimit';
+import { loginLimiter, emailLimiter, emailVerifyLimiter } from '../middleware/rateLimit';
 import { getTOTPStatus, verifyTOTPToken, verifyBackupCode } from '../service/totp';
 import { createLogger } from '../lib/logger';
 import { UserOperations, OAuthOperations, TwoFAOperations, SettingsOperations, UserPreferencesOperations, DomainOperations } from '../db/bal/business-adapter';
@@ -928,7 +928,7 @@ router.post('/verify-email/code', emailLimiter, async (req: Request, res: Respon
     sendError(res, error instanceof Error ? error.message : 'Failed to send code', 500);
   }
 });
-router.post('/verify-email', emailLimiter, async (req: Request, res: Response) => {
+router.post('/verify-email', emailVerifyLimiter, async (req: Request, res: Response) => {
   const { username, code } = req.body as { username?: string; code?: string };
   if (!username || !code) {
     sendError(res, 'username and code are required', 400);
@@ -951,28 +951,62 @@ router.post('/verify-email', emailLimiter, async (req: Request, res: Response) =
   await UserOperations.update(Number(user.id), { email_verified: 1 });
   await logAuditOperation(Number(user.id), 'verify_email', 'system', {}, req);
 
-  // 验证通过后尽量直接完成登录，避免用户再输一遍密码与动态码。
-  // 但**不能绕过第二因子**：开了 2FA 的用户只告诉前端「该去 2FA」，由它接着走。
-  const fullUser = await UserOperations.getById(Number(user.id)) as
-    | { id?: number; username?: string; nickname?: string; role?: string; email_verified?: number }
+  const shouldIssue = await shouldRequireEmailVerification(user as { email?: string; email_verified?: number; role_level?: number });
+  await UserOperations.update(Number(user.id), { email_verified: 1 });
+  await logAuditOperation(Number(user.id), 'verify_email', 'system', {}, req);
+
+  // 只有「本来就在 -4 状态」的账号才签发会话：
+  // 否则已验证用户 / 策略关闭时也能用邮箱码换会话，等于多出一条常开的免密登录通道。
+  if (!shouldIssue) {
+    sendSuccess(res, { verified: true });
+    return;
+  }
+
+  const uid = Number(user.id);
+  const fullUser = await UserOperations.getById(uid) as
+    | { id?: number; username?: string; nickname?: string; role?: string; role_level?: number; status?: number }
     | undefined;
-  const twoFAOn = await has2FAEnabled(Number(user.id));
-  if (twoFAOn) {
-    sendSuccess(res, { verified: true, require2FA: true });
+
+  // 与 /login 同口径：停用账号不允许拿到会话
+  if (Number(fullUser?.status ?? 1) === 0) {
+    sendError(res, 'Account is disabled', 403);
+    return;
+  }
+
+  const totpStatus = await getTOTPStatus(uid);
+  const isTotpEnabled = totpStatus.enabled;
+  const isWebauthnEnabled = await TwoFAOperations.isWebAuthnEnabled(uid);
+  const isEmailFactorEnabled = await TwoFAOperations.isEmailEnabled(uid);
+  const has2FA = isTotpEnabled || isWebauthnEnabled || isEmailFactorEnabled;
+
+  // 强制 2FA 但用户没配：与 /login 的 -3 一致，不能因为「验证邮箱」就放行
+  const policyForVerify = await getSecurityPolicy();
+  const force2FA = Boolean(policyForVerify.require2FAGlobal) && (await requires2FA(uid));
+  if (force2FA && !has2FA) {
+    res.json({ code: -3, msg: '2FA setup required', data: { require2FASetup: true } });
+    return;
+  }
+
+  if (has2FA) {
+    const types: string[] = [];
+    if (isTotpEnabled) types.push('totp');
+    if (isWebauthnEnabled) types.push('webauthn');
+    if (isEmailFactorEnabled) types.push('email');
+    sendSuccess(res, { verified: true, require2FA: true, types });
     return;
   }
 
   const token = await signToken({
-    userId: Number(fullUser?.id ?? user.id),
+    userId: uid,
     username: String(fullUser?.username ?? ''),
     nickname: String(fullUser?.nickname ?? ''),
-    role: (Number((fullUser as { role_level?: number })?.role_level ?? 1) || 1) as 1 | 2 | 3,
+    role: (Number(fullUser?.role_level ?? 1) || 1) as 1 | 2 | 3,
   });
   setAuthCookie(res, token);
   sendSuccess(res, {
     verified: true,
     user: {
-      id: Number(fullUser?.id ?? user.id),
+      id: uid,
       username: fullUser?.username,
       nickname: fullUser?.nickname,
       email: user.email,
