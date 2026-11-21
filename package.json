@@ -12,7 +12,10 @@
     "build": "pnpm --filter dnsmgr-server build && pnpm --filter dnsmgr-client build",
     "start": "pnpm --filter dnsmgr-server start",
     "ci:watch": "node scripts/ci-watch.mjs",
-    "ci:watch:loop": "node scripts/ci-watch.mjs --watch --logs 12"
+    "ci:watch:loop": "node scripts/ci-watch.mjs --watch --logs 12",
+    "gate:docs": "node scripts/verify-docs-paths.mjs",
+    "gate:versions": "node scripts/verify-versions.mjs",
+    "gate": "pnpm run gate:docs && pnpm run gate:versions && pnpm --filter dnsmgr-server run lint && pnpm --filter dnsmgr-client run lint && pnpm --filter dnsmgr-server run build && pnpm --filter dnsmgr-client run build && pnpm --filter dnsmgr-server run check:actions && pnpm --filter dnsmgr-server run test && pnpm --filter dnsmgr-server run test:node && pnpm --filter dnsmgr-client run test"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

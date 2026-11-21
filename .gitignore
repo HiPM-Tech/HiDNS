@@ -57,3 +57,4 @@ core.*
 
 # 覆盖率产物（vitest --coverage）
 coverage
+*.tsbuildinfo

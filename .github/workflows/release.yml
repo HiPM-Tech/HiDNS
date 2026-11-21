@@ -99,24 +99,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: |
-          pnpm --filter dnsmgr-server run lint
-          pnpm --filter dnsmgr-client run lint
-
-      - name: Type check & build
-        run: |
-          pnpm --filter dnsmgr-server run build
-          pnpm --filter dnsmgr-client run build
-
-      - name: Action namespace gate
-        run: pnpm --filter dnsmgr-server run check:actions
-
-      - name: Unit tests (vitest)
-        run: pnpm --filter dnsmgr-server run test
-
-      - name: Unit tests (node:test)
-        run: pnpm --filter dnsmgr-server run test:node
+      # 唯一入口：与本地 `pnpm gate` 完全同一条命令。
+      # 之前这里是手敲的 5 条 pnpm --filter 命令，与本地习惯不一致，
+      # 导致 client 的 `tsc -b` / client 测试 / 文档与版本校验都没覆盖到。
+      - name: Gate (lint + build + all tests + docs/version checks)
+        run: pnpm gate
 
   # ============================================================================
   # 阶段 1: 准备版本信息
