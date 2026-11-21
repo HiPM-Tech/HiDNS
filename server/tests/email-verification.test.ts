@@ -24,7 +24,8 @@ describe('邮箱验证码（落库版）', () => {
     const smtp = await import('../src/service/smtp');
     (smtp.sendSmtpEmail as unknown as { mockImplementation: (fn: (to: string, subject: string, body: string) => Promise<void>) => void })
       .mockImplementation(async (_to: string, _subject: string, body: string) => {
-        const match = body.match(/code is: (\d{6})/);
+        // 正文来自邮件模板（中文），取正文里第一段 6 位数字
+        const match = body.match(/(\d{6})/);
         if (match) sent.push(match[1]);
       });
   });

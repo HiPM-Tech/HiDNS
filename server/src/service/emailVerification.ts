@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { EmailVerificationOperations } from '../db/bal/business-adapter';
 import { createLogger } from '../lib/logger';
+import { renderEmailTemplate } from './emailTemplates';
 import { sendSmtpEmail } from './smtp';
 
 /**
@@ -51,11 +52,11 @@ export async function sendEmailVerificationCode(
     expiresAt,
   });
 
-  await sendSmtpEmail(
-    normalized,
-    'DNSMgr Email Verification Code',
-    `Your verification code is: ${code}\n\nThis code expires in 10 minutes.`,
-  );
+  const { subject, body } = await renderEmailTemplate('verification_code', {
+    code,
+    ttlMinutes: Math.round(TTL_MS / 60000),
+  });
+  await sendSmtpEmail(normalized, subject, body);
   log.info('Verification code sent', { purpose });
 }
 

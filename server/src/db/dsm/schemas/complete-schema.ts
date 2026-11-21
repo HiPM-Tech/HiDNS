@@ -26,6 +26,19 @@ export const COMPLETE_SCHEMA: DatabaseSchema = {
       ]
     },
     {
+      name: 'email_templates',
+      columns: [
+        { name: 'id', type: 'id', primaryKey: true, autoIncrement: true },
+        { name: 'type', type: 'string', length: 64, unique: true, nullable: false },
+        { name: 'subject', type: 'string', length: 500, nullable: false },
+        { name: 'body', type: 'text', nullable: false },
+        { name: 'updated_at', type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' },
+      ],
+      indexes: [
+        { name: 'idx_email_templates_type', columns: ['type'] }
+      ]
+    },
+    {
       name: 'email_verification_codes',
       columns: [
         { name: 'id', type: 'id', primaryKey: true, autoIncrement: true },
