@@ -69,7 +69,9 @@
     --app-bg-image: url('https://t.hinswu.top/pixiv');
     --scrim-rgb: 255 255 255;
     /* 0.72：背景图是彩色的实拍/插画，0.56 时正文区仍会被图案抢注意力（实测截图） */
-    --scrim-alpha: 0.72;
+    /* 用户可调倍率（0-1，对应设置里的 0-100%）；只作用于蒙层，不动面板/顶栏 */
+    --scrim-user-scale: 1;
+    --scrim-alpha: calc(0.72 * var(--scrim-user-scale, 1));
     /* 面板必须接近实色：半透明面板叠在图上时，卡片与背景对比度会掉到 1.0，
        且同页两张卡会因底图颜色不同而一张偏白一张偏粉（二次评审实测） */
     --panel-alpha: 1;
@@ -100,7 +102,7 @@
     --ring: 199 89% 55%;
 
     --scrim-rgb: 8 13 24;
-    --scrim-alpha: 0.76;
+    --scrim-alpha: calc(0.76 * var(--scrim-user-scale, 1));
     --panel-alpha: 0.98;
     --panel-blur: 0px;
     --chrome-alpha: 0.92;
@@ -111,12 +113,12 @@
      登录/授权等公开页仍用较弱蒙层（那里正文在实色面板里）。 */
   html[data-surface='console'] body {
     /* 0.80：既让图案在留白处看得见，又不至于抢正文（对比度由实色面板与内容区薄纱兜底） */
-    --scrim-alpha: 0.8;
+    --scrim-alpha: calc(0.8 * var(--scrim-user-scale, 1));
   }
   html[data-surface='console'].dark body {
     /* 0.93：0.86 时随机背景图会把页面提到 #1e232d，比卡片 #161d30 还亮，
        形成「卡片凹陷」的观感（暗色审计实测 1.05:1）。加深蒙层让页面始终暗于卡片。 */
-    --scrim-alpha: 0.93;
+    --scrim-alpha: calc(0.93 * var(--scrim-user-scale, 1));
   }
   /* 用户关闭背景图：回到纯色，面板必须变成实色，否则「半透明但没东西可透」会发浑 */
   html[data-bg='off'] {

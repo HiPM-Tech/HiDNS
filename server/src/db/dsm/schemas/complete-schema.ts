@@ -318,6 +318,8 @@ export const COMPLETE_SCHEMA: DatabaseSchema = {
         { name: 'email_notifications', type: 'integer', defaultValue: true },
         { name: 'background_image', type: 'string', length: 2048, nullable: true },
         { name: 'avatar_image', type: 'string', length: 2048, nullable: true },
+        // 背景蒙层不透明度（0-100）。只作用于 --scrim-alpha，不动卡片/侧栏（issue #50）
+        { name: 'background_opacity', type: 'integer', defaultValue: 100 },
         { name: 'pinned_domains', type: 'json', nullable: true },
         { name: 'created_at', type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' },
         { name: 'updated_at', type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' },

@@ -263,10 +263,12 @@ function PreferencesCard({ loading, data, onError, onSaved }: {
   const [emailNotificationsEdit, setEmailNotificationsEdit] = useState<boolean | null>(null);
   const [avatarEdit, setAvatarEdit] = useState<string | null>(null);
   const [backgroundEdit, setBackgroundEdit] = useState<string | null>(null);
+  const [opacityEdit, setOpacityEdit] = useState<number | null>(null);
   const notifications = notificationsEdit ?? data?.notificationsEnabled ?? true;
   const emailNotifications = emailNotificationsEdit ?? data?.emailNotifications ?? false;
   const avatarImage = avatarEdit ?? data?.avatarImage ?? '';
   const backgroundImage = backgroundEdit ?? data?.backgroundImage ?? '';
+  const backgroundOpacity = opacityEdit ?? data?.backgroundOpacity ?? 100;
 
   const save = async () => {
     try {
@@ -277,6 +279,7 @@ function PreferencesCard({ loading, data, onError, onSaved }: {
         emailNotifications,
         avatarImage,
         backgroundImage,
+        backgroundOpacity,
       });
       onSaved('偏好已保存');
     } catch (err) {
@@ -310,6 +313,25 @@ function PreferencesCard({ loading, data, onError, onSaved }: {
               <div className="space-y-1.5">
                 <Label htmlFor="settings-avatar">头像地址</Label>
                 <Input id="settings-avatar" value={avatarImage} onChange={(event) => setAvatarEdit(event.target.value)} placeholder="https://…" />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="settings-background-opacity">背景蒙层不透明度</Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    id="settings-background-opacity"
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={backgroundOpacity}
+                    onChange={(event) => setOpacityEdit(Number(event.target.value))}
+                    className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-muted accent-primary"
+                  />
+                  <span className="w-12 shrink-0 text-right text-sm tabular-nums text-muted-foreground">{backgroundOpacity}%</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  只影响背景图上的蒙层：数值越低，背景图越清楚，但正文对比度也会下降。卡片与侧栏保持实色。
+                </p>
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="settings-background">背景图地址</Label>

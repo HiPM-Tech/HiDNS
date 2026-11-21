@@ -12,6 +12,8 @@ export interface UserPreferences {
   emailNotifications: boolean;
   backgroundImage?: string;
   avatarImage?: string;
+  /** 背景蒙层不透明度 0-100（默认 100）。只作用于 --scrim-alpha */
+  backgroundOpacity?: number;
 }
 
 /**
@@ -40,7 +42,13 @@ export async function getUserPreferences(userId: number): Promise<UserPreference
     emailNotifications: !!(result as any).email_notifications,
     backgroundImage: (result as any).background_image || undefined,
     avatarImage: (result as any).avatar_image || undefined,
+    backgroundOpacity: typeof (result as any).background_opacity === 'number' ? (result as any).background_opacity : 100,
   };
+}
+
+function clampOpacity(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 100;
+  return Math.min(100, Math.max(0, Math.round(value)));
 }
 
 /**
@@ -67,7 +75,8 @@ export async function updateUserPreferences(
       notificationsEnabled,
       emailNotifications,
       backgroundImage,
-      avatarImage
+      avatarImage,
+      clampOpacity(updated.backgroundOpacity)
     );
   } else if (dbType === 'mysql') {
     await UserPreferencesOperations.upsertMySQL(
@@ -77,7 +86,8 @@ export async function updateUserPreferences(
       notificationsEnabled,
       emailNotifications,
       backgroundImage,
-      avatarImage
+      avatarImage,
+      clampOpacity(updated.backgroundOpacity)
     );
   } else {
     await UserPreferencesOperations.upsertPostgreSQL(
@@ -87,7 +97,8 @@ export async function updateUserPreferences(
       notificationsEnabled,
       emailNotifications,
       backgroundImage,
-      avatarImage
+      avatarImage,
+      clampOpacity(updated.backgroundOpacity)
     );
   }
 }

@@ -7,6 +7,8 @@ export interface Preferences {
   emailNotifications?: boolean;
   backgroundImage?: string;
   avatarImage?: string;
+  /** 背景蒙层不透明度 0-100 */
+  backgroundOpacity?: number;
 }
 
 /** 对应 oauth_user_links 表：provider / subject / email / created_at */

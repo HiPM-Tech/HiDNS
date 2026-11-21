@@ -90,9 +90,17 @@ export function useThemeMode(): ThemeContextValue {
  * 可以破坏整页样式（存储型 CSS 注入）。
  * 取值约定：空 = 用默认图；'none' = 显式关闭背景；其余 = 用户自定义 https/http 图片。
  */
-export function applyBackgroundPreference(raw: string | undefined | null): void {
+export function applyBackgroundPreference(raw: string | undefined | null, opacity?: number): void {
   const root = document.documentElement;
   const value = (raw ?? '').trim();
+
+  // 用户可调的蒙层不透明度（0-100）：只改 --scrim-user-scale，面板/顶栏保持实色基线
+  if (typeof opacity === 'number' && Number.isFinite(opacity)) {
+    const scale = Math.min(1, Math.max(0, opacity / 100));
+    root.style.setProperty('--scrim-user-scale', String(scale));
+  } else {
+    root.style.removeProperty('--scrim-user-scale');
+  }
 
   if (value === 'none') {
     root.dataset.bg = 'off';

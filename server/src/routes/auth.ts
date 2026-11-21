@@ -1457,7 +1457,7 @@ router.get('/preferences', authMiddleware, async (req: Request, res: Response) =
  *         description: Preferences updated
  */
 router.put('/preferences', authMiddleware, async (req: Request, res: Response) => {
-  const { theme, language, notificationsEnabled, emailNotifications, backgroundImage, avatarImage } = req.body as Partial<UserPreferences>;
+  const { theme, language, notificationsEnabled, emailNotifications, backgroundImage, avatarImage, backgroundOpacity } = req.body as Partial<UserPreferences>;
 
   try {
     const updates: Partial<UserPreferences> = {};
@@ -1467,6 +1467,15 @@ router.put('/preferences', authMiddleware, async (req: Request, res: Response) =
     if (emailNotifications !== undefined) updates.emailNotifications = emailNotifications;
     if (backgroundImage !== undefined) updates.backgroundImage = backgroundImage;
     if (avatarImage !== undefined) updates.avatarImage = avatarImage;
+    if (backgroundOpacity !== undefined) {
+      // 服务端校验：这个值直接写进 CSS 变量，不能让任意数字/字符串进入样式层
+      const opacity = Number(backgroundOpacity);
+      if (!Number.isFinite(opacity)) {
+        res.status(400).json({ code: 400, msg: 'backgroundOpacity must be a number between 0 and 100' });
+        return;
+      }
+      updates.backgroundOpacity = Math.min(100, Math.max(0, Math.round(opacity)));
+    }
 
     await updateUserPreferences(req.user!.userId, updates);
     await logAuditOperation(req.user!.userId, 'update_preferences', 'system', updates);

@@ -50,7 +50,7 @@ export function AppShell({ user, children }: AppShellProps) {
     return () => { delete document.documentElement.dataset.surface; };
   }, []);
   useEffect(() => {
-    applyBackgroundPreference(preferences.data?.backgroundImage);
+    applyBackgroundPreference(preferences.data?.backgroundImage, preferences.data?.backgroundOpacity);
   }, [preferences.data?.backgroundImage]);
 
   useEffect(() => {
