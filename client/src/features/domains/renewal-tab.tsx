@@ -11,15 +11,11 @@ import { formatDate, formatRelative } from '../../lib/format';
 import { useAccounts, useProviders } from '../accounts/use-accounts';
 import { filterAccountsByProviderCapability } from '../accounts/provider-capabilities';
 import { providerLabel } from '../accounts/provider-labels';
-import { daysLeft, isRenewableEnabled, type ProviderDomainOption, type RenewableDomainRow, type RenewableQuery } from './renewal-api';
+import { daysLeft, isRenewableEnabled, type RenewableDomainRow, type RenewableQuery } from './renewal-api';
+import { filterAddableRenewalDomains } from './renewal-utils';
 import { useAddRenewable, useDeleteRenewable, useProviderDomains, useRenewDomain, useRenewableDomains, useToggleRenewable } from './use-renewal';
 
 const EMPTY_ACCOUNTS: never[] = [];
-
-/** 已加入续期列表的域名不再出现在「添加」里（后端给 exists_renewable，前端再兜一层） */
-export function filterAddableRenewalDomains(items: ProviderDomainOption[]): ProviderDomainOption[] {
-  return items.filter((item) => !item.exists_renewable);
-}
 
 export function DomainRenewalTab() {
   const [keywordInput, setKeywordInput] = useState('');

@@ -51,7 +51,7 @@ export function AppShell({ user, children }: AppShellProps) {
   }, []);
   useEffect(() => {
     applyBackgroundPreference(preferences.data?.backgroundImage, preferences.data?.backgroundOpacity);
-  }, [preferences.data?.backgroundImage]);
+  }, [preferences.data?.backgroundImage, preferences.data?.backgroundOpacity]);
 
   useEffect(() => {
     localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0');

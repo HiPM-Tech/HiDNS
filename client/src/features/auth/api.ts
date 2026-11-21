@@ -14,6 +14,8 @@ export interface LoginPayload {
   password: string;
   totpCode?: string;
   backupCode?: string;
+  /** 邮箱验证码第二因子（issue #43） */
+  emailCode?: string;
   encrypted?: boolean;
   webauthnResponse?: unknown;
 }

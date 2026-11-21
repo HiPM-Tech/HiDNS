@@ -252,7 +252,7 @@ function PasswordCard({ onError, onSaved }: { onError: (message: string) => void
 
 function PreferencesCard({ loading, data, onError, onSaved }: {
   loading: boolean;
-  data?: { notificationsEnabled?: boolean; emailNotifications?: boolean; avatarImage?: string; backgroundImage?: string };
+  data?: { notificationsEnabled?: boolean; emailNotifications?: boolean; avatarImage?: string; backgroundImage?: string; backgroundOpacity?: number };
   onError: (message: string) => void;
   onSaved: (message: string) => void;
 }) {

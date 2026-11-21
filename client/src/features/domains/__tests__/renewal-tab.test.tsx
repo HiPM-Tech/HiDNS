@@ -2,7 +2,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DomainRenewalTab, filterAddableRenewalDomains } from '../renewal-tab';
+import { DomainRenewalTab } from '../renewal-tab';
+import { filterAddableRenewalDomains } from '../renewal-utils';
 import { renewalApi } from '../renewal-api';
 
 vi.mock('../renewal-api', async (importOriginal) => {
