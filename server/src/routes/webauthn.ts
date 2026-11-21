@@ -49,9 +49,11 @@ router.get('/registration-options', authMiddleware, async (req: Request, res: Re
       transports: cred.transports as any[],
     })),
     authenticatorSelection: {
+      // 不限定 authenticatorAttachment：写成 'platform' 会让没有 Touch ID / Windows Hello
+      // 的机器（Linux 桌面、外接 USB 安全密钥）直接抛「找不到硬件」（issue #57）。
+      // residentKey 保持 preferred：既能当可发现凭据，也不强制要求驻留。
       residentKey: 'preferred',
       userVerification: 'preferred',
-      authenticatorAttachment: 'platform',
     },
   });
 

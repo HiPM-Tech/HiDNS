@@ -4,6 +4,7 @@ import { formatDate } from '../../lib/format';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Fingerprint, KeyRound, Laptop, Loader2, ShieldCheck, Trash2 } from 'lucide-react';
 import { startRegistration } from '@simplewebauthn/browser';
+import { describeWebAuthnError } from '../../lib/webauthn-error';
 import { unwrapWebAuthnOptions } from '../../lib/webauthn-options';
 import {
   Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, ConfirmDialog, Dialog,
@@ -417,7 +418,7 @@ function RegisterPasskeyButton({ onError }: { onError: (message: string) => void
       if (verify.code !== 0) throw new Error(verify.msg || '注册失败');
       await queryClient.invalidateQueries({ queryKey: ['security', 'passkeys'] });
     } catch (err) {
-      onError(err instanceof Error ? err.message : '注册通行密钥失败');
+      onError(describeWebAuthnError(err));
     } finally {
       setPending(false);
     }

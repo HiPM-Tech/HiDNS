@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { Fingerprint, KeyRound, Loader2, LogIn, Mail, Network, Smartphone } from 'lucide-react';
 import { LogoBadge } from '../../ui/logo';
 import { startAuthentication } from '@simplewebauthn/browser';
+import { describeWebAuthnError } from '../../lib/webauthn-error';
 import { unwrapWebAuthnOptions } from '../../lib/webauthn-options';
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label } from '../../ui';
 import { copy } from '../../copy/zh-CN';
@@ -134,7 +135,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       }
       handleSuccess(envelope.data?.user);
     } catch (err) {
-      setError(err instanceof Error ? err.message : copy.auth.passkeyFailed);
+      setError(describeWebAuthnError(err));
     } finally {
       setPasskeyPending(false);
     }
