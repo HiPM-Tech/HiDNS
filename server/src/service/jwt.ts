@@ -57,6 +57,28 @@ export async function getJwtSecret(): Promise<string> {
   return `${BASE_JWT_SECRET}:${runtimeSecret}`;
 }
 
+/**
+ * 「登录后验证邮箱」的一次性 pending 凭证（10 分钟）。
+ *
+ * 用途：把 /auth/verify-email 从「知道用户名 + 拿到验证码就能换会话」
+ * 收窄为「必须先经过一次密码登录并拿到 -4」。
+ */
+export async function signEmailVerifyPendingToken(userId: number): Promise<string> {
+  const jwtSecret = await getJwtSecret();
+  return jwt.sign({ userId, purpose: 'email-verify' }, jwtSecret, { expiresIn: '10m' });
+}
+
+export async function verifyEmailVerifyPendingToken(token: string): Promise<number | null> {
+  try {
+    const jwtSecret = await getJwtSecret();
+    const payload = jwt.verify(token, jwtSecret) as { userId?: number; purpose?: string };
+    if (payload?.purpose !== 'email-verify' || !payload.userId) return null;
+    return Number(payload.userId);
+  } catch {
+    return null;
+  }
+}
+
 export async function signToken(payload: JwtPayload): Promise<string> {
   const jwtSecret = await getJwtSecret();
   return jwt.sign(payload, jwtSecret, { expiresIn: '7d' });

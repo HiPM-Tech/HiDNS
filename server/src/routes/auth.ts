@@ -3,7 +3,7 @@ import { resolveWebAuthnConfig } from './webauthn';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { authMiddleware, noTokenAuth } from '../middleware/auth';
-import { signToken } from '../service/jwt';
+import { signToken, signEmailVerifyPendingToken, verifyEmailVerifyPendingToken } from '../service/jwt';
 import { User } from '../types';
 import { checkLoginAllowed, recordFailedAttempt, clearLoginAttempts } from '../service/loginLimit';
 import { sendEmailVerificationCode, verifyEmailVerificationCode } from '../service/emailVerification';
@@ -740,7 +740,12 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
       res.json({
         code: -4,
         msg: 'Email verification required',
-        data: { requireEmailVerification: true, email: authenticatedUser.email },
+        data: {
+          requireEmailVerification: true,
+          email: authenticatedUser.email,
+          // 一次性 pending 凭证：/verify-email 必须携带它，避免「知道用户名 + 拿到码」就能换会话
+          pendingToken: await signEmailVerifyPendingToken(Number(authenticatedUser.id)),
+        },
       });
       return;
     }
@@ -909,12 +914,10 @@ router.post('/login/email-code', emailLimiter, async (req: Request, res: Respons
  */
 router.post('/verify-email/code', emailLimiter, async (req: Request, res: Response) => {
   try {
-    const { username } = req.body as { username?: string };
-    if (username) {
-      const identifier = String(username).trim();
-      const user = (identifier.includes('@')
-        ? await UserOperations.getByEmail(identifier)
-        : await UserOperations.getByUsername(identifier)) as { id?: number; email?: string } | undefined;
+    const { pendingToken } = req.body as { pendingToken?: string };
+    const userId = pendingToken ? await verifyEmailVerifyPendingToken(pendingToken) : null;
+    if (userId) {
+      const user = await UserOperations.getById(userId) as { id?: number; email?: string } | undefined;
       if (user?.id && user.email) {
         try {
           await sendEmailVerificationCode(Number(user.id), String(user.email), 'profile');
@@ -929,15 +932,15 @@ router.post('/verify-email/code', emailLimiter, async (req: Request, res: Respon
   }
 });
 router.post('/verify-email', emailVerifyLimiter, async (req: Request, res: Response) => {
-  const { username, code } = req.body as { username?: string; code?: string };
-  if (!username || !code) {
-    sendError(res, 'username and code are required', 400);
+  const { pendingToken, code } = req.body as { pendingToken?: string; code?: string };
+  if (!pendingToken || !code) {
+    sendError(res, 'pendingToken and code are required', 400);
     return;
   }
-  const identifier = String(username).trim();
-  const user = (identifier.includes('@')
-    ? await UserOperations.getByEmail(identifier)
-    : await UserOperations.getByUsername(identifier)) as { id?: number; email?: string } | undefined;
+  const pendingUserId = await verifyEmailVerifyPendingToken(pendingToken);
+  const user = pendingUserId
+    ? (await UserOperations.getById(pendingUserId) as { id?: number; email?: string } | undefined)
+    : undefined;
   // 与「验证码错误」保持同一响应，避免用户名枚举
   if (!user?.id || !user.email) {
     sendError(res, 'Invalid email verification code', 401);
@@ -1290,7 +1293,11 @@ router.post('/oauth/callback', async (req: Request, res: Response) => {
       res.json({
         code: -4,
         msg: 'Email verification required',
-        data: { requireEmailVerification: true, email: user.email },
+        data: {
+          requireEmailVerification: true,
+          email: user.email,
+          pendingToken: await signEmailVerifyPendingToken(Number(user.id)),
+        },
       });
       return;
     }

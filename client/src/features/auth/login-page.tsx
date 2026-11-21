@@ -60,6 +60,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     defaultValues: { username: '', password: '' },
   });
   const [pendingEmail, setPendingEmail] = useState('');
+  const [pendingToken, setPendingToken] = useState('');
   const [verifyCodeSent, setVerifyCodeSent] = useState(false);
   const [verifyPending, setVerifyPending] = useState(false);
   const [twoFactorTypes, setTwoFactorTypes] = useState<string[]>([]);
@@ -67,6 +68,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   const [codeSent, setCodeSent] = useState(false);
   const [sendingCode, setSendingCode] = useState(false);
   const hasEmailFactor = twoFactorTypes.includes('email');
+  const hasWebauthnFactor = twoFactorTypes.includes('webauthn');
 
   const twoFactorForm = useForm<TwoFactorForm>({
     resolver: zodResolver(twoFactorSchema),
@@ -180,6 +182,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         const data = envelope.data as { email?: string } | undefined;
         setPendingCredentials(values);
         setPendingEmail(data?.email ?? '');
+        setPendingToken((data as { pendingToken?: string }).pendingToken ?? '');
         setVerifyCodeSent(false);
         twoFactorForm.reset();
         setStep('verify-email');
@@ -211,7 +214,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     setVerifyPending(true);
     try {
       // 后端在验证通过后直接签发会话（无 2FA 时）；开了 2FA 会返回 require2FA，由前端接着走第二步
-      const envelope = await authApi.verifyEmail(pendingCredentials.username, code);
+      const envelope = await authApi.verifyEmail(pendingToken, code);
       const data = envelope.data as { verified: boolean; require2FA?: boolean; user?: unknown } | undefined;
       if (data?.require2FA) {
         setTwoFactorTypes([]);
@@ -239,6 +242,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     if (envelope.code === -4) {
       if (credentials) setPendingCredentials(credentials);
       setPendingEmail(envelope.data?.email ?? '');
+      setPendingToken((envelope.data as { pendingToken?: string } | undefined)?.pendingToken ?? '');
       setVerifyCodeSent(false);
       // 同一个 form 复用于 2FA 与邮箱验证：不清空会把上一轮的 TOTP 当成邮箱码提交
       twoFactorForm.reset();
@@ -258,6 +262,37 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     handleSuccess(envelope.data?.user as Parameters<typeof handleSuccess>[0]);
     return true;
   };
+  /** 2FA 步骤用通行密钥完成第二因子（只配了 Passkey 的用户不能没有出路） */
+  const submitPasskeyTwoFactor = async () => {
+    if (!pendingCredentials) {
+      setStep('credentials');
+      return;
+    }
+    setError(null);
+    setPasskeyPending(true);
+    try {
+      const optionsEnvelope = await authApi.webauthnLoginOptions(pendingCredentials.username);
+      if (optionsEnvelope.code !== 0) {
+        setError(optionsEnvelope.msg || copy.auth.loginFailed);
+        return;
+      }
+      const assertion = await startAuthentication({ optionsJSON: unwrapWebAuthnOptions(optionsEnvelope.data) as never });
+      const prepared = await preparePassword(pendingCredentials.password);
+      if (!prepared) return;
+      const envelope = await authApi.login({
+        username: pendingCredentials.username,
+        password: prepared.password,
+        encrypted: prepared.encrypted,
+        webauthnResponse: assertion,
+      });
+      handleAuthEnvelope(envelope as { code: number; msg?: string; data?: { user?: unknown; types?: string[]; email?: string } }, pendingCredentials);
+    } catch (err) {
+      setError(describeWebAuthnError(err));
+    } finally {
+      setPasskeyPending(false);
+    }
+  };
+
   const submitTwoFactor = twoFactorForm.handleSubmit(async ({ code }) => {
     if (!pendingCredentials) {
       setStep('credentials');
@@ -539,6 +574,19 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                   {submitting ? copy.auth.verifying : copy.auth.verify}
                 </Button>
 
+                {hasWebauthnFactor && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    disabled={passkeyPending}
+                    onClick={() => void submitPasskeyTwoFactor()}
+                  >
+                    {passkeyPending ? <Loader2 className="animate-spin" aria-hidden /> : <Fingerprint strokeWidth={1.75} aria-hidden />}
+                    使用通行密钥
+                  </Button>
+                )}
+
                 <div className="flex items-center justify-between text-xs">
                   <button
                     type="button"
@@ -583,7 +631,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                       if (!pendingCredentials) return;
                       setSendingCode(true);
                       try {
-                        await authApi.requestEmailVerificationCode(pendingCredentials.username);
+                        await authApi.requestEmailVerificationCode(pendingToken);
                         setVerifyCodeSent(true);
                       } catch (err) {
                         setError(describeError(err));
