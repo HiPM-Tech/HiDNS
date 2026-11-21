@@ -120,7 +120,7 @@ export function LandingPage() {
       <footer className="border-t border-border/60">
         <div className="mx-auto flex max-w-content-narrow flex-col gap-2 px-4 py-6 text-xs text-muted-foreground sm:flex-row sm:items-center">
           <span>HiDNS · 自托管 DNS 聚合管理平台</span>
-          <span className="sm:ml-auto">MIT License</span>
+          <span className="sm:ml-auto">GPL-3.0 License</span>
         </div>
       </footer>
     </div>

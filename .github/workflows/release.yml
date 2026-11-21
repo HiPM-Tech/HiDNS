@@ -135,6 +135,17 @@ jobs:
             VERSION=$(node -p "require('./package.json').version")
           fi
           VERSION="${VERSION#v}"
+
+          # 版本一致性：入参必须与仓库三处 package.json 一致，否则会打出与仓库版本不符的 tag
+          REPO_VERSION=$(node -p "require('./package.json').version")
+          SERVER_VERSION=$(node -p "require('./server/package.json').version")
+          CLIENT_VERSION=$(node -p "require('./client/package.json').version")
+          if [ "$VERSION" != "$REPO_VERSION" ] || [ "$REPO_VERSION" != "$SERVER_VERSION" ] || [ "$REPO_VERSION" != "$CLIENT_VERSION" ]; then
+            echo "::error::版本不一致：input=$VERSION root=$REPO_VERSION server=$SERVER_VERSION client=$CLIENT_VERSION"
+            exit 1
+          fi
+          echo "::notice::Version verified: $VERSION"
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "image_name_lower=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION"

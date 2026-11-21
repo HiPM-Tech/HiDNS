@@ -32,6 +32,21 @@ describe('邮箱 2FA 开关', () => {
     await expect(TwoFAOperations.isEmailEnabled(userId)).resolves.toBe(false);
   });
 
+  it('只改昵称（不带 email_verified）不会把未验证邮箱标记为已验证', async () => {
+    await getConnection().run(
+      'INSERT INTO users (username, email, email_verified, password_hash, role_level, status) VALUES (?, ?, ?, ?, ?, ?)',
+      ['nicknameonly', 'nv@example.com', 0, 'hash', 1, 1],
+    );
+    const row = await getConnection().get<{ id: number }>('SELECT last_insert_rowid() AS id');
+    const userId = Number(row?.id ?? 0);
+
+    // 模拟「客户端恒定提交 email、但邮箱没变」时只更新 nickname 的路径
+    await UserOperations.update(userId, { nickname: '改名' });
+    const after = await UserOperations.getById(userId) as { nickname?: string; email_verified?: number } | undefined;
+    expect(after?.nickname).toBe('改名');
+    expect(Number(after?.email_verified)).toBe(0);
+  });
+
   it('用户查询返回 email_verified（登录侧判断依赖它）', async () => {
     const userId = await createUser('emailverified');
     const byId = await UserOperations.getById(userId) as { email_verified?: number } | undefined;

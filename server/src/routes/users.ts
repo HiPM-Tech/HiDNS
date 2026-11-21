@@ -206,12 +206,16 @@ router.put('/:id', authMiddleware, noTokenAuth('user management'), adminOnly, as
     }
   }
 
-  const updates: { nickname?: string; email?: string; role_level?: number; role?: string; status?: number; password_hash?: string } = {};
+  const updates: { nickname?: string; email?: string; email_verified?: number; role_level?: number; role?: string; status?: number; password_hash?: string } = {};
 
   if (nickname !== undefined) {
     updates.nickname = nickname.trim() || user.username;
   }
-  if (email !== undefined) { updates.email = email; }
+  if (email !== undefined) {
+    // 管理端改邮箱必须复位验证状态：否则 B 地址直接继承 A 的「已验证」（与 /profile 保持同一口径）
+    updates.email = email;
+    updates.email_verified = 0;
+  }
   if (role !== undefined) {
     let roleLevel = normalizeRole(role);
     // Only super admin can create other admins

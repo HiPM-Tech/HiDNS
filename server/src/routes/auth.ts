@@ -1326,6 +1326,9 @@ router.put('/profile', authMiddleware, noTokenAuth('account profile'), async (re
           res.status(400).json({ code: 400, msg: 'Valid email verification code is required' });
           return;
         }
+        // 只有「邮箱确实变了且验证码通过」才把新邮箱标记为已验证。
+        // 放在分支外会让「只改昵称」（客户端恒定提交 email）把未验证邮箱静默置 1。
+        updates.email_verified = nextEmail ? 1 : 0;
         // 邮箱唯一：唯一索引是最后一道防线，这里先给出可读错误（issue #43 C0）
         if (nextEmail) {
           const occupied = await UserOperations.getByEmail(nextEmail);
@@ -1337,8 +1340,6 @@ router.put('/profile', authMiddleware, noTokenAuth('account profile'), async (re
         }
       }
       updates.email = nextEmail || null;
-      // 走到这里说明验证码已通过 —— 邮箱即为已验证；清空邮箱时一并复位
-      updates.email_verified = nextEmail ? 1 : 0;
     }
 
     await UserOperations.update(user.id as number, updates);

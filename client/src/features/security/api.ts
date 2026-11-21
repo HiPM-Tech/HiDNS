@@ -15,7 +15,7 @@ export interface TwoFactorStatus {
   enabled: boolean;
   validationEnabled: boolean;
   /** 邮箱验证码第二因子（issue #43） */
-  email2FA?: { enabled: boolean; email: string; emailVerified: boolean };
+  email2FA?: { enabled: boolean; rawEnabled?: boolean; email: string; emailVerified: boolean };
 }
 
 export interface TwoFactorSetup {

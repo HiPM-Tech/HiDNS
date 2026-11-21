@@ -572,9 +572,10 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
           href="https://qm.qq.com/q/8XV9poLoGI"
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-phi-4 inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          aria-label="加入 HiDNS 交流群（QQ 群 1134828751）"
+          className="mt-phi-4 inline-flex items-center gap-1 text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
         >
-          <MessageCircle className="h-3.5 w-3.5" /> 加入 HIDNS 交流群（QQ 1134828751）
+          <MessageCircle className="h-3.5 w-3.5" /> 加入 HiDNS 交流群（QQ 群 1134828751）
         </a>
       </div>
       </section>

@@ -133,7 +133,10 @@ router.get('/2fa-status', authMiddleware, async (req, res) => {
         enabled: validationEnabled && status.enabled,
         validationEnabled,
         email2FA: {
-          enabled: emailEnabled,
+          // enabled 是「生效值」，与登录侧同口径（开关 && 有邮箱 && 已验证）；
+          // rawEnabled 是数据库原始开关，供 UI 区分「已开启但条件不满足」并允许关闭。
+          enabled: emailEnabled && Boolean(userRow?.email) && Boolean(userRow?.email_verified),
+          rawEnabled: emailEnabled,
           email: userRow?.email || '',
           emailVerified: Boolean(userRow?.email_verified),
         },

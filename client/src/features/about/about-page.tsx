@@ -6,8 +6,12 @@ import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitl
 import { systemApi } from '../system/api';
 
 const REPO_URL = 'https://github.com/HiPM-Tech/HiDNS';
-const TELEGRAM_URL = 'https://t.me/hidns_group';
-const LICENSE = 'MIT';
+// 与 README 保持一致（此前 App 内是 t.me/hidns_group、文档里是 t.me/HiDNSManager，属分叉）
+const TELEGRAM_URL = 'https://t.me/HiDNSManager';
+const QQ_GROUP_NUMBER = '1134828751';
+const QQ_GROUP_URL = 'https://qm.qq.com/q/8XV9poLoGI';
+// 仓库实际协议：LICENSE 第 1 行与三处 package.json 均为 GPL-3.0（此前写成 MIT 是事实错误）
+const LICENSE = 'GPL-3.0';
 
 interface Contributor {
   login: string;
@@ -91,22 +95,6 @@ export function AboutPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><MessageCircle className="h-4 w-4" /> 社区</CardTitle>
-          <CardDescription>遇到问题、想要新功能，或者只是想聊聊 DNS，都欢迎进群。</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <p>
-            QQ 群号：<span className="font-mono font-medium">1134828751</span>
-          </p>
-          <Button variant="outline" size="sm" asChild>
-            <a href="https://qm.qq.com/q/8XV9poLoGI" target="_blank" rel="noopener noreferrer">
-              <Users className="h-4 w-4" /> 加入 HIDNS 交流群
-            </a>
-          </Button>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
           <CardTitle className="flex items-center gap-2"><Package className="h-4 w-4" /> 最新版本</CardTitle>
           <CardDescription>取自 GitHub Releases（未发版或超出限流时显示不可用）</CardDescription>
         </CardHeader>
@@ -135,6 +123,7 @@ export function AboutPage() {
           <LinkRow href={REPO_URL + '/blob/main/README.md'} icon={<BookOpen className="h-4 w-4" />} label="使用文档（README）" />
           <LinkRow href={REPO_URL + '/issues'} icon={<MessageCircle className="h-4 w-4" />} label="问题反馈（Issues）" />
           <LinkRow href={TELEGRAM_URL} icon={<Users className="h-4 w-4" />} label="Telegram 交流群" />
+          <LinkRow href={QQ_GROUP_URL} icon={<Users className="h-4 w-4" />} label={`QQ 群 ${QQ_GROUP_NUMBER}`} />
         </CardContent>
       </Card>
 

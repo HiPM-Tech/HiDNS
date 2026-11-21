@@ -94,20 +94,9 @@ jobs:
 
       # 不得加 || true：此前两条 lint 都带容错，而 server 侧当时根本没有 lint 脚本，
       # 于是「Lint」这一步长期恒绿。现已补齐 server 配置，改成硬失败。
-      - name: Run ESLint
-        run: |
-          pnpm --filter dnsmgr-server run lint
-          pnpm --filter dnsmgr-client run lint
-
-      - name: Type check
-        run: |
-          pnpm --filter dnsmgr-server run build
-          pnpm --filter dnsmgr-client run build
-
-      # 动作命名空间与唯一性门禁。**不得**附加 || echo / || true 等容错，
-      # 否则该校验形同虚设（历史教训：Test Suite 曾经吞掉退出码）。
-      - name: Check action namespaces & uniqueness
-        run: pnpm --filter dnsmgr-server run check:actions
+      # 与 release.yml / commit-checks.yml / 本地完全同一条命令（唯一入口）。
+      - name: Gate
+        run: pnpm gate
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

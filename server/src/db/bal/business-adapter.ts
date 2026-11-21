@@ -2593,12 +2593,13 @@ export const SecurityPolicyOperations = {
   /** 检查用户是否有 2FA */
   async has2FA(userId: number): Promise<boolean> {
     const dbType = process.env.DB_TYPE || 'sqlite';
-    const enabledValue = dbType === 'postgresql' ? '$4' : '?';
-    const enabledParam = dbType === 'postgresql' ? [userId, 'totp', 'webauthn', 1] : [userId, 'totp', 'webauthn', 1];
+    // email 也是第二因子（issue #43），否则「只开邮箱 2FA」会被判为未设置 2FA
+    const enabledParam = [userId, 'totp', 'webauthn', 'email', 1];
 
     const sql = dbType === 'postgresql'
-      ? 'SELECT COUNT(*) as count FROM user_2fa WHERE user_id = $1 AND type IN ($2, $3) AND enabled = $4'
-      : 'SELECT COUNT(*) as count FROM user_2fa WHERE user_id = ? AND type IN (?, ?) AND enabled = ?';
+      ? 'SELECT COUNT(*) as count FROM user_2fa WHERE user_id = $1 AND type IN ($2, $3, $4) AND enabled = $5'
+      : 'SELECT COUNT(*) as count FROM user_2fa WHERE user_id = ? AND type IN (?, ?, ?) AND enabled = ?';
+
 
     const result = await getInternal<{ count: number }>(
       sql,
