@@ -1583,7 +1583,7 @@ export const OAuthOperations = {
   /** 根据 provider subject 获取用户完整信息（包JOIN users*/
   async getUserByProviderSubject(provider: string, subject: string): Promise<QueryResult | undefined> {
     return getInternal(
-      `SELECT l.user_id, u.id, u.username, u.nickname, u.email, u.role_level as role, u.role_level, u.role as role_name, u.status
+      `SELECT l.user_id, u.id, u.username, u.nickname, u.email, u.email_verified, u.role_level as role, u.role_level, u.role as role_name, u.status
        FROM oauth_user_links l
        INNER JOIN users u ON u.id = l.user_id
        WHERE l.provider = ? AND l.subject = ?`,

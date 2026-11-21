@@ -139,11 +139,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         encrypted: prepared.encrypted,
         webauthnResponse: assertion,
       });
-      if (envelope.code !== 0) {
-        setError(envelope.msg || copy.auth.loginFailed);
-        return;
-      }
-      handleSuccess(envelope.data?.user);
+      // 通行密钥登录也要能落到「验证邮箱」步骤，否则只用 Passkey 的账号会被硬锁死
+      handleAuthEnvelope(envelope as { code: number; msg?: string; data?: { user?: unknown; types?: string[]; email?: string } }, values);
     } catch (err) {
       setError(describeWebAuthnError(err));
     } finally {
@@ -184,6 +181,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         setPendingCredentials(values);
         setPendingEmail(data?.email ?? '');
         setVerifyCodeSent(false);
+        twoFactorForm.reset();
         setStep('verify-email');
         return;
       }
@@ -240,6 +238,35 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     }
   });
 
+
+  /**
+   * 统一处理登录返回的信封：-4（需验证邮箱）/ -2（需 2FA）/ 0（成功）。
+   * 三个入口（密码、2FA、通行密钥）都走这里，避免各写一遍导致某条路径卡死。
+   */
+  const handleAuthEnvelope = (
+    envelope: { code: number; msg?: string; data?: { user?: unknown; types?: string[]; email?: string } },
+    credentials: { username: string; password: string } | null,
+  ): boolean => {
+    if (envelope.code === -4) {
+      if (credentials) setPendingCredentials(credentials);
+      setPendingEmail(envelope.data?.email ?? '');
+      setVerifyCodeSent(false);
+      setStep('verify-email');
+      return true;
+    }
+    if (envelope.code === -2) {
+      if (credentials) setPendingCredentials(credentials);
+      setTwoFactorTypes(envelope.data?.types ?? []);
+      setStep('2fa');
+      return true;
+    }
+    if (envelope.code !== 0) {
+      setError(envelope.msg || copy.auth.loginFailed);
+      return true;
+    }
+    handleSuccess(envelope.data?.user as Parameters<typeof handleSuccess>[0]);
+    return true;
+  };
   const submitTwoFactor = twoFactorForm.handleSubmit(async ({ code }) => {
     if (!pendingCredentials) {
       setStep('credentials');
@@ -257,11 +284,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         backupCode: useBackupCode ? code : undefined,
         emailCode: useEmailCode ? code : undefined,
       });
-      if (envelope.code !== 0) {
-        setError(envelope.msg || copy.auth.loginFailed);
-        return;
-      }
-      handleSuccess(envelope.data?.user);
+      // 多步流程统一处理：2FA 通过后可能还需要验证邮箱（-4）
+      handleAuthEnvelope(envelope as { code: number; msg?: string; data?: { user?: unknown; types?: string[]; email?: string } }, pendingCredentials);
     } catch (err) {
       setError(describeError(err));
     }
@@ -348,12 +372,14 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
             <CardTitle>
               {step === 'credentials' ? copy.auth.loginTitle
                 : step === '2fa' ? copy.auth.twoFactorTitle
-                  : copy.auth.resetTitle}
+                  : step === 'verify-email' ? '验证邮箱'
+                    : copy.auth.resetTitle}
             </CardTitle>
             <CardDescription>
               {step === 'credentials' ? copy.auth.loginSubtitle
                 : step === '2fa' ? copy.auth.twoFactorSubtitle
-                  : copy.auth.resetSubtitle}
+                  : step === 'verify-email' ? '这一步是为了让邮箱可信；验证通过后会自动继续登录'
+                    : copy.auth.resetSubtitle}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -566,8 +592,10 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                       if (!pendingCredentials) return;
                       setSendingCode(true);
                       try {
-                        await authApi.loginEmailCode(pendingCredentials.username);
+                        await authApi.requestEmailVerificationCode(pendingCredentials.username);
                         setVerifyCodeSent(true);
+                      } catch (err) {
+                        setError(describeError(err));
                       } finally {
                         setSendingCode(false);
                       }

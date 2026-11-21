@@ -17,6 +17,8 @@ export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 分钟
   max: 5, // 限制登录尝试次数
   handler: rateLimitHandler('Too many login attempts, please try again later.'),
+  // 多步登录（-2 2FA / -4 邮箱验证）会多次调用 /login，成功请求不应计入配额
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request) => {
@@ -39,8 +41,10 @@ export const emailLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request) => {
-    // 使用邮箱地址作为 key
-    return (req.body?.email || getRequestIP(req) || 'unknown').toLowerCase();
+    // 优先邮箱；/verify-email 只带 username 时退到 username；都没有才用真实对端 IP
+    const identifier = req.body?.email || req.body?.username || '';
+    const ip = req.socket?.remoteAddress || getRequestIP(req) || 'unknown';
+    return String(identifier || ip).toLowerCase();
   },
 });
 

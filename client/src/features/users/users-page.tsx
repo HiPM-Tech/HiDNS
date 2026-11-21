@@ -270,7 +270,8 @@ function UserDialog({ mode, user, myLevel, pending, onClose, onError, onCreate, 
   const roles = useMemo(() => assignableRoles(myLevel), [myLevel]);
   const [username, setUsername] = useState(user?.username ?? '');
   const [nickname, setNickname] = useState(user?.nickname ?? '');
-  const [email, setEmail] = useState(user?.email ?? '');
+  // 邮箱只读展示：管理端不能改（改邮箱会重置验证状态，由用户本人在个人资料里完成）
+  const [email] = useState(user?.email ?? '');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState(String(user ? roleLevel(user) : roles[0] ?? ROLE_USER));
 
@@ -319,7 +320,9 @@ function UserDialog({ mode, user, myLevel, pending, onClose, onError, onCreate, 
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="user-email">邮箱</Label>
-            <Input id="user-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="可选" />
+            {/* 管理端不能改邮箱：改邮箱会重置验证状态，属于账号主权操作，只能由用户本人在个人资料里完成 */}
+            <Input id="user-email" type="email" value={email} readOnly disabled placeholder="由用户本人在个人资料中修改" />
+            <p className="text-xs text-muted-foreground">邮箱由用户本人在「设置 → 个人资料」里修改并验证。</p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="user-role">角色</Label>

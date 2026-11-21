@@ -520,6 +520,31 @@ router.get('/public-key', (req: Request, res: Response) => {
  *       200:
  *         description: JWT token returned
  */
+
+/**
+ * 是否需要「登录后验证邮箱」（产品口径：未验证邮箱的非超管用户必须验证一次）。
+ * 抽成函数供密码登录与 OAuth 登录共用，避免两条路径口径分叉。
+ */
+async function shouldRequireEmailVerification(user: { email?: string; email_verified?: number; role_level?: number }): Promise<boolean> {
+  if (!user.email) return false;
+  if (Number(user.email_verified)) return false;
+  if (Number(user.role_level ?? 0) >= 3) return false; // 超级管理员豁免
+  // SMTP 没配就别拦：用户收不到码会被永久锁在登录页（策略默认开启，自托管实例常常未配 SMTP）
+  try {
+    const smtp = await getSmtpConfig();
+    if (!smtp.enabled) return false;
+  } catch {
+    return false;
+  }
+  try {
+    const raw = await SettingsOperations.get('security_config');
+    if (!raw) return true;
+    const parsed = JSON.parse(raw) as { requireEmailVerification?: boolean };
+    return parsed.requireEmailVerification === undefined ? true : Boolean(parsed.requireEmailVerification);
+  } catch {
+    return true; // 配置损坏时 fail-closed
+  }
+}
 router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const { username, password, totpCode, backupCode, webauthnResponse, emailCode, trustDevice, encrypted } = req.body as {
     username: string;
@@ -705,24 +730,13 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
       }
     }
 
+    // 密码与 2FA 都已通过：先清失败计数，避免多步流程把配额耗在 429 上
+    await clearLoginAttempts(loginIdentifier, ipAddress);
+
     // 邮箱验证拦截（产品口径：未验证邮箱的用户登录后必须验证一次，超级管理员豁免，
     // 是否启用由系统设置里的 requireEmailVerification 控制）。
     // 放在 2FA 之后：先过第二因子，再补邮箱验证，避免两套挑战相互打断。
-    // 策略存在 system_configs.security_config 里（与系统设置页同一份数据）
-    let requireEmailVerification = true;
-    try {
-      const rawConfig = await SettingsOperations.get('security_config');
-      if (rawConfig) {
-        const parsed = JSON.parse(rawConfig) as { requireEmailVerification?: boolean };
-        if (parsed.requireEmailVerification !== undefined) requireEmailVerification = Boolean(parsed.requireEmailVerification);
-      }
-    } catch { /* 配置损坏时按默认（开启）处理 */ }
-    if (
-      requireEmailVerification
-      && authenticatedUser.email
-      && !Number((authenticatedUser as { email_verified?: number }).email_verified)
-      && Number((authenticatedUser as { role_level?: number }).role_level ?? 0) < 3
-    ) {
+    if (await shouldRequireEmailVerification(authenticatedUser as { email?: string; email_verified?: number; role_level?: number })) {
       res.json({
         code: -4,
         msg: 'Email verification required',
@@ -730,9 +744,6 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
       });
       return;
     }
-
-    // Clear login attempts on successful login
-    await clearLoginAttempts(loginIdentifier, ipAddress);
 
     // 如果用户选择信任设备，添加设备信任
     let deviceId: string | undefined;
@@ -887,6 +898,36 @@ router.post('/login/email-code', emailLimiter, async (req: Request, res: Respons
  * 只校验「发到该邮箱的验证码」，不签发 token —— 通过后前端重新走 /login。
  * 不要求密码：验证码本身已经证明邮箱归属。
  */
+
+/**
+ * 为「登录后强制验证邮箱」流程发码（未登录可用）。
+ *
+ * 与 /login/email-code 的区别：
+ *   - 不要求 email_verified（正是未验证的人需要它）；
+ *   - purpose 固定为 profile，与 /auth/verify-email 的校验口径一致。
+ * 防枚举：无论账号是否存在、是否有邮箱，响应一致。
+ */
+router.post('/verify-email/code', emailLimiter, async (req: Request, res: Response) => {
+  try {
+    const { username } = req.body as { username?: string };
+    if (username) {
+      const identifier = String(username).trim();
+      const user = (identifier.includes('@')
+        ? await UserOperations.getByEmail(identifier)
+        : await UserOperations.getByUsername(identifier)) as { id?: number; email?: string } | undefined;
+      if (user?.id && user.email) {
+        try {
+          await sendEmailVerificationCode(Number(user.id), String(user.email), 'profile');
+        } catch (error) {
+          log.warn('Failed to send verification email code', { error });
+        }
+      }
+    }
+    sendSuccess(res, { sent: true }, '如果该账号有邮箱，验证码会发送过去');
+  } catch (error) {
+    sendError(res, error instanceof Error ? error.message : 'Failed to send code', 500);
+  }
+});
 router.post('/verify-email', emailLimiter, async (req: Request, res: Response) => {
   const { username, code } = req.body as { username?: string; code?: string };
   if (!username || !code) {
@@ -897,8 +938,9 @@ router.post('/verify-email', emailLimiter, async (req: Request, res: Response) =
   const user = (identifier.includes('@')
     ? await UserOperations.getByEmail(identifier)
     : await UserOperations.getByUsername(identifier)) as { id?: number; email?: string } | undefined;
+  // 与「验证码错误」保持同一响应，避免用户名枚举
   if (!user?.id || !user.email) {
-    sendError(res, 'Invalid verification request', 400);
+    sendError(res, 'Invalid email verification code', 401);
     return;
   }
   const ok = await verifyEmailVerificationCode(Number(user.id), String(user.email), String(code), 'profile');
@@ -1177,6 +1219,17 @@ router.post('/oauth/callback', async (req: Request, res: Response) => {
     }
     if (user.status === 0) {
       res.status(403).json({ code: 403, msg: 'Account is disabled' });
+      return;
+    }
+
+    // 与密码登录同一口径：未验证邮箱的非超管用户先补验证，避免 OAuth 成为绕过通道
+    if (await shouldRequireEmailVerification(user as { email?: string; email_verified?: number; role_level?: number })) {
+      addProcessedCode(code);
+      res.json({
+        code: -4,
+        msg: 'Email verification required',
+        data: { requireEmailVerification: true, email: user.email },
+      });
       return;
     }
 

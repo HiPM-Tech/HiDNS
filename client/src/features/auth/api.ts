@@ -36,6 +36,10 @@ export interface LoginResult {
 export const authApi = {
   login: (payload: LoginPayload): Promise<ApiEnvelope<LoginResult>> => http.post<LoginResult>('/auth/login', payload),
   /** 发送登录用邮箱验证码（第二因子，issue #43） */
+  /** 为「登录后强制验证邮箱」发码（未登录可用，purpose=profile） */
+  requestEmailVerificationCode: (username: string) =>
+    http.postOk<{ sent: boolean }>('/auth/verify-email/code', { username }),
+
   /** 验证邮箱（登录后强制验证流程）：只校验验证码，通过后需要重新登录 */
   verifyEmail: (username: string, code: string) =>
     http.postOk<{ verified: boolean }>('/auth/verify-email', { username, code }),

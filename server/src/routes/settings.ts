@@ -332,12 +332,23 @@ router.get('/security', authMiddleware, noTokenAuth('system settings'), adminOnl
 
 router.put('/security', authMiddleware, noTokenAuth('system settings'), adminOnly, async (req: Request, res: Response) => {
   const { jwtViewEmailNotify, domainExpiryNotify, domainExpiryDays, showDnsProviderSecrets, requireEmailVerification } = req.body;
-  const config = {
+
+  // 合并写：直接重建对象会静默丢掉历史/未知 key，也会把未传的字段强制回默认值
+  let existing: Record<string, unknown> = {};
+  try {
+    const raw = await SettingsOperations.get('security_config');
+    if (raw) existing = JSON.parse(raw) as Record<string, unknown>;
+  } catch { /* 配置损坏时按空对象处理 */ }
+
+  const config: Record<string, unknown> = {
+    ...existing,
     jwtViewEmailNotify: !!jwtViewEmailNotify,
     showDnsProviderSecrets: !!showDnsProviderSecrets,
-    // 未传时保持默认开启（与 GET 的 defaultConf 对齐）
-    requireEmailVerification: requireEmailVerification === undefined ? true : !!requireEmailVerification,
   };
+  // 只有显式传了才覆盖，缺省保持原值
+  if (requireEmailVerification !== undefined) {
+    config.requireEmailVerification = !!requireEmailVerification;
+  }
 
   await SettingsOperations.set('security_config', JSON.stringify(config));
   if (domainExpiryNotify !== undefined) {
