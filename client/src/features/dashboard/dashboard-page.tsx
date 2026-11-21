@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { ExpiryBucketsChart, ResourceTrendChart } from './charts';
 import { AlertTriangle, ArrowUpRight, Clock, Globe2, RefreshCw, Server, Users } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle, Skeleton } from '../../ui';
 import { useDashboard } from './use-dashboard';
@@ -157,6 +158,11 @@ export function DashboardPage() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      <div className="grid gap-phi-6 lg:grid-cols-2">
+        <ExpiryBucketsChart expiresAt={(data?.domains ?? []).map((domain) => domain.expires_at)} />
+        <ResourceTrendChart />
       </div>
 
       <Card>
