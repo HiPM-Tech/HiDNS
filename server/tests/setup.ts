@@ -3,7 +3,7 @@
  * 配置MOCK和测试环境
  */
 
-import { vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
 
 // MOCK环境变量
 process.env.NODE_ENV = 'test';

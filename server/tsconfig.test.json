@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // tests 不在 src 的 rootDir 下，单独放开
+    "rootDir": "."
+  },
+  // server/tests 由 vitest 执行（esbuild 只剥类型不校验），必须单独跑一次真正的类型检查。
+  // scripts/** 里的 node:test 用例混用 ESM(.mjs) 与 commonjs 主配置，暂不纳入（见 ai-censorship 记录）。
+  "include": ["tests/**/*", "src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
