@@ -1,5 +1,51 @@
 # 更新日志
 
+## [2.3.9] - 2026-11-21
+
+### 新功能
+
+#### Dynadot 提供商（全新，真实账号逐项实测）
+
+- 域名列表、记录读取、子记录增删改、**根记录**增删改全部打通；MX 优先级、TTL、SRV（`priority weight port target`）、CAA（`flags tag value`）均实测往返成功。
+- 端点与字段按真实响应校正：列表 `data.domain_info_list[].domain_name`、记录 `data.glue_info.{dns_main_list, dns_sub_list}`；所有请求必须带 `X-Signature`；业务错误是 HTTP 200 + `body.code ≠ 200`。
+- 写操作走 api3 的 `set_dns2`（覆盖语义：读全量 → 改动 → 写回），并与 Spaceship 共用按域名的写锁。
+
+#### 令牌服务权限叠加动作位（#38）
+
+- `allowed_services` 支持 `dns` / `dns:read` / `dns:write` / `dns:*` / `mcp` / `mcp:read` / `mcp:write`；不带动作位的模块名保持全权限，历史令牌不受影响。
+- 动作按 HTTP 方法推断（GET/HEAD = read，其余 = write），写权限隐含读；新增白名单校验，未知取值直接 400。
+
+#### 邮箱验证码作为第二因子 + 邮件模板（#43）
+
+- 邮箱唯一性收敛：同一邮箱只保留最早注册的账号，其余置空（部分唯一索引 `WHERE email <> ''`）；新增 `users.email_verified`。
+- 验证码落库（`email_verification_codes`）：只存 sha256、单次使用、5 次尝试上限、10 分钟有效、过期自动清理；旧实现是进程内 Map 且无尝试限制。
+- 登录第二因子：`POST /auth/login/email-code` 发码（防枚举，无论账号是否存在响应一致），`POST /auth/login` 接受 `emailCode`；安全页新增开关，登录页支持「改用邮箱验证码」。
+- 邮件模板：`email_templates` 表补进 schema（此前只有 BAL 方法、表不存在），内置中文默认模板，支持 `{{code}}` / `{{ttlMinutes}}` 变量，系统设置页可编辑与恢复默认。
+
+#### 外观与可视化
+
+- 背景蒙层不透明度（#50）：`user_preferences.background_opacity`（0-100）+ 设置页滑块，只作用于 `--scrim-alpha`，卡片与侧栏保持实色基线。
+- 仪表盘图表（#52-A）：到期分布（5 桶柱状）与资源趋势（CPU/内存折线）用原生 SVG 实现，不新增前端依赖。
+
+### Bug 修复
+
+- **#56 PowerDNS 写操作误报失败 + 第二条 TXT 覆盖第一条**：`PATCH /zones/{id}` 成功返回 204 空体时无条件 `res.json()` 抛错（「上游已生效、HiDNS 报失败」）；`rrset` 用 REPLACE 只回写 1 条会抹掉同名同类型其它记录（ACME 多 TXT 直接失效）。现已改为先读文本再按需解析、读现有 rrset 后追加、按需拉取 zone 详情、写操作加域名锁。
+- **#57 Passkey 注册提示「找不到硬件」**：服务端写死 `authenticatorAttachment: 'platform'`，没有 Touch ID / Windows Hello 的机器必然失败。已移除该限制，并按 `err.name` 给出可操作提示。
+- **#59 .site 等后缀拿不到到期时间**：`providers` 为空时先 `return null`，让 IANA RDAP 兜底成为死代码——实际影响所有没有内置 RDAP 条目的后缀（`.de`/`.fr`/`.xyz`/`.top`…）。已改为先试 IANA 再判空，并在启动时异步预热 RDAP 服务器列表。
+- **#60 「最近操作」时间显示晚 8 小时**：SQLite `CURRENT_TIMESTAMP` 存 UTC 无时区后缀，前端按本地时区解析。新增 `parseServerTime` 统一按 UTC 解释。
+- **#53 头像链接不生效**：顶栏组件从未读取 `preferences.avatarImage`。现已优先渲染图片，加载失败回退首字母。
+- **#54 解析总数不更新**：`record_count` 只在列表接口刷新。记录增删后现在会主动刷新。
+- **#58 分组视图看不到新增域名**：增量更新是异步任务且缓存行缺失时无兜底。新增域名后直接删除该用户缓存行，增量失败也会 bump 版本。
+- **#51 Dynadot 列表返回空**：按 `data.domains` 解析，实际结构是 `data.domain_info_list[].domain_name`。
+
+### 优化
+
+- 共享域名锁 `providers/domain-lock.ts`：Spaceship 与 Dynadot 复用同一实现，写操作按域名串行，避免全量保存语义下的 lost update。
+- 日志脱敏：`redactUrl()` 对 `key/api_key/token/secret` 等查询参数打码，避免 api3 的 `?key=` 把凭据写进代理日志。
+- Dynadot 保护：记录数达到 100 条（上游硬上限、无法分页）时拒绝写入，避免覆盖写回丢记录；读失败/结构异常一律中止写入。
+- 文档：修正 `docs/development/websocket-integration-guide.md` 中已重构的 10 个 `client/src/pages/*` 路径。
+- `ai-censorship/deepseek-v4.1-flash_review-20261121-issue-assessment.md`：本轮 issue 批量评估与批次划分。
+
 ## [2.3.8] - 2026-11-12
 
 ### 新功能：账号删除的级联清理与存量孤儿数据修复

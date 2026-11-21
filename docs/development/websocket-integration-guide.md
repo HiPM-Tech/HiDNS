@@ -9,19 +9,19 @@ DNSMgr 现已支持 **WebSocket + 轮询降级** 的实时数据方案，可以�
 ## ✅ 已集成的页面
 
 ### 1. 域名列表 (DomainListTab)
-- **文件**: `client/src/pages/domains/DomainListTab.tsx`
+- **文件**: `client/src/features/domains/domains-page.tsx`
 - **监听事件**: `domain_created`, `domain_updated`, `domain_deleted`
 - **轮询间隔**: 60秒
 - **状态**: ✅ 已完成
 
 ### 2. 账号管理 (Accounts)
-- **文件**: `client/src/pages/Accounts.tsx`
+- **文件**: `client/src/features/accounts/accounts-page.tsx`
 - **监听事件**: `account_created`, `account_updated`, `account_deleted`
 - **轮询间隔**: 60秒
 - **状态**: ✅ 已完成
 
 ### 3. DNS 记录 (Records)
-- **文件**: `client/src/pages/Records.tsx`
+- **文件**: `client/src/features/records/records-page.tsx`
 - **监听事件**: `record_created`, `record_updated`, `record_deleted`, `record_status_changed`
 - **轮询间隔**: 30秒（记录变化更频繁）
 - **状态**: ✅ 已完成
@@ -31,7 +31,7 @@ DNSMgr 现已支持 **WebSocket + 轮询降级** 的实时数据方案，可以�
 ## 🔧 待集成的页面清单
 
 ### 4. NS 监测 (NSMonitorTab)
-**文件**: `client/src/pages/domains/NSMonitorTab.tsx`
+**文件**: `client/src/features/domains/ns-monitor-tab.tsx`
 
 ```typescript
 import { useRealtimeData } from '../../hooks/useRealtimeData';
@@ -51,7 +51,7 @@ export function NSMonitorTab() {
 ---
 
 ### 5. 域名续期 (DomainRenewalTab)
-**文件**: `client/src/pages/domains/DomainRenewalTab.tsx`
+**文件**: `client/src/features/domains/renewal-tab.tsx`
 
 ```typescript
 import { useRealtimeData } from '../../hooks/useRealtimeData';
@@ -71,7 +71,7 @@ export function DomainRenewalTab() {
 ---
 
 ### 6. API 令牌 (Tokens)
-**文件**: `client/src/pages/Tokens.tsx`
+**文件**: `client/src/features/tokens/tokens-page.tsx`
 
 ```typescript
 import { useRealtimeData } from '../hooks/useRealtimeData';
@@ -91,7 +91,7 @@ function Tokens() {
 ---
 
 ### 7. 审计日志 (AuditLogs)
-**文件**: `client/src/pages/AuditLogs.tsx`
+**文件**: `client/src/features/audit/audit-page.tsx`
 
 ```typescript
 import { useRealtimeData } from '../hooks/useRealtimeData';
@@ -111,7 +111,7 @@ function AuditLogs() {
 ---
 
 ### 8. 团队管理 (Teams)
-**文件**: `client/src/pages/Teams.tsx`
+**文件**: `client/src/features/teams/teams-page.tsx`
 
 ```typescript
 import { useRealtimeData } from '../hooks/useRealtimeData';
@@ -131,7 +131,7 @@ function Teams() {
 ---
 
 ### 9. 系统设置 (Settings)
-**文件**: `client/src/pages/Settings.tsx`
+**文件**: `client/src/features/settings/settings-page.tsx`
 
 ```typescript
 import { useRealtimeData } from '../hooks/useRealtimeData';
@@ -151,7 +151,7 @@ function Settings() {
 ---
 
 ### 10. 用户管理 (Users)
-**文件**: `client/src/pages/Users.tsx`
+**文件**: `client/src/features/users/users-page.tsx`
 
 ```typescript
 import { useRealtimeData } from '../hooks/useRealtimeData';
