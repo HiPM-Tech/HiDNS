@@ -1,3 +1,4 @@
+import { withDomainLock } from '../domain-lock';
 import {createProviderAdapterLogger, DnsAdapter, DnsRecord, DomainInfo, PageResult, BaseAdapter, Dict, resolveDomainIdHelper, safeString, toNumber, fetchWithFallback, resolveCreatedRecordId, parseCompositeRecordId, isTruthyFlag } from '../internal';
 export const DEFAULT_LINE = '0';
 
@@ -77,14 +78,24 @@ export class PowerdnsAdapter extends BaseAdapter {
     }
 
     const res = await fetchWithFallback(url, { method, headers: this.getHeaders(), body }, this.config.useProxy, 'PowerDNS');
-    const data = (await res.json()) as Dict;
+    // PowerDNS 的 PATCH /zones/{id} 成功时返回 204 空体：无条件 res.json() 会抛
+    // "Unexpected end of JSON input"，于是「上游已生效、HiDNS 报失败」（issue #56）。
+    const text = await res.text();
+    let data: Dict = {};
+    if (text) {
+      try {
+        data = JSON.parse(text) as Dict;
+      } catch {
+        data = {};
+      }
+    }
 
     if (!res.ok) {
       const errorMsg = safeString(data.error) || (data.errors ? (data.errors as string[]).join(',') : `PowerDNS request failed: ${res.status}`);
       throw new Error(errorMsg);
     }
 
-    return (res.status === 204 ? true : data) as T;
+    return (text ? data : true) as T;
   }
 
   async check(): Promise<boolean> {
@@ -147,7 +158,8 @@ export class PowerdnsAdapter extends BaseAdapter {
       let rrsetId = 0;
       let list: DnsRecord[] = [];
 
-      for (const rrset of this.rrsetsCache) {
+      const rrsetsAfterLoad = await this.ensureRrsets(domainId);
+      for (const rrset of rrsetsAfterLoad) {
         rrsetId++;
         const name = rrset.name === this.config.domainId ? '@' : rrset.name.replace(`.${this.config.domainId}`, '');
         rrset.host = name;
@@ -230,21 +242,21 @@ export class PowerdnsAdapter extends BaseAdapter {
         return null;
       }
 
-      let recordValue = value;
-      if (type === 'TXT' && !recordValue.startsWith('"')) {
-        recordValue = `"${recordValue}"`;
-      }
-      if ((type === 'CNAME' || type === 'MX') && !recordValue.endsWith('.')) {
-        recordValue += '.';
-      }
-      if (type === 'MX') {
-        recordValue = `${mx} ${recordValue}`;
-      }
+      const recordValue = this.normalizeRecordValue(type, value, mx);
 
-      const records = [{ content: recordValue, disabled: false }];
-      await this.rrsetReplace(name, type, ttl, records, remark, domainId);
-      // rrset replace 不返回记录 ID：回查一次，拿不到就按失败处理（不能编造 'success'）
-      return await resolveCreatedRecordId(this, name, type);
+      // rrset 是 name+type 的集合：必须读现有内容再追加，
+      // 直接 REPLACE 单条会把同名同类型的其它记录（多条 TXT / MX / NS）抹掉（issue #56）。
+      return await withDomainLock(domainId, async () => {
+        const rrsets = await this.ensureRrsets(domainId);
+        const existing = this.findRrset(rrsets, name, type);
+        const records = existing ? [...existing.records] : [];
+        if (!records.some((record) => record.content === recordValue)) {
+          records.push({ content: recordValue, disabled: false });
+        }
+        await this.rrsetReplace(name, type, ttl || existing?.ttl || 600, records, remark, domainId);
+        // rrset replace 不返回记录 ID：回查一次，拿不到就按失败处理（不能编造 'success'）
+        return await resolveCreatedRecordId(this, name, type);
+      });
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       return null;
@@ -264,9 +276,11 @@ export class PowerdnsAdapter extends BaseAdapter {
   ): Promise<boolean> {
     try {
       const domainId = await this.resolveDomainId();
-      if (!domainId || !this.rrsetsCache) {
+      if (!domainId) {
         return false;
       }
+      // 路由每次新建 adapter，实例级缓存恒为 null：按需拉一次，否则请求还没发就报失败
+      await this.ensureRrsets(domainId);
 
       const { rrsetId, recordId: recId } = parseCompositeRecordId(recordId);
 
@@ -281,7 +295,8 @@ export class PowerdnsAdapter extends BaseAdapter {
         recordValue = `${mx} ${recordValue}`;
       }
 
-      for (const rrset of this.rrsetsCache) {
+      const rrsetsAfterLoad = await this.ensureRrsets(domainId);
+      for (const rrset of rrsetsAfterLoad) {
         if (rrset.id === rrsetId) {
           let found = false;
           for (const record of rrset.records) {
@@ -311,13 +326,16 @@ export class PowerdnsAdapter extends BaseAdapter {
   async deleteDomainRecord(recordId: string): Promise<boolean> {
     try {
       const domainId = await this.resolveDomainId();
-      if (!domainId || !this.rrsetsCache) {
+      if (!domainId) {
         return false;
       }
+      // 路由每次新建 adapter，实例级缓存恒为 null：按需拉一次，否则请求还没发就报失败
+      await this.ensureRrsets(domainId);
 
       const { rrsetId, recordId: recId } = parseCompositeRecordId(recordId);
 
-      for (const rrset of this.rrsetsCache) {
+      const rrsetsAfterLoad = await this.ensureRrsets(domainId);
+      for (const rrset of rrsetsAfterLoad) {
         if (rrset.id === rrsetId) {
           let found = false;
           rrset.records = rrset.records.filter((record) => {
@@ -353,13 +371,16 @@ export class PowerdnsAdapter extends BaseAdapter {
   async setDomainRecordStatus(recordId: string, status: number): Promise<boolean> {
     try {
       const domainId = await this.resolveDomainId();
-      if (!domainId || !this.rrsetsCache) {
+      if (!domainId) {
         return false;
       }
+      // 路由每次新建 adapter，实例级缓存恒为 null：按需拉一次，否则请求还没发就报失败
+      await this.ensureRrsets(domainId);
 
       const { rrsetId, recordId: recId } = parseCompositeRecordId(recordId);
 
-      for (const rrset of this.rrsetsCache) {
+      const rrsetsAfterLoad = await this.ensureRrsets(domainId);
+      for (const rrset of rrsetsAfterLoad) {
         if (rrset.id === rrsetId) {
           let found = false;
           for (const record of rrset.records) {
@@ -410,6 +431,33 @@ export class PowerdnsAdapter extends BaseAdapter {
       this.error = e instanceof Error ? e.message : String(e);
       return false;
     }
+  }
+
+  /** 缓存为空时主动拉一次 zone 详情：路由每次新建 adapter，缓存恒为 null（issue #56 的「删成功仍报失败」） */
+  private async ensureRrsets(domainId: string): Promise<Rrset[]> {
+    if (this.rrsetsCache) return this.rrsetsCache;
+    const data = await this.request<{ rrsets: Rrset[] }>('GET', `/servers/${this.config.serverId}/zones/${domainId}`);
+    this.rrsetsCache = data.rrsets || [];
+    return this.rrsetsCache;
+  }
+
+  /** 按 host+type 找现有 rrset（PowerDNS 的 rrset 是 name+type 的集合） */
+  private findRrset(rrsets: Rrset[], host: string, type: string): Rrset | undefined {
+    const zone = this.config.domainId || '';
+    const fullName = host === '@' || host === '' ? zone : `${host}.${zone}`;
+    return rrsets.find(
+      (rrset) => rrset.name === fullName && rrset.type.toUpperCase() === type.toUpperCase(),
+    );
+  }
+
+  /** 与现有代码一致的记录值归一化（TXT 加引号、CNAME/MX 补尾点、MX 前缀优先级） */
+  private normalizeRecordValue(type: string, value: string, mx: number): string {
+    let next = value;
+    const upper = type.toUpperCase();
+    if (upper === 'TXT' && !next.startsWith('"')) next = `"${next}"`;
+    if ((upper === 'CNAME' || upper === 'MX') && !next.endsWith('.')) next += '.';
+    if (upper === 'MX') next = `${mx} ${next}`;
+    return next;
   }
 
   private async rrsetReplace(host: string, type: string, ttl: number, records: Array<{ content: string; disabled: boolean }>, remark?: string, domainId?: string): Promise<void> {
