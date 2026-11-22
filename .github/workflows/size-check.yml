@@ -1,0 +1,75 @@
+name: Size Check
+
+# 量化产出体积：分别用「旧 Dockerfile（node_modules）」与「新 Dockerfile（单文件 bundle）」构建，
+# 打印镜像总大小与逐层拆解。仅手动触发，不推送镜像、不发布。
+on:
+  workflow_dispatch:
+
+jobs:
+  docker-size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Prepare baseline Dockerfile (pre-bundle)
+        run: git show c7c68221:Dockerfile > Dockerfile.baseline
+
+      - name: Build baseline (node_modules)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.baseline
+          load: true
+          tags: hidns:baseline
+
+      - name: Build bundled
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: hidns:bundled
+
+      - name: Report
+        run: |
+          echo '=== baseline layers ==='
+          docker history hidns:baseline --format '{{.Size}}	{{.CreatedBy}}' | head -25
+          echo '=== bundled layers ==='
+          docker history hidns:bundled --format '{{.Size}}	{{.CreatedBy}}' | head -25
+          BASE=$(docker image inspect hidns:baseline --format '{{.Size}}')
+          NEW=$(docker image inspect hidns:bundled --format '{{.Size}}')
+          BASE_MB=$((BASE/1048576))
+          NEW_MB=$((NEW/1048576))
+          echo "baseline_mb=$BASE_MB bundled_mb=$NEW_MB"
+          {
+            echo '### 镜像体积对比'
+            echo '| 变体 | 大小 |'
+            echo '|---|---|'
+            echo "| 旧（node_modules） | ${BASE_MB} MB |"
+            echo "| 新（单文件 bundle） | ${NEW_MB} MB |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Smoke test bundled image
+        run: |
+          docker run -d --name hidns-smoke -p 3001:3001 -e DB_TYPE=sqlite -e DB_PATH=/app/data/t.db hidns:bundled
+          ok=0
+          for i in $(seq 1 40); do
+            if curl -fsS http://localhost:3001/api/init/status >/dev/null 2>&1; then echo "ready after ${i}s"; ok=1; break; fi
+            sleep 1
+          done
+          curl -fsS http://localhost:3001/api/init/status | head -c 300; echo
+          docker logs hidns-smoke 2>&1 | tail -15
+          docker rm -f hidns-smoke
+          test "$ok" = "1"
+
+      - name: Smoke test baseline image
+        run: |
+          docker run -d --name hidns-smoke-base -p 3002:3001 -e DB_TYPE=sqlite -e DB_PATH=/app/data/t.db hidns:baseline
+          for i in $(seq 1 40); do
+            if curl -fsS http://localhost:3002/api/init/status >/dev/null 2>&1; then echo "baseline ready after ${i}s"; break; fi
+            sleep 1
+          done
+          docker logs hidns-smoke-base 2>&1 | tail -10
+          docker rm -f hidns-smoke-base
