@@ -14,6 +14,7 @@ const SRC = path.resolve(__dirname, '../../features');
 /** 允许直接使用原始写方法的位置：需要自判 code 或返回裸协议体 */
 const ALLOWLIST: Array<{ file: string; pattern: RegExp; reason: string }> = [
   { file: 'auth/api.ts', pattern: /\/auth\/login/, reason: '登录需要区分 code -2（两步验证）' },
+  { file: 'auth/api.ts', pattern: /\/auth\/oauth\/2fa/, reason: 'OAuth 2FA 需要区分 code -4（还需验证邮箱）' },
   { file: 'auth/api.ts', pattern: /\/auth\/password-reset/, reason: '找回密码需要区分业务码' },
   { file: 'auth/api.ts', pattern: /\/auth\/oauth\/start/, reason: '返回 authUrl，由服务端决定可用性' },
   { file: 'settings/api.ts', pattern: /start-bind/, reason: '绑定流程返回 authUrl' },

@@ -1014,10 +1014,15 @@ router.post('/oauth/2fa', loginLimiter, async (req: Request, res: Response) => {
 
     // 与密码登录一致：邮箱未验证的非超管用户先补验证（2FA 已完成，pendingToken 标记已过 2FA）
     if (await shouldRequireEmailVerification(user as { email?: string; email_verified?: number; role_level?: number })) {
-      sendSuccess(res, {
-        requireEmailVerification: true,
-        email: user.email,
-        pendingToken: await signEmailVerifyPendingToken(uid, true),
+      // 用 -4 而不是 code 0：避免前端把「登录未完成」当成成功
+      res.json({
+        code: -4,
+        msg: 'Email verification required',
+        data: {
+          requireEmailVerification: true,
+          email: user.email,
+          pendingToken: await signEmailVerifyPendingToken(uid, true),
+        },
       });
       return;
     }
@@ -1421,7 +1426,10 @@ router.post('/oauth/callback', async (req: Request, res: Response) => {
       const oauthUid = Number(user.id);
       const oauthTotp = (await getTOTPStatus(oauthUid)).enabled;
       const oauthWebauthn = await TwoFAOperations.isWebAuthnEnabled(oauthUid);
-      const oauthEmailFactor = await TwoFAOperations.isEmailEnabled(oauthUid);
+      // 与 /login 同口径：开关 && 有邮箱 && 已验证，否则不展示这个走不通的选项
+      const oauthEmailFactor = (await TwoFAOperations.isEmailEnabled(oauthUid))
+        && Boolean(user.email)
+        && Boolean((user as { email_verified?: number }).email_verified);
       const oauthTypes: string[] = [];
       if (oauthTotp) oauthTypes.push('totp');
       if (oauthWebauthn) oauthTypes.push('webauthn');

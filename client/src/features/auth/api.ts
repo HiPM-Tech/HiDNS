@@ -38,7 +38,8 @@ export const authApi = {
   /** 发送登录用邮箱验证码（第二因子，issue #43） */
   /** 用一次性凭证完成 OAuth 登录的第二因子（OAuth 用户通常没有密码） */
   oauth2fa: (payload: { pendingToken: string; totpCode?: string; backupCode?: string; emailCode?: string; webauthnResponse?: unknown }) =>
-    http.postOk<{ user?: unknown }>('/auth/oauth/2fa', payload),
+    // 用原始 post：需要读 -4（邮箱未验证），postOk 会把非 0 当错误抛出
+    http.post<{ user?: unknown; requireEmailVerification?: boolean; email?: string; pendingToken?: string }>('/auth/oauth/2fa', payload),
 
   /** 为「登录后强制验证邮箱」发码（未登录可用，purpose=profile） */
   requestEmailVerificationCode: (pendingToken: string) =>

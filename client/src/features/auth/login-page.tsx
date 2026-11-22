@@ -224,7 +224,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   });
 
   const submitVerifyEmail = twoFactorForm.handleSubmit(async ({ code }) => {
-    if (!pendingCredentials) {
+    // OAuth 用户没有 pendingCredentials，只要有邮箱验证凭证就能提交
+    if (!pendingCredentials && !pendingToken) {
       setStep('credentials');
       return;
     }
@@ -289,7 +290,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   /** 2FA 步骤用通行密钥完成第二因子（只配了 Passkey 的用户不能没有出路） */
   const submitPasskeyTwoFactor = async () => {
     // OAuth 模式没有密码：用 pendingToken + 通行密钥直接完成第二因子
-    if (oauth2faToken) {
+    if (oauth2faToken && !pendingCredentials) {
       setError(null);
       setPasskeyPending(true);
       try {
@@ -301,7 +302,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         const assertion = await startAuthentication({ optionsJSON: unwrapWebAuthnOptions(optionsEnvelope.data) as never });
         const envelope = await authApi.oauth2fa({ pendingToken: oauth2faToken, webauthnResponse: assertion });
         setOauth2faToken('');
-        handleSuccess(envelope.data?.user as Parameters<typeof handleSuccess>[0]);
+        setOauth2faUsername('');
+        // 同样要处理 -4（邮箱未验证），不能把 code 0 以外的响应当成功
+        handleAuthEnvelope(envelope as { code: number; msg?: string; data?: { user?: unknown; types?: string[]; email?: string } }, null);
       } catch (err) {
         setError(describeWebAuthnError(err));
       } finally {
@@ -350,7 +353,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
           emailCode: useEmailCode ? code : undefined,
         });
         setOauth2faToken('');
-        handleSuccess(envelope.data?.user as Parameters<typeof handleSuccess>[0]);
+        setOauth2faUsername('');
+        // -4（邮箱未验证）与 0（成功）统一交给 handleAuthEnvelope 处理
+        handleAuthEnvelope(envelope as { code: number; msg?: string; data?: { user?: unknown; types?: string[]; email?: string } }, null);
       } catch (err) {
         setError(describeError(err));
       }
@@ -616,7 +621,11 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                           onClick={async () => {
                             // OAuth 模式没有密码：用回调带回的 username 发 login 用途的验证码
                             const target = oauth2faToken ? oauth2faUsername : pendingCredentials?.username;
-                            if (!target) return;
+                            if (!target) {
+                              setError('登录信息不完整，请重新登录');
+                              setStep('credentials');
+                              return;
+                            }
                             setSendingCode(true);
                             try {
                               await authApi.loginEmailCode(target);
