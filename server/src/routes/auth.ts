@@ -744,7 +744,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
           requireEmailVerification: true,
           email: authenticatedUser.email,
           // 一次性 pending 凭证：/verify-email 必须携带它，避免「知道用户名 + 拿到码」就能换会话
-          pendingToken: await signEmailVerifyPendingToken(Number(authenticatedUser.id)),
+          pendingToken: await signEmailVerifyPendingToken(Number(authenticatedUser.id), true),
         },
       });
       return;
@@ -915,7 +915,8 @@ router.post('/login/email-code', emailLimiter, async (req: Request, res: Respons
 router.post('/verify-email/code', emailLimiter, async (req: Request, res: Response) => {
   try {
     const { pendingToken } = req.body as { pendingToken?: string };
-    const userId = pendingToken ? await verifyEmailVerifyPendingToken(pendingToken) : null;
+    const pending = pendingToken ? await verifyEmailVerifyPendingToken(pendingToken) : null;
+    const userId = pending?.userId ?? null;
     if (userId) {
       const user = await UserOperations.getById(userId) as { id?: number; email?: string; email_verified?: number; role_level?: number; status?: number } | undefined;
       // 10 分钟窗口内账号可能被停用 / 策略被关闭：与登录侧同口径复查，不满足就静默不发
@@ -939,9 +940,9 @@ router.post('/verify-email', emailVerifyLimiter, async (req: Request, res: Respo
     sendError(res, 'pendingToken and code are required', 400);
     return;
   }
-  const pendingUserId = await verifyEmailVerifyPendingToken(pendingToken);
-  const user = pendingUserId
-    ? (await UserOperations.getById(pendingUserId) as { id?: number; email?: string } | undefined)
+  const pending = await verifyEmailVerifyPendingToken(pendingToken);
+  const user = pending
+    ? (await UserOperations.getById(pending.userId) as { id?: number; email?: string } | undefined)
     : undefined;
   // 与「验证码错误」保持同一响应，避免用户名枚举
   if (!user?.id || !user.email) {
@@ -976,6 +977,10 @@ router.post('/verify-email', emailVerifyLimiter, async (req: Request, res: Respo
     return;
   }
 
+  // 已经在本轮登录里通过过第二因子（密码登录的 -4 在 2FA 之后），就不再要求第二次；
+  // OAuth 路径没经过 2FA，pending.twoFAVerified=false，仍按下面的逻辑补一次。
+  const alreadyPassed2FA = pending?.twoFAVerified === true;
+
   const totpStatus = await getTOTPStatus(uid);
   const isTotpEnabled = totpStatus.enabled;
   const isWebauthnEnabled = await TwoFAOperations.isWebAuthnEnabled(uid);
@@ -984,13 +989,13 @@ router.post('/verify-email', emailVerifyLimiter, async (req: Request, res: Respo
 
   // 强制 2FA 但用户没配：与 /login 的 -3 一致，不能因为「验证邮箱」就放行
   const policyForVerify = await getSecurityPolicy();
-  const force2FA = Boolean(policyForVerify.require2FAGlobal) && (await requires2FA(uid));
+  const force2FA = !alreadyPassed2FA && Boolean(policyForVerify.require2FAGlobal) && (await requires2FA(uid));
   if (force2FA && !has2FA) {
     res.json({ code: -3, msg: '2FA setup required', data: { require2FASetup: true } });
     return;
   }
 
-  if (has2FA) {
+  if (!alreadyPassed2FA && has2FA) {
     const types: string[] = [];
     if (isTotpEnabled) types.push('totp');
     if (isWebauthnEnabled) types.push('webauthn');
@@ -1296,7 +1301,7 @@ router.post('/oauth/callback', async (req: Request, res: Response) => {
         data: {
           requireEmailVerification: true,
           email: user.email,
-          pendingToken: await signEmailVerifyPendingToken(Number(user.id)),
+          pendingToken: await signEmailVerifyPendingToken(Number(user.id), false),
         },
       });
       return;

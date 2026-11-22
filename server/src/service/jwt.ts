@@ -63,17 +63,21 @@ export async function getJwtSecret(): Promise<string> {
  * 用途：把 /auth/verify-email 从「知道用户名 + 拿到验证码就能换会话」
  * 收窄为「必须先经过一次密码登录并拿到 -4」。
  */
-export async function signEmailVerifyPendingToken(userId: number): Promise<string> {
+export async function signEmailVerifyPendingToken(userId: number, twoFAVerified = false): Promise<string> {
   const jwtSecret = await getJwtSecret();
-  return jwt.sign({ userId, purpose: 'email-verify' }, jwtSecret, { expiresIn: '10m' });
+  // twoFAVerified：签发前是否已经通过第二因子。密码登录的 -4 在 2FA 之后，传 true；
+  // OAuth 路径不经过 2FA，传 false —— 验证邮箱后仍需补一次 2FA。
+  return jwt.sign({ userId, purpose: 'email-verify', twoFAVerified }, jwtSecret, { expiresIn: '10m' });
 }
 
-export async function verifyEmailVerifyPendingToken(token: string): Promise<number | null> {
+export async function verifyEmailVerifyPendingToken(
+  token: string,
+): Promise<{ userId: number; twoFAVerified: boolean } | null> {
   try {
     const jwtSecret = await getJwtSecret();
-    const payload = jwt.verify(token, jwtSecret) as { userId?: number; purpose?: string };
+    const payload = jwt.verify(token, jwtSecret) as { userId?: number; purpose?: string; twoFAVerified?: boolean };
     if (payload?.purpose !== 'email-verify' || !payload.userId) return null;
-    return Number(payload.userId);
+    return { userId: Number(payload.userId), twoFAVerified: Boolean(payload.twoFAVerified) };
   } catch {
     return null;
   }
