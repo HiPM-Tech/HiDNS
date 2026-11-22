@@ -51,7 +51,9 @@ export function AddDomainDialog({ open, onOpenChange, onAdded }: AddDomainDialog
   });
 
   // 已托管（本账号或其它账号）的域名不再列出，避免选完才报「已存在」
-  const options = (providerDomains.data ?? []).filter((item) => !item.exists && !item.existsOther);
+  // 只隐藏「本账号已添加」的条目。其它账号（其它厂商）已有的同名域名允许再次添加——
+  // 域名记录以 domain_id 为键各自独立，同名多厂商是合法用法（issue #61）。
+  const options = (providerDomains.data ?? []).filter((item) => !item.exists);
   const allAccounts = (accounts.data ?? EMPTY_ACCOUNTS) as Array<{ id: number; name: string; type: string }>;
   // 只展示「支持 DNS 解析」的提供商账户（edgeone 等纯 CDN 账户不能拉域名）
   const accountOptions = filterAccountsByProviderCapability(allAccounts, providers.data, 'dns');
@@ -118,6 +120,9 @@ export function AddDomainDialog({ open, onOpenChange, onAdded }: AddDomainDialog
                   onChange={() => setSelected((prev) => prev.includes(domain.name) ? prev.filter((name) => name !== domain.name) : [...prev, domain.name])}
                 />
                 <span className="min-w-0 flex-1 truncate">{domain.name}</span>
+                {domain.existsOther && (
+                  <span className="shrink-0 text-xs text-muted-foreground">其它账户已有</span>
+                )}
               </label>
             ))}
           </div>
