@@ -307,19 +307,27 @@ router.post('/', authMiddleware, asyncHandler(async (req: Request, res: Response
   // Normalize domain name to Punycode for database storage/query
   const normalizedDomainName = normalizeDomain(domain_name);
 
-  // Verify domain exists in domains table
-  const domain = await DomainOperations.getByName(normalizedDomainName);
-  if (!domain || !domain.name) {
+  // Verify domain exists in domains table.
+  // 同名域名可以在多个账号下共存（issue #61），这里按域名维度建监控，
+  // 但鉴权必须挑「调用者真正可写的那一条」—— 直接 getByName 会拿到最早的那行，
+  // 若它属于别的租户，合法所有者反而会被判 403。
+  const candidates = await DomainOperations.getAllByName(normalizedDomainName);
+  if (candidates.length === 0) {
     sendError(res, 'Domain not found in domains table', 404);
     return;
   }
-  const domainId = domain.id as number;
-  const domainName = domain.name as string;
+  const domainName = String(candidates[0].name ?? normalizedDomainName);
 
-  // Check permission (optional, based on domain access)
   if (!isSuper(role)) {
-    const access = await getDomainAccess(domainId, userId, role);
-    if (!access.canWrite) {
+    let writable = false;
+    for (const candidate of candidates) {
+      const access = await getDomainAccess(Number(candidate.id), userId, role);
+      if (access.canWrite) {
+        writable = true;
+        break;
+      }
+    }
+    if (!writable) {
       sendError(res, 'Access denied', 403);
       return;
     }

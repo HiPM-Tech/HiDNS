@@ -700,42 +700,30 @@ router.get('/whois', authMiddleware, asyncHandler(async (req: Request, res: Resp
       return;
     }
   } else {
-    // 未指定 accountId，查询第一条记录
-    dbDomain = await DomainOperations.getByName(normalizedDomain) as Domain | undefined;
-
-    if (!dbDomain) {
+    // 未指定 accountId：同名域名可以在多个账号下共存（issue #61），
+    // 按 id 顺序取第一条调用者**有读权限**的，而不是「全局第一条再回退」。
+    // 旧实现先 getByName 再全表扫描兜底，同名多租户时既慢又容易误判 403。
+    const candidates = await DomainOperations.getAllByName(normalizedDomain) as unknown as Domain[];
+    if (candidates.length === 0) {
       sendError(res, 'Domain not found', 404);
       return;
     }
 
-    // 检查用户是否有权限访问这个域名
-    const access = await resolveDomainAccessById(dbDomain.id, req.user!.userId, normalizeRole(req.user?.role));
-
-    if (!access.domain || !access.canRead) {
-      // 如果第一条记录无权限，尝试查找用户有权限的其他同名域名
-      const userDomains = await DomainOperations.getAll() as unknown as Domain[];
-      const accessibleDomains = userDomains.filter((d: Domain) => d.name === normalizedDomain);
-
-      let foundAccessible = false;
-      for (const candidateDomain of accessibleDomains) {
-        const candidateAccess = await resolveDomainAccessById(
-          candidateDomain.id,
-          req.user!.userId,
-          normalizeRole(req.user?.role)
-        );
-
-        if (candidateAccess.domain && candidateAccess.canRead) {
-          dbDomain = candidateDomain;
-          foundAccessible = true;
-          break;
-        }
-      }
-
-      if (!foundAccessible) {
-        sendError(res, 'No permission to access this domain');
-        return;
+    const role = normalizeRole(req.user?.role);
+    let readable: Domain | undefined;
+    for (const candidate of candidates) {
+      const access = await resolveDomainAccessById(candidate.id, req.user!.userId, role);
+      if (access.domain && access.canRead) {
+        readable = candidate;
+        break;
       }
     }
+
+    if (!readable) {
+      sendError(res, 'No permission to access this domain');
+      return;
+    }
+    dbDomain = readable;
   }
 
   // Get the account

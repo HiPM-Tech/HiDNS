@@ -52,4 +52,28 @@ describe('resolveTokenPolicy 白名单', () => {
   it('白名单覆盖全部预设', () => {
     expect([...KNOWN_SERVICES]).toEqual(expect.arrayContaining(['dns', 'dns:read', 'dns:write', 'mcp', 'mcp:read', 'mcp:write']));
   });
+
+  // 第十轮评审 P0：显式空数组曾经被当成「未传」→ 静默回退成全权限 *
+  it('显式空数组被拒绝，不回落成全权限', () => {
+    const result = resolveTokenPolicy({ allowedServices: [], maxRole: 1, userRole: 3 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(400);
+      expect(result.message).toContain('cannot be empty');
+    }
+  });
+
+  it('null 与非数组同样被拒绝', () => {
+    for (const bad of [null, 'dns', { a: 1 }]) {
+      const result = resolveTokenPolicy({ allowedServices: bad, maxRole: 1, userRole: 3 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('must be an array');
+    }
+  });
+
+  it('字段缺省仍沿用历史默认（兼容老客户端）', () => {
+    const result = resolveTokenPolicy({ maxRole: 1, userRole: 3 });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.services).toEqual(['*']);
+  });
 });

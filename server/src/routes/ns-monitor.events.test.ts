@@ -41,6 +41,8 @@ vi.mock('../db/bal/business-adapter', () => ({
   formatDateForDB: (v: unknown) => v,
   DomainOperations: {
     getByName: vi.fn(async () => ({ id: 11, name: 'a.com' })),
+    // 同名跨账号后，NS 监控改为按名字取全部候选再挑可写的那条
+    getAllByName: vi.fn(async () => [{ id: 11, name: 'a.com' }]),
   },
   NSMonitorOperations: {
     getUserPrefs: vi.fn(async () => ({ user_id: 100, notify_email: 1 })),

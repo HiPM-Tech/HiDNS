@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui';
 
 /**
@@ -46,18 +47,35 @@ function withoutModule(value: string[], moduleKey: string): string[] {
   return value.filter((item) => item !== moduleKey && !item.startsWith(`${moduleKey}:`));
 }
 
-/** 判断某个表达式是否在已知白名单内（不在的无法通过模块勾选移除，需要单独展示） */
+/**
+ * 与 server/src/service/token-policy.ts 的 KNOWN_SERVICES 逐字一致的显式白名单。
+ * 不能用前缀判断：`dns:admin` 这类「已知模块 + 未知动作」会被误认为已知，
+ * 于是既不显示为可移除 chip，保存时又被后端 400 拒绝。
+ */
+const KNOWN = new Set([
+  '*',
+  'dns', 'dns:*', 'dns:read', 'dns:write',
+  'mcp', 'mcp:*', 'mcp:read', 'mcp:write',
+]);
+
 function isKnown(item: string): boolean {
-  if (item === '*') return true;
-  return MODULES.some((module) => item === module.key || item.startsWith(`${module.key}:`));
+  return KNOWN.has(item);
 }
 
 export function TokenPermissions({ value, onChange, disabled }: TokenPermissionsProps) {
   const allSelected = value.includes('*');
   const unknown = value.filter((item) => !isKnown(item));
 
+  // 记住勾「全部权限」之前的细粒度选择，取消时恢复，避免一次误点把配置清空
+  const lastSelection = useRef<string[]>([]);
+
   const toggleAll = (checked: boolean) => {
-    onChange(checked ? ['*'] : []);
+    if (checked) {
+      lastSelection.current = value.filter((item) => item !== '*');
+      onChange(['*']);
+      return;
+    }
+    onChange(lastSelection.current.length > 0 ? lastSelection.current : []);
   };
 
   const toggleModule = (moduleKey: string, checked: boolean) => {

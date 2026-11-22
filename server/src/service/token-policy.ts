@@ -36,6 +36,11 @@ export function resolveTokenPolicy(input: TokenPolicyInput): TokenPolicyResult {
   if (Array.isArray(input.allowedServices) && input.allowedServices.length === 0) {
     return { ok: false, status: 400, message: 'allowed_services cannot be empty; omit the field to inherit *' };
   }
+  // null / 字符串 / 对象同样不能当成「未传」：那会静默回退成全权限 *，
+  // 与「空数组不得回退」是同一类问题，只是换了个形状。
+  if (input.allowedServices !== undefined && !Array.isArray(input.allowedServices)) {
+    return { ok: false, status: 400, message: 'allowed_services must be an array' };
+  }
 
   let services: string[] = ['*'];
   if (Array.isArray(allowedServices) && allowedServices.length > 0) {
