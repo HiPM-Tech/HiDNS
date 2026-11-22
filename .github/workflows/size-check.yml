@@ -76,3 +76,45 @@ jobs:
           done
           docker logs hidns-smoke-base 2>&1 | tail -10
           docker rm -f hidns-smoke-base
+
+  gc-bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build server
+        run: pnpm --filter dnsmgr-server run build
+
+      - name: Benchmark (default V8 flags)
+        run: BENCH_ITERATIONS=300000 node server/scripts/gc-bench.mjs | tee /tmp/gc-default.json
+
+      - name: "Benchmark (tuned: max-old-space=512, semi-space=32)"
+        run: NODE_OPTIONS='--max-old-space-size=512 --max-semi-space-size=32' BENCH_ITERATIONS=300000 node server/scripts/gc-bench.mjs | tee /tmp/gc-tuned.json
+
+      - name: Compare
+        run: |
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/gc-default.json'))
+          t = json.load(open('/tmp/gc-tuned.json'))
+          delta = (t['opsPerSec'] / d['opsPerSec'] - 1) * 100
+          print(f"default: {d['opsPerSec']} ops/s, rss {d['rssMb']}MB, heap {d['heapUsedMb']}MB")
+          print(f"tuned:   {t['opsPerSec']} ops/s, rss {t['rssMb']}MB, heap {t['heapUsedMb']}MB")
+          print(f"throughput delta: {delta:+.1f}%")
+          with open('/tmp/summary.md', 'w') as f:
+              f.write('### GC 基准（30 万次迭代）\n\n')
+              f.write('| 参数 | ops/s | RSS | heapUsed |\n|---|---|---|---|\n')
+              f.write(f"| 默认 | {d['opsPerSec']} | {d['rssMb']}MB | {d['heapUsedMb']}MB |\n")
+              f.write(f"| max-old=512 / semi=32 | {t['opsPerSec']} | {t['rssMb']}MB | {t['heapUsedMb']}MB |\n")
+              f.write(f'\n吞吐差异：**{delta:+.1f}%**\n')
+          PY
+          cat /tmp/summary.md >> "$GITHUB_STEP_SUMMARY"
