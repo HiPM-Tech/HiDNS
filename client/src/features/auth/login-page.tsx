@@ -62,6 +62,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   const [pendingEmail, setPendingEmail] = useState('');
   const [pendingToken, setPendingToken] = useState('');
   const [oauth2faToken, setOauth2faToken] = useState('');
+  const [oauth2faUsername, setOauth2faUsername] = useState('');
   const [verifyCodeSent, setVerifyCodeSent] = useState(false);
   const [verifyPending, setVerifyPending] = useState(false);
   const [twoFactorTypes, setTwoFactorTypes] = useState<string[]>([]);
@@ -104,6 +105,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       const parsed = JSON.parse(raw) as { pendingToken?: string; email?: string };
       if (parsed.pendingToken) {
         setOauth2faToken(parsed.pendingToken);
+        setOauth2faUsername((parsed as { username?: string }).username ?? '');
         setTwoFactorTypes([]);
         setStep('2fa');
       }
@@ -286,6 +288,27 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   };
   /** 2FA 步骤用通行密钥完成第二因子（只配了 Passkey 的用户不能没有出路） */
   const submitPasskeyTwoFactor = async () => {
+    // OAuth 模式没有密码：用 pendingToken + 通行密钥直接完成第二因子
+    if (oauth2faToken) {
+      setError(null);
+      setPasskeyPending(true);
+      try {
+        const optionsEnvelope = await authApi.webauthnLoginOptions(oauth2faUsername);
+        if (optionsEnvelope.code !== 0) {
+          setError(optionsEnvelope.msg || copy.auth.loginFailed);
+          return;
+        }
+        const assertion = await startAuthentication({ optionsJSON: unwrapWebAuthnOptions(optionsEnvelope.data) as never });
+        const envelope = await authApi.oauth2fa({ pendingToken: oauth2faToken, webauthnResponse: assertion });
+        setOauth2faToken('');
+        handleSuccess(envelope.data?.user as Parameters<typeof handleSuccess>[0]);
+      } catch (err) {
+        setError(describeWebAuthnError(err));
+      } finally {
+        setPasskeyPending(false);
+      }
+      return;
+    }
     if (!pendingCredentials) {
       setStep('credentials');
       return;

@@ -1406,6 +1406,7 @@ router.post('/oauth/callback', async (req: Request, res: Response) => {
         data: {
           require2FA: true,
           email: user.email,
+          username: user.username,
           // OAuth 用户没有密码，用一次性凭证替代密码去完成第二因子
           pendingToken: await signOAuth2FAPendingToken(Number(user.id)),
         },
