@@ -61,6 +61,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   });
   const [pendingEmail, setPendingEmail] = useState('');
   const [pendingToken, setPendingToken] = useState('');
+  const [oauth2faToken, setOauth2faToken] = useState('');
   const [verifyCodeSent, setVerifyCodeSent] = useState(false);
   const [verifyPending, setVerifyPending] = useState(false);
   const [twoFactorTypes, setTwoFactorTypes] = useState<string[]>([]);
@@ -94,6 +95,21 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   const [needsPlaintext, setNeedsPlaintext] = useState(false);
 
   // 单点登录入口：只有服务端启用时才展示
+  // OAuth 回调把「需要 2FA」的一次性凭证放进 sessionStorage，这里接过来直接进 2FA 步骤
+  useEffect(() => {
+    const raw = sessionStorage.getItem('hidns.oauth2fa');
+    if (!raw) return;
+    sessionStorage.removeItem('hidns.oauth2fa');
+    try {
+      const parsed = JSON.parse(raw) as { pendingToken?: string; email?: string };
+      if (parsed.pendingToken) {
+        setOauth2faToken(parsed.pendingToken);
+        setTwoFactorTypes([]);
+        setStep('2fa');
+      }
+    } catch { /* 忽略损坏的缓存 */ }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     authApi.oauthStatus()
@@ -300,6 +316,22 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   };
 
   const submitTwoFactor = twoFactorForm.handleSubmit(async ({ code }) => {
+    // OAuth 登录没有密码，用一次性凭证完成第二因子
+    if (oauth2faToken) {
+      setError(null);
+      try {
+        const envelope = await authApi.oauth2fa({
+          pendingToken: oauth2faToken,
+          totpCode: useBackupCode ? undefined : code,
+          backupCode: useBackupCode ? code : undefined,
+        });
+        setOauth2faToken('');
+        handleSuccess(envelope.data?.user as Parameters<typeof handleSuccess>[0]);
+      } catch (err) {
+        setError(describeError(err));
+      }
+      return;
+    }
     if (!pendingCredentials) {
       setStep('credentials');
       return;

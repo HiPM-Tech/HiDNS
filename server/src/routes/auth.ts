@@ -3,7 +3,7 @@ import { resolveWebAuthnConfig } from './webauthn';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { authMiddleware, noTokenAuth } from '../middleware/auth';
-import { signToken, signEmailVerifyPendingToken, verifyEmailVerifyPendingToken } from '../service/jwt';
+import { signToken, signEmailVerifyPendingToken, verifyEmailVerifyPendingToken, signOAuth2FAPendingToken, verifyOAuth2FAPendingToken } from '../service/jwt';
 import { User } from '../types';
 import { checkLoginAllowed, recordFailedAttempt, clearLoginAttempts } from '../service/loginLimit';
 import { sendEmailVerificationCode, verifyEmailVerificationCode } from '../service/emailVerification';
@@ -925,6 +925,107 @@ router.post('/login/email-code', emailLimiter, async (req: Request, res: Respons
  *   - purpose 固定为 profile，与 /auth/verify-email 的校验口径一致。
  * 防枚举：无论账号是否存在、是否有邮箱，响应一致。
  */
+
+/**
+ * 用一次性凭证完成 OAuth 登录的第二因子（OAuth 用户通常没有密码）。
+ *
+ * 因子与 /login 的 2FA 分支一致：备用码 / TOTP / 通行密钥。
+ */
+router.post('/oauth/2fa', loginLimiter, async (req: Request, res: Response) => {
+  try {
+    const { pendingToken, totpCode, backupCode, webauthnResponse } = req.body as {
+      pendingToken?: string;
+      totpCode?: string;
+      backupCode?: string;
+      webauthnResponse?: unknown;
+    };
+    const uid = pendingToken ? await verifyOAuth2FAPendingToken(pendingToken) : null;
+    if (!uid) {
+      sendError(res, 'Verification expired, please sign in again', 401);
+      return;
+    }
+
+    const user = await UserOperations.getById(uid) as
+      | { id?: number; username?: string; nickname?: string; role?: string; role_level?: number; status?: number }
+      | undefined;
+    if (!user?.id) {
+      sendError(res, 'User not found', 401);
+      return;
+    }
+    if (Number(user.status ?? 1) === 0) {
+      sendError(res, 'Account is disabled', 403);
+      return;
+    }
+
+    const isTotpEnabled = (await getTOTPStatus(uid)).enabled;
+    const isWebauthnEnabled = await TwoFAOperations.isWebAuthnEnabled(uid);
+
+    if (backupCode) {
+      if (!(await verifyBackupCode(uid, backupCode))) {
+        sendError(res, 'Invalid backup code', 401);
+        return;
+      }
+    } else if (totpCode && isTotpEnabled) {
+      const secret = await TwoFAOperations.getTOTPSecret(uid);
+      if (!secret || !verifyTOTPToken(secret, totpCode)) {
+        sendError(res, 'Invalid 2FA code', 401);
+        return;
+      }
+    } else if (webauthnResponse && isWebauthnEnabled) {
+      const expectedChallenge = (global as any).loginChallengeStore?.get(uid);
+      if (!expectedChallenge) {
+        sendError(res, 'WebAuthn challenge expired or missing', 400);
+        return;
+      }
+      const { verifyAuthenticationResponse } = require('@simplewebauthn/server');
+      const { getUserWebAuthnCredentials, updateWebAuthnCredentialCounter } = require('../service/webauthn');
+      const creds = await getUserWebAuthnCredentials(uid);
+      const assertion = webauthnResponse as { id?: string };
+      const cred = creds.find((c: any) => c.id === assertion.id);
+      if (!cred) {
+        sendError(res, 'Credential not found', 404);
+        return;
+      }
+      const webAuthn = resolveWebAuthnConfig(req);
+      const verification = await verifyAuthenticationResponse({
+        response: webauthnResponse as never,
+        expectedChallenge,
+        expectedOrigin: webAuthn.origin,
+        expectedRPID: webAuthn.rpID,
+        authenticator: {
+          credentialID: cred.id,
+          credentialPublicKey: Buffer.from(cred.public_key, 'base64'),
+          counter: cred.counter,
+          transports: cred.transports,
+        },
+      });
+      if (!verification.verified) {
+        sendError(res, 'WebAuthn verification failed', 401);
+        return;
+      }
+      await updateWebAuthnCredentialCounter(cred.id, verification.authenticationInfo.newCounter);
+      (global as any).loginChallengeStore.delete(uid);
+    } else {
+      sendError(res, '2FA code is required', 400);
+      return;
+    }
+
+    const token = await signToken({
+      userId: uid,
+      username: String(user.username ?? ''),
+      nickname: String(user.nickname ?? ''),
+      role: (Number(user.role_level ?? 1) || 1) as 1 | 2 | 3,
+    });
+    setAuthCookie(res, token);
+    await logAuditOperation(uid, 'oauth_login', 'system', { twoFactor: true });
+    sendSuccess(res, {
+      user: { id: uid, username: user.username, nickname: user.nickname, role: user.role },
+    });
+  } catch (error) {
+    log.error('OAuth 2FA failed', { error: error instanceof Error ? error.message : String(error) });
+    sendError(res, error instanceof Error ? error.message : 'Verification failed', 500);
+  }
+});
 router.post('/verify-email/code', emailLimiter, async (req: Request, res: Response) => {
   try {
     const { pendingToken } = req.body as { pendingToken?: string };
@@ -1322,7 +1423,16 @@ router.post('/oauth/callback', async (req: Request, res: Response) => {
     const oauthNeed2FA = oauthPolicy.require2FAGlobal || (await shouldRequireOAuth2FA());
     if (oauthNeed2FA && (await has2FAEnabled(Number(user.id)))) {
       addProcessedCode(code);
-      res.json({ code: -2, msg: '2FA required', data: { require2FA: true, loginRequired: true } });
+      res.json({
+        code: -2,
+        msg: '2FA required',
+        data: {
+          require2FA: true,
+          email: user.email,
+          // OAuth 用户没有密码，用一次性凭证替代密码去完成第二因子
+          pendingToken: await signOAuth2FAPendingToken(Number(user.id)),
+        },
+      });
       return;
     }
 

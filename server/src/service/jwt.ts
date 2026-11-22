@@ -70,6 +70,28 @@ export async function signEmailVerifyPendingToken(userId: number, twoFAVerified 
   return jwt.sign({ userId, purpose: 'email-verify', twoFAVerified }, jwtSecret, { expiresIn: '10m' });
 }
 
+/**
+ * OAuth 登录的 2FA 待办凭证（10 分钟）。
+ *
+ * OAuth 用户通常没有密码，不能复用 /login 的「密码 + 第二因子」流程；
+ * 这里用一次性凭证代替密码，交给 /auth/oauth/2fa 完成第二因子。
+ */
+export async function signOAuth2FAPendingToken(userId: number): Promise<string> {
+  const jwtSecret = await getJwtSecret();
+  return jwt.sign({ userId, purpose: 'oauth-2fa' }, jwtSecret, { expiresIn: '10m' });
+}
+
+export async function verifyOAuth2FAPendingToken(token: string): Promise<number | null> {
+  try {
+    const jwtSecret = await getJwtSecret();
+    const payload = jwt.verify(token, jwtSecret) as { userId?: number; purpose?: string };
+    if (payload?.purpose !== 'oauth-2fa' || !payload.userId) return null;
+    return Number(payload.userId);
+  } catch {
+    return null;
+  }
+}
+
 export async function verifyEmailVerifyPendingToken(
   token: string,
 ): Promise<{ userId: number; twoFAVerified: boolean } | null> {
