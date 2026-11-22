@@ -97,10 +97,11 @@ jobs:
         run: pnpm --filter dnsmgr-server run build
 
       - name: Benchmark (default V8 flags)
-        run: BENCH_ITERATIONS=300000 node server/scripts/gc-bench.mjs | tee /tmp/gc-default.json
+        # 服务在 import 时会往 stdout 打日志，只保留 JSON 那一行
+        run: BENCH_ITERATIONS=300000 node server/scripts/gc-bench.mjs | grep '^{' | tee /tmp/gc-default.json
 
       - name: "Benchmark (tuned: max-old-space=512, semi-space=32)"
-        run: NODE_OPTIONS='--max-old-space-size=512 --max-semi-space-size=32' BENCH_ITERATIONS=300000 node server/scripts/gc-bench.mjs | tee /tmp/gc-tuned.json
+        run: NODE_OPTIONS='--max-old-space-size=512 --max-semi-space-size=32' BENCH_ITERATIONS=300000 node server/scripts/gc-bench.mjs | grep '^{' | tee /tmp/gc-tuned.json
 
       - name: Compare
         run: |
