@@ -81,11 +81,14 @@ EXPOSE 3001
 # Set environment variables
 ENV NODE_ENV=production
 ENV PORT=3001
-# V8 堆上限：显式设定，避免容器里按物理内存估算（宿主机 32G、容器限 512M 时会严重误判）。
+# V8 堆上限：显式设定，避免容器里按物理内存估算（宿主机 32G、容器限 512M 时会严重误判，
+# 结果是堆一路涨到被 cgroup 杀掉，而不是提前做完整 GC）。
 # 512 是保守默认值，实际部署可用 -e NODE_OPTIONS="--max-old-space-size=1024" 覆盖。
-# max-semi-space-size 调大 young gen：本服务大量短命对象（请求体、SQL 参数、日志字段），
-# 默认 16MB 会导致频繁 minor GC + 提前晋升到 old gen。
-ENV NODE_OPTIONS="--max-old-space-size=512 --max-semi-space-size=32"
+#
+# 没有把 --max-semi-space-size 调大：CI 的 GC 基准（scripts/gc-bench.mjs，30 万次迭代）显示
+# 默认参数 482599 ops/s、semi=32 时 466711 ops/s（-3.3%），RSS 也没有下降。
+# 这条基准覆盖的是「分配密集、对象短命」的路径，也就是本服务最典型的请求处理形态。
+ENV NODE_OPTIONS="--max-old-space-size=512"
 ENV CI_BUILD=${CI_BUILD}
 # 构建指纹：CI 传入 commit，启动横幅与日志会打印，便于确认实例跑的是哪个提交
 ARG GIT_SHA=unknown
