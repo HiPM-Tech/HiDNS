@@ -96,28 +96,51 @@ jobs:
       - name: Build server
         run: pnpm --filter dnsmgr-server run build
 
+      # 5 轮取中位数：runner 间 CPU 差异可达 15%，单轮只能看方向。
+      # --trace-gc 输出每次 GC 的明细，用来统计 Scavenge / Mark-Compact 次数。
       - name: Benchmark (default V8 flags)
-        # 服务在 import 时会往 stdout 打日志，只保留 JSON 那一行
-        run: BENCH_ITERATIONS=300000 node server/scripts/gc-bench.mjs | grep '^{' | tee /tmp/gc-default.json
+        run: |
+          BENCH_OUT=/tmp/gc-default.json BENCH_ITERATIONS=200000 BENCH_ROUNDS=5 \
+            node --trace-gc server/scripts/gc-bench.mjs > /tmp/gc-default.log 2>&1
+          tail -1 /tmp/gc-default.log
 
       - name: "Benchmark (tuned: max-old-space=512, semi-space=32)"
-        run: NODE_OPTIONS='--max-old-space-size=512 --max-semi-space-size=32' BENCH_ITERATIONS=300000 node server/scripts/gc-bench.mjs | grep '^{' | tee /tmp/gc-tuned.json
+        run: |
+          BENCH_OUT=/tmp/gc-tuned.json BENCH_ITERATIONS=200000 BENCH_ROUNDS=5 \
+            NODE_OPTIONS='--max-old-space-size=512 --max-semi-space-size=32' \
+            node --trace-gc server/scripts/gc-bench.mjs > /tmp/gc-tuned.log 2>&1
+          tail -1 /tmp/gc-tuned.log
 
       - name: Compare
         run: |
           python3 - <<'PY'
-          import json
-          d = json.load(open('/tmp/gc-default.json'))
-          t = json.load(open('/tmp/gc-tuned.json'))
-          delta = (t['opsPerSec'] / d['opsPerSec'] - 1) * 100
-          print(f"default: {d['opsPerSec']} ops/s, rss {d['rssMb']}MB, heap {d['heapUsedMb']}MB")
-          print(f"tuned:   {t['opsPerSec']} ops/s, rss {t['rssMb']}MB, heap {t['heapUsedMb']}MB")
+          import json, re
+
+          def load(json_path, log_path):
+              d = json.load(open(json_path))
+              text = open(log_path, errors='ignore').read()
+              d['scavenge'] = len(re.findall(r'\bScavenge\b', text))
+              d['markCompact'] = len(re.findall(r'\bMark-Compact\b', text))
+              d['markSweep'] = len(re.findall(r'\bMark-Sweep\b', text))
+              return d
+
+          a = load('/tmp/gc-default.json', '/tmp/gc-default.log')
+          b = load('/tmp/gc-tuned.json', '/tmp/gc-tuned.log')
+          delta = (b['opsPerSec'] / a['opsPerSec'] - 1) * 100
+
+          print(f"default: {a['opsPerSec']} ops/s (median {a['medianMs']}ms), rounds {a['roundMs']}")
+          print(f"          gc: scavenge {a['scavenge']}, mark-compact {a['markCompact']}, mark-sweep {a['markSweep']}")
+          print(f"tuned:   {b['opsPerSec']} ops/s (median {b['medianMs']}ms), rounds {b['roundMs']}")
+          print(f"          gc: scavenge {b['scavenge']}, mark-compact {b['markCompact']}, mark-sweep {b['markSweep']}")
           print(f"throughput delta: {delta:+.1f}%")
+
           with open('/tmp/summary.md', 'w') as f:
-              f.write('### GC 基准（30 万次迭代）\n\n')
-              f.write('| 参数 | ops/s | RSS | heapUsed |\n|---|---|---|---|\n')
-              f.write(f"| 默认 | {d['opsPerSec']} | {d['rssMb']}MB | {d['heapUsedMb']}MB |\n")
-              f.write(f"| max-old=512 / semi=32 | {t['opsPerSec']} | {t['rssMb']}MB | {t['heapUsedMb']}MB |\n")
+              f.write('### GC 基准（20 万次 x 5 轮，取中位数）\n\n')
+              f.write('| 参数 | median ms | ops/s | Scavenge | Mark-Compact | RSS |\n|---|---|---|---|---|---|\n')
+              f.write(f"| 默认 | {a['medianMs']} | {a['opsPerSec']} | {a['scavenge']} | {a['markCompact']} | {a['rssMb']}MB |\n")
+              f.write(f"| max-old=512 / semi=32 | {b['medianMs']} | {b['opsPerSec']} | {b['scavenge']} | {b['markCompact']} | {b['rssMb']}MB |\n")
               f.write(f'\n吞吐差异：**{delta:+.1f}%**\n')
+              f.write(f'\n各轮耗时（默认）：{a["roundMs"]}\n')
+              f.write(f'各轮耗时（tuned）：{b["roundMs"]}\n')
           PY
           cat /tmp/summary.md >> "$GITHUB_STEP_SUMMARY"
