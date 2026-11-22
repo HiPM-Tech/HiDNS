@@ -38,7 +38,9 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
   const [name, setName] = useState(token?.name ?? '');
   const [keyword, setKeyword] = useState('');
   const [selected, setSelected] = useState<number[]>(token?.allowed_domains ?? []);
-  const [services, setServices] = useState<string[]>(token?.allowed_services?.length ? token.allowed_services : ['dns']);
+  // 新建默认 dns；编辑时如实反映存量值（含空数组与白名单外的历史值），
+  // 不能用「空 → ['dns']」回退，否则保存会把一个无服务权限的令牌提升为 dns
+  const [services, setServices] = useState<string[]>(token ? (token.allowed_services ?? []) : ['dns']);
   const [maxRole, setMaxRole] = useState(String(token?.max_role ?? Math.min(currentRoleLevel, 2)));
   const [startTime, setStartTime] = useState(token?.start_time ?? '');
   const [endTime, setEndTime] = useState(token?.end_time ?? '');

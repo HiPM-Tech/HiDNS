@@ -760,7 +760,13 @@ export const DomainOperations = {
 
   /** 根据名称获取域名 */
   async getByName(name: string): Promise<QueryResult | undefined> {
-    return getInternal('SELECT * FROM domains WHERE name = ?', [name], { operation: 'Domain.getByName', table: 'domains' });
+    // ORDER BY id：同名跨账号时结果必须是确定的（先插入的那条），否则同一次请求可能拿到不同行
+    return getInternal('SELECT * FROM domains WHERE name = ? ORDER BY id LIMIT 1', [name], { operation: 'Domain.getByName', table: 'domains' });
+  },
+
+  /** 取全部同名域名（同名跨厂商后需要按权限挑一条，见 issue #61） */
+  async getAllByName(name: string): Promise<QueryResult[]> {
+    return queryInternal('SELECT * FROM domains WHERE name = ? ORDER BY id', [name], { operation: 'Domain.getAllByName', table: 'domains' });
   },
 
   /** 根据名称和账号ID获取域名 */

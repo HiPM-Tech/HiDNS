@@ -1196,7 +1196,15 @@ router.get('/provider-list/:accountId', authMiddleware, asyncHandler(async (req:
     const allDomains = await WhoisOperations.getAllDomains() as Array<{ id: number; name: string; account_id: number }>;
     const existingForAccount = allDomains.filter((d) => d.account_id === accountId);
     const existingDomainNames = new Set(existingForAccount.map((d) => normalizeDomain(d.name)));
-    const allDomainNames = new Set(allDomains.map((d) => normalizeDomain(d.name)));
+    // existsOther 只在「当前用户可访问的域名」范围内计算：
+    // 全库统计会把「其它租户也托管了这个域名」泄露成一枚可见的标签。
+    const accessibleTeamIds = await TeamOperations.getTeamIdsByUserId(req.user!.userId);
+    const accessibleDomains = await DomainOperations.getAccessibleDomains({
+      userId: req.user!.userId,
+      teamIds: accessibleTeamIds,
+      isSuper: normalizeRole(req.user?.role) >= 3,
+    });
+    const allDomainNames = new Set(accessibleDomains.map((d) => normalizeDomain(String((d as { name: unknown }).name ?? ''))));
     // 续期表是独立的一套：同一个域名可以「已托管 DNS」但「还没加入续期」，
     // 所以这里单独查 renewable_domains，供续期页过滤已入库的域名。
     const renewableRows = await RenewableDomainOperations.getByAccountId(accountId);

@@ -46,8 +46,15 @@ function withoutModule(value: string[], moduleKey: string): string[] {
   return value.filter((item) => item !== moduleKey && !item.startsWith(`${moduleKey}:`));
 }
 
+/** 判断某个表达式是否在已知白名单内（不在的无法通过模块勾选移除，需要单独展示） */
+function isKnown(item: string): boolean {
+  if (item === '*') return true;
+  return MODULES.some((module) => item === module.key || item.startsWith(`${module.key}:`));
+}
+
 export function TokenPermissions({ value, onChange, disabled }: TokenPermissionsProps) {
   const allSelected = value.includes('*');
+  const unknown = value.filter((item) => !isKnown(item));
 
   const toggleAll = (checked: boolean) => {
     onChange(checked ? ['*'] : []);
@@ -120,6 +127,25 @@ export function TokenPermissions({ value, onChange, disabled }: TokenPermissions
           );
         })}
       </div>
+
+      {unknown.length > 0 && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
+          <p className="text-xs text-destructive">以下权限已不在可选项内，保存会被后端拒绝，请逐个移除：</p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {unknown.map((item) => (
+              <button
+                key={item}
+                type="button"
+                disabled={disabled}
+                onClick={() => onChange(value.filter((v) => v !== item))}
+                className="rounded-full border border-destructive/50 px-2 py-0.5 font-mono text-xs text-destructive hover:bg-destructive/10"
+              >
+                {item} ×
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <p className="text-xs text-muted-foreground">
         当前：{value.length === 0 ? '未授权任何服务' : value.map((item) => (
