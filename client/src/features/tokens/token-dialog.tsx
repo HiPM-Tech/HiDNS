@@ -5,22 +5,11 @@ import {
   Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Label,
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../../ui';
-import { cn } from '../../ui/cn';
 import { useCreateToken, useTokenDomains, useUpdateToken } from './use-tokens';
+import { TokenPermissions } from './token-permissions';
 import type { CreatedToken, TokenDomainOption, TokenRow } from './api';
 
 const EMPTY_DOMAINS: TokenDomainOption[] = [];
-const SERVICE_PRESETS = ['dns', 'dns:read', 'dns:write', 'mcp', 'mcp:read', 'mcp:write'];
-
-/** 动作位的中文说明（issue #38：叠加动作位，保留模块名兼容） */
-const SERVICE_LABELS: Record<string, string> = {
-  dns: 'DNS（全部）',
-  'dns:read': 'DNS 只读',
-  'dns:write': 'DNS 读写',
-  mcp: 'MCP（全部）',
-  'mcp:read': 'MCP 只读',
-  'mcp:write': 'MCP 读写',
-};
 
 const ROLE_OPTIONS = [
   { value: '0', label: '普通用户（只读）' },
@@ -50,7 +39,6 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
   const [keyword, setKeyword] = useState('');
   const [selected, setSelected] = useState<number[]>(token?.allowed_domains ?? []);
   const [services, setServices] = useState<string[]>(token?.allowed_services?.length ? token.allowed_services : ['dns']);
-  const [customService, setCustomService] = useState('');
   const [maxRole, setMaxRole] = useState(String(token?.max_role ?? Math.min(currentRoleLevel, 2)));
   const [startTime, setStartTime] = useState(token?.start_time ?? '');
   const [endTime, setEndTime] = useState(token?.end_time ?? '');
@@ -69,16 +57,7 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
     setSelected((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
-  const toggleService = (service: string) => {
-    setServices((prev) => (prev.includes(service) ? prev.filter((item) => item !== service) : [...prev, service]));
-  };
 
-  const addCustomService = () => {
-    const value = customService.trim();
-    if (!value) return;
-    if (!services.includes(value)) setServices((prev) => [...prev, value]);
-    setCustomService('');
-  };
 
   const submit = async () => {
     setError(null);
@@ -166,45 +145,7 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
 
           <div className="space-y-1.5 sm:col-span-2">
             <Label>服务权限</Label>
-            <div className="flex flex-wrap items-center gap-2">
-              {SERVICE_PRESETS.map((service) => (
-                <button
-                  key={service}
-                  type="button"
-                  onClick={() => toggleService(service)}
-                  className={cn(
-                    'rounded-full border px-3 py-1 text-xs transition-colors',
-                    services.includes(service)
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border text-muted-foreground hover:bg-accent',
-                  )}
-                >
-                  {SERVICE_LABELS[service] ?? service}
-                </button>
-              ))}
-              {services.filter((service) => !SERVICE_PRESETS.includes(service)).map((service) => (
-                <button
-                  key={service}
-                  type="button"
-                  onClick={() => toggleService(service)}
-                  className="rounded-full border border-primary bg-primary/10 px-3 py-1 text-xs text-primary"
-                  title="点击移除"
-                >
-                  {(SERVICE_LABELS[service] ?? service)} ×
-                </button>
-              ))}
-              <div className="flex items-center gap-1">
-                <Input
-                  className="h-8 w-32"
-                  placeholder="自定义服务"
-                  value={customService}
-                  onChange={(event) => setCustomService(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomService(); } }}
-                  aria-label="自定义服务"
-                />
-                <Button type="button" variant="outline" size="sm" onClick={addCustomService}>添加</Button>
-              </div>
-            </div>
+            <TokenPermissions value={services} onChange={setServices} />
           </div>
 
           <div className="space-y-1.5">
