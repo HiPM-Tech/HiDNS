@@ -1,6 +1,10 @@
 node_modules/
 dist/
+# 运行时数据目录；注意不要连带忽略 src/data —— 那是随代码分发的数据快照
+# （public-suffix-list.dat 此前一直被忽略，导致干净 clone / Docker 构建都读不到，
+#  分组一直在退化成 curated 列表）
 data/
+!src/data/
 *.db
 *.db-shm
 *.db-wal
