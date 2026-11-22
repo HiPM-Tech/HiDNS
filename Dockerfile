@@ -46,7 +46,13 @@ WORKDIR /app
 # 服务端已打包成单文件（server/scripts/build-bundle.mjs），
 # 22 个运行时依赖全部内联，因此这里不再安装 node_modules。
 # 唯一需要留在文件系统的是 swagger-ui 的静态资源（浏览器直接加载的 html/js/css）。
-RUN npm init -y >/dev/null && npm install --no-save --omit=dev --no-package-lock swagger-ui-dist@5
+# 只保留 UMD 版与样式：swagger-ui-express 加载的是 swagger-ui-bundle.js，
+# *.map 与 es-module 版在运行时用不到，删掉可省约 9 MB
+RUN npm init -y >/dev/null && npm install --no-save --omit=dev --no-package-lock swagger-ui-dist@5 \
+ && cd node_modules/swagger-ui-dist \
+ && rm -f *.map swagger-ui-es-*.js \
+ && cd /app \
+ && rm -f package.json package-lock.json
 
 # 单文件服务端
 COPY --from=builder /app/server/dist-bundle/app.cjs ./app.cjs
