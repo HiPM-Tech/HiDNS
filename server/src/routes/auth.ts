@@ -656,15 +656,9 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
     const force2FA = twoFAValidationEnabled && (await requires2FA(authenticatedUser.id));
     const userHas2FA = await has2FAEnabled(authenticatedUser.id);
 
-    // 如果强制 2FA 但用户未设置，要求先设置 2FA
-    if (force2FA && !userHas2FA) {
-      res.json({
-        code: -3,
-        msg: '2FA setup required',
-        data: { require2FASetup: true }
-      });
-      return;
-    }
+    // 产品口径：用户完全没有配置任何 2FA 时不拦截。
+    // 强制策略只约束「已经配置过 2FA 的人必须用」——否则未配置的用户会被自己的设置锁在门外
+    // （配置入口在登录后的安全设置里，登录前无法自助完成）。
 
     if (has2FA) {
       if (backupCode) {
@@ -1102,15 +1096,8 @@ router.post('/verify-email', emailVerifyLimiter, async (req: Request, res: Respo
   const has2FA = isTotpEnabled || isWebauthnEnabled || isEmailFactorEnabled;
 
   // 强制 2FA 但用户没配：与 /login 的 -3 一致，不能因为「验证邮箱」就放行
-  const policyForVerify = await getSecurityPolicy();
   // 注意：这里不能加 !alreadyPassed2FA —— 该条件只会命中「完全没有 2FA」的用户，
   // 而这种用户不可能在密码登录里通过 2FA 走到 -4；短路会让 OAuth 路径绕过全局强制 2FA。
-  const force2FA = Boolean(policyForVerify.require2FAGlobal) && (await requires2FA(uid));
-  if (force2FA && !has2FA) {
-    res.json({ code: -3, msg: '2FA setup required', data: { require2FASetup: true } });
-    return;
-  }
-
   if (!alreadyPassed2FA && has2FA) {
     const types: string[] = [];
     if (isTotpEnabled) types.push('totp');
@@ -1408,19 +1395,9 @@ router.post('/oauth/callback', async (req: Request, res: Response) => {
       return;
     }
 
-    // 全局强制 2FA：未配置 2FA 的账号不允许通过 OAuth 直接进系统（与 /login 的 -3 对齐）
-    const oauthPolicy = await getSecurityPolicy();
-    if (oauthPolicy.require2FAGlobal && !(await has2FAEnabled(Number(user.id)))) {
-      addProcessedCode(code);
-      res.json({ code: -3, msg: '2FA setup required', data: { require2FASetup: true } });
-      return;
-    }
-
-    // OAuth 是否要求 2FA 由系统开关决定（默认不要求）。
-    // 需要 2FA 时 OAuth 回调页没有输入界面，只能引导回密码登录完成二次校验。
-    // 全局「强制两步验证」的语义是「所有登录都必须过 2FA」，OAuth 不能例外；
-    // requireOAuth2FA 是额外的、只作用于 OAuth 的开关（默认关闭）。
-    const oauthNeed2FA = oauthPolicy.require2FAGlobal || (await shouldRequireOAuth2FA());
+    // OAuth 只服从自己的开关（默认关闭）：全局强制 2FA 开启但 OAuth 开关关闭时，OAuth 不做 2FA。
+    // 未配置 2FA 的账号同样跳过（与 /login 同口径）。
+    const oauthNeed2FA = await shouldRequireOAuth2FA();
     if (oauthNeed2FA && (await has2FAEnabled(Number(user.id)))) {
       addProcessedCode(code);
       res.json({
