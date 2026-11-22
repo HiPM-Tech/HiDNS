@@ -64,10 +64,30 @@ function copyIcons() {
   console.log(`\n✅ Successfully copied ${copiedCount} icon file(s) to dist directory`);
 }
 
+/**
+ * 数据快照（public suffix）随 dist 一起复制。
+ * 与图标同理：运行时按文件路径读取，无法被 esbuild 内联。
+ */
+function copyAssets() {
+  const assetsSrc = path.join(__dirname, '..', 'src', 'data');
+  const assetsDist = path.join(__dirname, '..', 'dist', 'data');
+  if (!fs.existsSync(assetsSrc)) {
+    console.warn(`⚠ src/data not found, skipping: ${assetsSrc}`);
+    return;
+  }
+  fs.mkdirSync(assetsDist, { recursive: true });
+  for (const entry of fs.readdirSync(assetsSrc, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    fs.copyFileSync(path.join(assetsSrc, entry.name), path.join(assetsDist, entry.name));
+  }
+  console.log('📦 Copied src/data to dist/data');
+}
+
 // Run the copy function
 try {
   copyIcons();
+  copyAssets();
 } catch (error) {
-  console.error('❌ Failed to copy icons:', error.message);
+  console.error('❌ Failed to copy static assets:', error.message);
   process.exit(1);
 }
