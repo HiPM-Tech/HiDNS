@@ -9,6 +9,7 @@
     "dev": "ts-node --files src/app.ts",
     "mcp": "ts-node --files src/mcp/start.ts",
     "build": "tsc && node scripts/copy-icons.js",
+    "build:bundle": "tsc && node scripts/copy-icons.js && node scripts/build-bundle.mjs",
     "start": "node dist/app.js",
     "test": "vitest run",
     "check:actions": "vitest run src/workflow/actions/__tests__/namespaces.test.ts",

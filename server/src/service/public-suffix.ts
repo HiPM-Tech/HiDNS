@@ -38,13 +38,23 @@ export const BUILTIN_SUFFIXES: readonly string[] = [
  * 没有快照就只能退化成「取最后两段」，分组会把 cc.cd / dpdns.org 这类多段后缀切碎。
  */
 function loadEmbeddedSuffixes(): string[] {
-  try {
-    const file = path.resolve(__dirname, '../data/public-suffix-list.dat');
-    return parsePublicSuffixList(fs.readFileSync(file, 'utf8'));
-  } catch (error) {
-    log.warn('Embedded public suffix snapshot missing, falling back to curated list', { error });
-    return [];
+  // 三个候选路径覆盖三种运行形态：
+  //   src/service → ../data      （ts-node）
+  //   dist/service → ../data     （tsc 产物，构建时由 copy-icons.js 复制）
+  //   dist-bundle/app.cjs → ./data（单文件 bundle，构建时由 build-bundle.mjs 复制）
+  const candidates = [
+    path.resolve(__dirname, '../data/public-suffix-list.dat'),
+    path.resolve(__dirname, 'data/public-suffix-list.dat'),
+  ];
+  for (const file of candidates) {
+    try {
+      return parsePublicSuffixList(fs.readFileSync(file, 'utf8'));
+    } catch {
+      // 试下一个候选
+    }
   }
+  log.warn('Embedded public suffix snapshot missing, falling back to curated list', { candidates });
+  return [];
 }
 
 const EMBEDDED_SUFFIXES = loadEmbeddedSuffixes();

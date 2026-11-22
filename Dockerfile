@@ -28,8 +28,8 @@ COPY . .
 # Build client (frontend)
 RUN pnpm --filter dnsmgr-client build
 
-# Build server (backend)
-RUN pnpm --filter dnsmgr-server build
+# Build server (backend) —— 同时产出单文件 bundle，生产镜像因此不需要 node_modules
+RUN pnpm --filter dnsmgr-server run build:bundle
 
 # Production stage
 FROM node:24-alpine AS production
@@ -37,27 +37,25 @@ FROM node:24-alpine AS production
 # Accept CI build flag from builder
 ARG CI_BUILD=false
 
-# Install pnpm and database client tools for DSM backups
-RUN npm install -g pnpm && \
-    apk add --no-cache mysql-client postgresql-client sqlite
+# 数据库客户端工具（DSM 备份功能依赖 CLI）
+RUN apk add --no-cache mysql-client postgresql-client sqlite
 
 # Create app directory
 WORKDIR /app
 
-# Copy root package files
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+# 服务端已打包成单文件（server/scripts/build-bundle.mjs），
+# 22 个运行时依赖全部内联，因此这里不再安装 node_modules。
+# 唯一需要留在文件系统的是 swagger-ui 的静态资源（浏览器直接加载的 html/js/css）。
+RUN npm init -y >/dev/null && npm install --no-save --omit=dev --no-package-lock swagger-ui-dist@5
 
-# Copy server package files
-COPY server/package.json server/.npmrc ./server/
+# 单文件服务端
+COPY --from=builder /app/server/dist-bundle/app.cjs ./app.cjs
 
-# Install production dependencies only
-RUN pnpm install --no-frozen-lockfile --prod
+# 提供商图标：运行时按文件路径读取，无法内联
+COPY --from=builder /app/server/dist/lib/dns/providers ./dist/lib/dns/providers
 
-# Copy built server files from builder
-COPY --from=builder /app/server/dist ./server/dist
-
-# Copy server scripts
-COPY --from=builder /app/server/scripts ./server/scripts
+# 嵌入式客户端（SEA 构建时使用；普通镜像走 client/dist 静态目录）
+COPY --from=builder /app/server/dist/embedded-client.js* ./dist/
 
 # Copy built client files from builder
 COPY --from=builder /app/client/dist ./client/dist
@@ -87,4 +85,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3001/api/init/status', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Start the server (which also serves the frontend)
-CMD ["node", "server/dist/app.js"]
+CMD ["node", "app.cjs"]

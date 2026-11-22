@@ -9,6 +9,7 @@ node_modules/
 
 # Build artifacts
 server/dist/
+server/dist-bundle/
 client/dist/
 
 # CI watcher state
