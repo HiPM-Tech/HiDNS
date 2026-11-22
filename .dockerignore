@@ -77,4 +77,7 @@ temp/
 
 # 构建期需要的数据快照（public suffix）——上面的 **/data/ 会把它一并排除，
 # 导致 build-bundle 静默跳过、镜像里缺文件（甚至 COPY 源不存在直接构建失败）
+# 目录本身与内容都要显式放行：Docker 在目录被排除后不会继续遍历，
+# 只写目录例外而不写 `**` 时，构建上下文里仍然拿不到文件。
 !server/src/data/
+!server/src/data/**
