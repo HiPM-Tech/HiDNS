@@ -393,10 +393,24 @@ router.put('/:id', authMiddleware, noTokenAuth('token management'), async (req: 
   }
 
   try {
+    // 与创建同口径：更新也必须走策略校验，否则直连 API 可写入白名单外的服务名
+    let nextServices: string[] | undefined;
+    if (allowed_services !== undefined) {
+      const policy = resolveTokenPolicy({
+        allowedServices: allowed_services,
+        userRole: normalizeRole(req.user?.role),
+      });
+      if (!policy.ok) {
+        res.status(policy.status).json({ code: policy.status, msg: policy.message });
+        return;
+      }
+      nextServices = policy.services;
+    }
+
     await updateTokenPermissions(tokenId, req.user!.userId, {
       name,
       allowed_domains,
-      allowed_services,
+      allowed_services: nextServices,
       start_time,
       end_time,
     });

@@ -31,6 +31,12 @@ export function resolveTokenPolicy(input: TokenPolicyInput): TokenPolicyResult {
     return { ok: false, status: 403, message: 'max_role cannot exceed your own role' };
   }
 
+  // 显式空数组必须拒绝：前端「一个都没选」如果被当成「未传」，就会回退成全权限 *，
+  // 那是「看起来最小、实际最大」的方向。
+  if (Array.isArray(input.allowedServices) && input.allowedServices.length === 0) {
+    return { ok: false, status: 400, message: 'allowed_services cannot be empty; omit the field to inherit *' };
+  }
+
   let services: string[] = ['*'];
   if (Array.isArray(allowedServices) && allowedServices.length > 0) {
     services = allowedServices

@@ -32,11 +32,12 @@ export interface TokenPermissionsProps {
 
 /** 从已有的表达式数组里解析某个模块的授权级别；null 表示未授权 */
 function levelOf(value: string[], moduleKey: string): ActionKey | null {
+  // 按「从宽」解析：同一模块若有多条（手工/脚本写入），显示最高权限而不是第一条，
+  // 否则会把「全部动作」显示成「只读」，让人误判令牌范围。
   if (value.includes('*')) return '*';
-  if (value.includes(moduleKey)) return 'write'; // 裸模块名等价于「读写」
-  for (const action of ACTIONS) {
-    if (value.includes(`${moduleKey}:${action.key}`)) return action.key;
-  }
+  if (value.includes(`${moduleKey}:*`)) return '*';
+  if (value.includes(moduleKey) || value.includes(`${moduleKey}:write`)) return 'write';
+  if (value.includes(`${moduleKey}:read`)) return 'read';
   return null;
 }
 

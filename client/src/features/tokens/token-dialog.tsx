@@ -65,6 +65,11 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
       setError('请输入令牌名称');
       return;
     }
+    // 空选择提交会被后端当成「未传」→ 回退成全权限 *，必须在这里拦住
+    if (services.length === 0) {
+      setError('至少选择一个服务权限');
+      return;
+    }
     if (selected.length === 0) {
       setError('至少选择一个域名');
       return;
@@ -76,7 +81,7 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
           payload: {
             name: name.trim(),
             allowed_domains: selected,
-            allowed_services: services.length > 0 ? services : undefined,
+            allowed_services: services,
             start_time: startTime || undefined,
             end_time: endTime || undefined,
           },
@@ -92,7 +97,7 @@ export function TokenDialog({ open, onOpenChange, currentRoleLevel, token, onCre
       const envelope = await create.mutateAsync({
         name: name.trim(),
         allowed_domains: selected,
-        allowed_services: services.length > 0 ? services : undefined,
+        allowed_services: services,
         max_role: Number(maxRole),
         start_time: startTime ? new Date(startTime).toISOString() : undefined,
         end_time: endTime ? new Date(endTime).toISOString() : undefined,
