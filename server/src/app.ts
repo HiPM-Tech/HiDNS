@@ -383,6 +383,30 @@ app.use(clientIPMiddleware); // 必须在 requestLogger 之前，确保日志记
 app.use(requestLogger);
 
 // Swagger setup
+/**
+ * 内存观测：启动时打一条基线（info），之后每 10 分钟打一条采样（debug）。
+ *
+ * 目的不是「监控」，而是让「运行一周后 RSS 涨到多少」可被事后对比 ——
+ * 没有基线的话，内存问题只能等 OOM 才发现。
+ * 用 unref()：定时器不应阻止进程退出。
+ */
+function startMemoryWatch(): void {
+  const mb = (n: number) => Math.round(n / 1048576);
+  const first = process.memoryUsage();
+  log.info('Memory baseline', { rssMb: mb(first.rss), heapUsedMb: mb(first.heapUsed) });
+
+  const timer = setInterval(() => {
+    const m = process.memoryUsage();
+    log.debug('Memory sample', {
+      rssMb: mb(m.rss),
+      heapUsedMb: mb(m.heapUsed),
+      heapTotalMb: mb(m.heapTotal),
+      externalMb: mb(m.external),
+    });
+  }, 10 * 60 * 1000);
+  timer.unref();
+}
+
 const swaggerOptions: swaggerJsdoc.Options = {
   definition: {
     openapi: '3.0.0',
@@ -659,6 +683,7 @@ async function initializeApp() {
       if (!isSystemInitialized()) {
         log.info(`Setup Wizard: http://localhost:${PORT}/setup`);
       }
+      startMemoryWatch();
     });
 
     // Re-check initialization status periodically (every 5 seconds)
@@ -711,6 +736,7 @@ async function initializeApp() {
       log.info('Build info', { version: packageVersion, commit: buildCommit, builtAt: buildTime, node: process.version });
       log.info(`HiDNS running on http://localhost:${PORT}`);
       log.info(`API Docs: http://localhost:${PORT}/api/docs`);
+      startMemoryWatch();
     });
 
     // 周期性重连，恢复后重新判定系统状态
