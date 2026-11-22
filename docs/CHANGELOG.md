@@ -1,5 +1,28 @@
 # 更新日志
 
+## [2.3.10] - 2026-11-23
+
+补丁版本：修正 2.3.9 构建与镜像侧的若干回归，并压缩产出体积。
+
+### Bug 修复
+
+- **镜像内提供商图标全部 404**：服务端改为单文件打包后 `__dirname` 从 `server/dist/routes` 变成 `/app`，按 `__dirname/../lib/dns/providers` 解析的图标目录错位。新增 `resolveAssetDir()` 按运行形态列候选（单文件 / tsc 产物 / ts-node / cwd），命中第一个存在的目录。
+- **public-suffix 快照从未进过 git**：`server/.gitignore` 的 `data/` 规则把 `server/src/data` 一并忽略了，导致任何干净 clone 与 Docker 构建都读不到该文件，域名分组长期退化成 curated 列表（日志里的 `Embedded public suffix snapshot missing` 一直被忽略）。现已加 `!src/data/` 例外并把 338KB 的快照纳入版本库。
+- **`/api/docs` 白屏**：镜像精简时删掉了 `swagger-ui-standalone-preset.js`，而 `swagger-ui-express` 的默认 HTML 会加载它并引用 `SwaggerUIStandalonePreset`。已恢复。
+- **启动横幅版本显示 `unknown`**：单文件镜像里没有 `package.json`。版本改由构建期注入（`HIDNS_BUILD_VERSION`），`release.yml` 传 `APP_VERSION`。
+- **`.dockerignore` 误伤源码**：`**/data/` 会把 `server/src/data` 一起排除，改为精确排除 `/server/data/` 与 `/client/data/`。
+
+### 优化
+
+- **镜像体积 206 MB → 79 MB（-61.7%）**：服务端 22 个运行时依赖全部是纯 JS，改用 esbuild 打成单文件（9.3 MB，minified），生产阶段不再安装 `node_modules`；`swagger-ui-dist` 锁定 `5.32.1` 并裁剪 sourcemap/es-module 产物；图标只带图片资源。
+- **内存**：`workflow/access.ts` 的可访问域名缓存补上过期淘汰与条目上限（此前只判断 TTL，过期条目不删除，每条含完整域名列表）；启动时输出内存基线（info），之后每 10 分钟一条采样（debug）；`NODE_OPTIONS` 默认 `--max-old-space-size=1024`，避免容器里按宿主机内存估算堆上限。
+- **构建可复现**：`build-bundle.mjs` 在缺少数据快照时硬失败，而不是静默跳过。
+
+### 已知限制
+
+- `--max-semi-space-size` 经 CI 基准（5 轮取中位数）验证无收益（吞吐 -1.0%，Scavenge 次数相同），未启用。
+- `allowed_services` 的服务级门禁尚未全面接线，权限目前以记录与展示为主。
+
 ## [2.3.9] - 2026-11-22
 
 ### 新功能
