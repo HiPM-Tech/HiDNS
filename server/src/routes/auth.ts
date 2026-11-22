@@ -927,10 +927,11 @@ router.post('/login/email-code', emailLimiter, async (req: Request, res: Respons
  */
 router.post('/oauth/2fa', loginLimiter, async (req: Request, res: Response) => {
   try {
-    const { pendingToken, totpCode, backupCode, webauthnResponse } = req.body as {
+    const { pendingToken, totpCode, backupCode, webauthnResponse, emailCode } = req.body as {
       pendingToken?: string;
       totpCode?: string;
       backupCode?: string;
+      emailCode?: string;
       webauthnResponse?: unknown;
     };
     const uid = pendingToken ? await verifyOAuth2FAPendingToken(pendingToken) : null;
@@ -940,7 +941,7 @@ router.post('/oauth/2fa', loginLimiter, async (req: Request, res: Response) => {
     }
 
     const user = await UserOperations.getById(uid) as
-      | { id?: number; username?: string; nickname?: string; role?: string; role_level?: number; status?: number }
+      | { id?: number; username?: string; nickname?: string; role?: string; role_level?: number; status?: number; email?: string; email_verified?: number }
       | undefined;
     if (!user?.id) {
       sendError(res, 'User not found', 401);
@@ -953,8 +954,15 @@ router.post('/oauth/2fa', loginLimiter, async (req: Request, res: Response) => {
 
     const isTotpEnabled = (await getTOTPStatus(uid)).enabled;
     const isWebauthnEnabled = await TwoFAOperations.isWebAuthnEnabled(uid);
+    const isEmailFactorEnabled = await TwoFAOperations.isEmailEnabled(uid);
 
-    if (backupCode) {
+    if (emailCode && isEmailFactorEnabled) {
+      const validEmailCode = await verifyEmailVerificationCode(uid, String(user.email ?? ''), emailCode, 'login');
+      if (!validEmailCode) {
+        sendError(res, 'Invalid email verification code', 401);
+        return;
+      }
+    } else if (backupCode) {
       if (!(await verifyBackupCode(uid, backupCode))) {
         sendError(res, 'Invalid backup code', 401);
         return;
@@ -1001,6 +1009,16 @@ router.post('/oauth/2fa', loginLimiter, async (req: Request, res: Response) => {
       (global as any).loginChallengeStore.delete(uid);
     } else {
       sendError(res, '2FA code is required', 400);
+      return;
+    }
+
+    // 与密码登录一致：邮箱未验证的非超管用户先补验证（2FA 已完成，pendingToken 标记已过 2FA）
+    if (await shouldRequireEmailVerification(user as { email?: string; email_verified?: number; role_level?: number })) {
+      sendSuccess(res, {
+        requireEmailVerification: true,
+        email: user.email,
+        pendingToken: await signEmailVerifyPendingToken(uid, true),
+      });
       return;
     }
 
@@ -1400,11 +1418,20 @@ router.post('/oauth/callback', async (req: Request, res: Response) => {
     const oauthNeed2FA = await shouldRequireOAuth2FA();
     if (oauthNeed2FA && (await has2FAEnabled(Number(user.id)))) {
       addProcessedCode(code);
+      const oauthUid = Number(user.id);
+      const oauthTotp = (await getTOTPStatus(oauthUid)).enabled;
+      const oauthWebauthn = await TwoFAOperations.isWebAuthnEnabled(oauthUid);
+      const oauthEmailFactor = await TwoFAOperations.isEmailEnabled(oauthUid);
+      const oauthTypes: string[] = [];
+      if (oauthTotp) oauthTypes.push('totp');
+      if (oauthWebauthn) oauthTypes.push('webauthn');
+      if (oauthEmailFactor) oauthTypes.push('email');
       res.json({
         code: -2,
         msg: '2FA required',
         data: {
           require2FA: true,
+          types: oauthTypes,
           email: user.email,
           username: user.username,
           // OAuth 用户没有密码，用一次性凭证替代密码去完成第二因子

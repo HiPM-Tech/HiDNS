@@ -57,9 +57,9 @@ export function OAuthCallbackPage() {
         const envelope = await http.post<{ mode?: 'login' | 'bind'; email?: string; needsLogin?: boolean }>('/auth/oauth/callback', { code, state });
         // -2：该账号需要两步验证。OAuth 用户通常没有密码，把一次性凭证带到登录页的 2FA 步骤
         if (envelope.code === -2) {
-          const data = envelope.data as { pendingToken?: string; email?: string; username?: string } | undefined;
+          const data = envelope.data as { pendingToken?: string; email?: string; username?: string; types?: string[] } | undefined;
           if (data?.pendingToken) {
-            sessionStorage.setItem('hidns.oauth2fa', JSON.stringify({ pendingToken: data.pendingToken, email: data.email ?? '', username: data.username ?? '' }));
+            sessionStorage.setItem('hidns.oauth2fa', JSON.stringify({ pendingToken: data.pendingToken, email: data.email ?? '', username: data.username ?? '', types: data.types ?? [] }));
             navigate('/login?oauth2fa=1', { replace: true });
             return;
           }

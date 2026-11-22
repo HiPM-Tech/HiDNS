@@ -84,7 +84,7 @@ export function SecurityPage() {
         <CardContent className="flex items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
             {status.data?.validationEnabled
-              ? '管理员已全局要求两步验证，登录时必须输入动态验证码。'
+              ? '管理员已全局要求两步验证：已配置 2FA 的账号登录时必须使用它，未配置的账号不受影响。'
               : '系统未强制两步验证；建议为管理员账号开启。'}
           </p>
           {status.data?.configured ? (

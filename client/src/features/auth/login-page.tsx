@@ -106,7 +106,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       if (parsed.pendingToken) {
         setOauth2faToken(parsed.pendingToken);
         setOauth2faUsername((parsed as { username?: string }).username ?? '');
-        setTwoFactorTypes([]);
+        setTwoFactorTypes((parsed as { types?: string[] }).types ?? []);
         setStep('2fa');
       }
     } catch { /* 忽略损坏的缓存 */ }
@@ -340,13 +340,14 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
   const submitTwoFactor = twoFactorForm.handleSubmit(async ({ code }) => {
     // OAuth 登录没有密码，用一次性凭证完成第二因子
-    if (oauth2faToken) {
+    if (oauth2faToken && !pendingCredentials) {
       setError(null);
       try {
         const envelope = await authApi.oauth2fa({
           pendingToken: oauth2faToken,
-          totpCode: useBackupCode ? undefined : code,
+          totpCode: useBackupCode || useEmailCode ? undefined : code,
           backupCode: useBackupCode ? code : undefined,
+          emailCode: useEmailCode ? code : undefined,
         });
         setOauth2faToken('');
         handleSuccess(envelope.data?.user as Parameters<typeof handleSuccess>[0]);
@@ -613,11 +614,15 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                           className="text-primary underline-offset-4 hover:underline disabled:opacity-60"
                           disabled={sendingCode}
                           onClick={async () => {
-                            if (!pendingCredentials) return;
+                            // OAuth 模式没有密码：用回调带回的 username 发 login 用途的验证码
+                            const target = oauth2faToken ? oauth2faUsername : pendingCredentials?.username;
+                            if (!target) return;
                             setSendingCode(true);
                             try {
-                              await authApi.loginEmailCode(pendingCredentials.username);
+                              await authApi.loginEmailCode(target);
                               setCodeSent(true);
+                            } catch (err) {
+                              setError(describeError(err));
                             } finally {
                               setSendingCode(false);
                             }
@@ -659,7 +664,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                   <button
                     type="button"
                     className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                    onClick={() => { setStep('credentials'); setError(null); setPendingCredentials(null); }}
+                    onClick={() => { setStep('credentials'); setError(null); setPendingCredentials(null); setOauth2faToken(''); setOauth2faUsername(''); }}
                   >
                     {copy.common.back}
                   </button>
