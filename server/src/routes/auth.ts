@@ -917,8 +917,10 @@ router.post('/verify-email/code', emailLimiter, async (req: Request, res: Respon
     const { pendingToken } = req.body as { pendingToken?: string };
     const userId = pendingToken ? await verifyEmailVerifyPendingToken(pendingToken) : null;
     if (userId) {
-      const user = await UserOperations.getById(userId) as { id?: number; email?: string } | undefined;
-      if (user?.id && user.email) {
+      const user = await UserOperations.getById(userId) as { id?: number; email?: string; email_verified?: number; role_level?: number; status?: number } | undefined;
+      // 10 分钟窗口内账号可能被停用 / 策略被关闭：与登录侧同口径复查，不满足就静默不发
+      const stillNeeded = user ? await shouldRequireEmailVerification(user) : false;
+      if (user?.id && user.email && Number(user.status ?? 1) !== 0 && stillNeeded) {
         try {
           await sendEmailVerificationCode(Number(user.id), String(user.email), 'profile');
         } catch (error) {
@@ -951,9 +953,7 @@ router.post('/verify-email', emailVerifyLimiter, async (req: Request, res: Respo
     sendError(res, 'Invalid email verification code', 401);
     return;
   }
-  await UserOperations.update(Number(user.id), { email_verified: 1 });
-  await logAuditOperation(Number(user.id), 'verify_email', 'system', {}, req);
-
+  // 必须在置位前判断（user 是验证前的快照）：置位后 shouldRequireEmailVerification 恒为 false
   const shouldIssue = await shouldRequireEmailVerification(user as { email?: string; email_verified?: number; role_level?: number });
   await UserOperations.update(Number(user.id), { email_verified: 1 });
   await logAuditOperation(Number(user.id), 'verify_email', 'system', {}, req);

@@ -29,7 +29,13 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   // First try to verify as JWT
   try {
     const jwtSecret = await getJwtSecret();
-    const payload = jwt.verify(token, jwtSecret) as JwtPayload;
+    const payload = jwt.verify(token, jwtSecret) as JwtPayload & { purpose?: string };
+    // 带 purpose 的是「流程凭证」（如 email-verify），不是会话令牌；
+    // 否则 pendingToken 可以直接当 Bearer 用，等于绕过邮箱验证。
+    if (payload.purpose) {
+      sendError(res, 'Unauthorized', 401);
+      return;
+    }
     req.user = { ...payload, role: normalizeRole(payload.role) };
     next();
     return;

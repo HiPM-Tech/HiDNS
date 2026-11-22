@@ -217,12 +217,18 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       const envelope = await authApi.verifyEmail(pendingToken, code);
       const data = envelope.data as { verified: boolean; require2FA?: boolean; user?: unknown } | undefined;
       if (data?.require2FA) {
-        setTwoFactorTypes([]);
+        setTwoFactorTypes((data as { types?: string[] }).types ?? []);
         twoFactorForm.reset();
         setStep('2fa');
         return;
       }
-      handleSuccess(data?.user as Parameters<typeof handleSuccess>[0]);
+      if (!data?.user) {
+        // 服务端判定「已经不需要验证」或策略在窗口内被关闭：不给会话，回登录页重新走一次
+        setStep('credentials');
+        setNotice('邮箱已验证，请重新登录');
+        return;
+      }
+      handleSuccess(data.user as Parameters<typeof handleSuccess>[0]);
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -468,7 +474,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                   )}
                 </div>
 
-                <Button type="submit" className="w-full" disabled={submitting}>
+                <Button type="submit" className="w-full" disabled={submitting || passkeyPending}>
                   {submitting ? <Loader2 className="animate-spin" aria-hidden /> : <KeyRound aria-hidden />}
                   {submitting ? copy.auth.submitting : copy.auth.submit}
                 </Button>
@@ -579,7 +585,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                     type="button"
                     variant="outline"
                     className="w-full"
-                    disabled={passkeyPending}
+                    disabled={passkeyPending || submitting}
                     onClick={() => void submitPasskeyTwoFactor()}
                   >
                     {passkeyPending ? <Loader2 className="animate-spin" aria-hidden /> : <Fingerprint strokeWidth={1.75} aria-hidden />}
@@ -609,7 +615,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">
                     需要先验证邮箱 <span className="font-medium text-foreground">{pendingEmail || '（未填写）'}</span>，
-                    验证码将发送到这个地址。
+                    验证码将发送到这个地址。验证码与本次登录凭证 10 分钟内有效。
                   </p>
                   <Label htmlFor="verify-code">邮箱验证码</Label>
                   <Input
@@ -626,7 +632,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                   <button
                     type="button"
                     className="text-xs text-primary underline-offset-4 hover:underline disabled:opacity-60"
-                    disabled={sendingCode || !pendingCredentials}
+                    disabled={sendingCode || !pendingCredentials || !pendingToken}
                     onClick={async () => {
                       if (!pendingCredentials) return;
                       setSendingCode(true);

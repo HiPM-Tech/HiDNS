@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import rateLimit from 'express-rate-limit';
 import { Request, Response } from 'express';
 import { getRequestIP } from './clientIP';
@@ -42,7 +43,10 @@ export const emailLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req: Request) => {
     // 优先邮箱；/verify-email 只带 username 时退到 username；都没有才用真实对端 IP
-    const identifier = req.body?.email || req.body?.username || '';
+    // 依次尝试 email / username / pendingToken（哈希前缀，不落明文）；都没有才退到 IP
+    const token = String(req.body?.pendingToken ?? '');
+    const tokenKey = token ? createHash('sha256').update(token).digest('hex').slice(0, 16) : '';
+    const identifier = req.body?.email || req.body?.username || tokenKey || '';
     const ip = req.socket?.remoteAddress || getRequestIP(req) || 'unknown';
     return String(identifier || ip).toLowerCase();
   },
@@ -59,7 +63,9 @@ export const emailVerifyLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request) => {
-    const identifier = req.body?.username || req.body?.email || '';
+    const token = String(req.body?.pendingToken ?? '');
+    const tokenKey = token ? createHash('sha256').update(token).digest('hex').slice(0, 16) : '';
+    const identifier = req.body?.username || req.body?.email || tokenKey || '';
     const ip = req.socket?.remoteAddress || getRequestIP(req) || 'unknown';
     return `verify:${String(identifier || ip).toLowerCase()}:${ip}`;
   },
