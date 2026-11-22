@@ -727,7 +727,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                 <button
                   type="button"
                   className="w-full text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                  onClick={() => { setStep('credentials'); setError(null); setPendingCredentials(null); }}
+                  onClick={() => { setStep('credentials'); setError(null); setPendingCredentials(null); setPendingToken(''); setPendingEmail(''); }}
                 >
                   {copy.common.back}
                 </button>

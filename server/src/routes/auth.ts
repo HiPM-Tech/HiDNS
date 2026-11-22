@@ -10,7 +10,7 @@ import { sendEmailVerificationCode, verifyEmailVerificationCode } from '../servi
 import { logAuditOperation } from '../service/audit';
 import { getSmtpConfig, sendSmtpEmail } from '../service/smtp';
 import { getUserPreferences, updateUserPreferences, UserPreferences } from '../service/userPreferences';
-import { loginLimiter, emailLimiter, emailVerifyLimiter } from '../middleware/rateLimit';
+import { loginLimiter, emailLimiter, emailVerifyLimiter, oauth2faLimiter } from '../middleware/rateLimit';
 import { getTOTPStatus, verifyTOTPToken, verifyBackupCode } from '../service/totp';
 import { createLogger } from '../lib/logger';
 import { UserOperations, OAuthOperations, TwoFAOperations, SettingsOperations, UserPreferencesOperations, DomainOperations } from '../db/bal/business-adapter';
@@ -925,7 +925,7 @@ router.post('/login/email-code', emailLimiter, async (req: Request, res: Respons
  *
  * 因子与 /login 的 2FA 分支一致：备用码 / TOTP / 通行密钥。
  */
-router.post('/oauth/2fa', loginLimiter, async (req: Request, res: Response) => {
+router.post('/oauth/2fa', oauth2faLimiter, async (req: Request, res: Response) => {
   try {
     const { pendingToken, totpCode, backupCode, webauthnResponse, emailCode } = req.body as {
       pendingToken?: string;
@@ -954,7 +954,10 @@ router.post('/oauth/2fa', loginLimiter, async (req: Request, res: Response) => {
 
     const isTotpEnabled = (await getTOTPStatus(uid)).enabled;
     const isWebauthnEnabled = await TwoFAOperations.isWebAuthnEnabled(uid);
-    const isEmailFactorEnabled = await TwoFAOperations.isEmailEnabled(uid);
+    // 与 /login、OAuth 回调同口径：开关 && 有邮箱 && 已验证（否则是一个点不出码的死选项）
+    const isEmailFactorEnabled = (await TwoFAOperations.isEmailEnabled(uid))
+      && Boolean(user.email)
+      && Boolean((user as { email_verified?: number }).email_verified);
 
     if (emailCode && isEmailFactorEnabled) {
       const validEmailCode = await verifyEmailVerificationCode(uid, String(user.email ?? ''), emailCode, 'login');
@@ -1015,6 +1018,7 @@ router.post('/oauth/2fa', loginLimiter, async (req: Request, res: Response) => {
     // 与密码登录一致：邮箱未验证的非超管用户先补验证（2FA 已完成，pendingToken 标记已过 2FA）
     if (await shouldRequireEmailVerification(user as { email?: string; email_verified?: number; role_level?: number })) {
       // 用 -4 而不是 code 0：避免前端把「登录未完成」当成成功
+      await logAuditOperation(uid, 'oauth_login_pending_email', 'system', { twoFactor: true });
       res.json({
         code: -4,
         msg: 'Email verification required',
