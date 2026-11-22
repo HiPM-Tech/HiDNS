@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 需要历史提交才能 git show 出改造前的 Dockerfile 做基线对比
+          fetch-depth: 0
 
       - uses: docker/setup-buildx-action@v3
 
