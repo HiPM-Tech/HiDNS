@@ -190,6 +190,9 @@ async function buildForPlatform(targetName) {
     `--target=node24`,
     `--outfile=dist/bundle.cjs`,
     `--format=cjs`,
+    // 注意：这里没有加 --minify。SEA 的 bundle 会写进 V8 code cache（useCodeCache: true），
+    // 压缩后的产物必须重新在 CI 上跑完整构建（含 SEA blob 注入与启动验证）才能确认安全，
+    // 本地无法验证跨平台产物，故暂不开启。Docker 侧已用 minified 的 dist-bundle/app.cjs。
     `--legal-comments=none`,
     `--define:process.env.NODE_ENV="\\"production\\""`,
   ].join(' ');
