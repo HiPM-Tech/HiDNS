@@ -54,7 +54,7 @@ export function OAuthCallbackPage() {
 
     void (async () => {
       try {
-        const envelope = await http.post<{ mode?: 'login' | 'bind'; email?: string }>('/auth/oauth/callback', { code, state });
+        const envelope = await http.post<{ mode?: 'login' | 'bind'; email?: string; needsLogin?: boolean }>('/auth/oauth/callback', { code, state });
         // -2 + loginRequired：该账号需要两步验证。OAuth 回调页没有输入界面，引导回登录页
         if (envelope.code === -2) {
           setPhase('error');
@@ -68,6 +68,12 @@ export function OAuthCallbackPage() {
           return;
         }
         if (envelope.code !== 0) throw new Error(envelope.msg || '授权失败');
+        // 授权码已被消费但没有换到会话（刷新/重放）：回登录页，别假装成功
+        if (envelope.data?.needsLogin) {
+          setPhase('error');
+          setMessage('该授权已完成，请回到登录页重新登录。');
+          return;
+        }
         const resolved = envelope.data?.mode === 'bind' ? 'bind' : 'login';
         sessionStorage.setItem(doneKey, resolved);
         setMode(resolved);

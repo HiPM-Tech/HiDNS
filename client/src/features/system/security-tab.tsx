@@ -261,7 +261,7 @@ function SecurityConfigCard({ onError, onSaved }: { onError: (e: unknown, f: str
             <ToggleRow label="JWT 视图发送邮件通知" hint="记录变更时通知相关用户" checked={Boolean(draft.jwtViewEmailNotify)} onChange={(checked) => setDraft({ ...draft, jwtViewEmailNotify: checked })} />
             <ToggleRow
               label="OAuth 登录时要求两步验证"
-              hint="默认关闭：OAuth 本身已含第三方认证；开启后，已配置 2FA 的账号需回到密码登录完成二次校验"
+              hint="默认关闭：OAuth 本身已含第三方认证；开启后，已配置 2FA 的账号需回到密码登录完成二次校验，未配置 2FA 的账号不受影响。全局「强制两步验证」开启时 OAuth 同样受约束。"
               checked={Boolean(draft.requireOAuth2FA)}
               onChange={(checked) => setDraft({ ...draft, requireOAuth2FA: checked })}
             />

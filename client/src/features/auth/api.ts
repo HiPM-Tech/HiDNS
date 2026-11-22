@@ -42,7 +42,7 @@ export const authApi = {
 
   /** 验证邮箱（登录后强制验证流程）：只校验验证码，通过后需要重新登录 */
   verifyEmail: (pendingToken: string, code: string) =>
-    http.postOk<{ verified: boolean; require2FA?: boolean; user?: unknown }>('/auth/verify-email', { pendingToken, code }),
+    http.postOk<{ verified: boolean; require2FA?: boolean; types?: string[]; user?: unknown }>('/auth/verify-email', { pendingToken, code }),
 
   loginEmailCode: (username: string): Promise<ApiEnvelope<{ sent: boolean }>> =>
     http.post<{ sent: boolean }>('/auth/login/email-code', { username }),
