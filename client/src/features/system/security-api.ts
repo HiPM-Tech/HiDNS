@@ -25,6 +25,8 @@ export interface SecurityConfig {
   showDnsProviderSecrets?: boolean;
   /** 登录后强制验证邮箱（超级管理员豁免） */
   requireEmailVerification?: boolean;
+  /** OAuth 登录是否要求两步验证（默认不要求） */
+  requireOAuth2FA?: boolean;
 }
 
 export interface AuditRules {

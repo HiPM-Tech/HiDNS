@@ -55,6 +55,12 @@ export function OAuthCallbackPage() {
     void (async () => {
       try {
         const envelope = await http.post<{ mode?: 'login' | 'bind'; email?: string }>('/auth/oauth/callback', { code, state });
+        // -2 + loginRequired：该账号需要两步验证。OAuth 回调页没有输入界面，引导回登录页
+        if (envelope.code === -2) {
+          setPhase('error');
+          setMessage('该账号需要两步验证，请回到登录页用密码登录后完成验证。');
+          return;
+        }
         // -4：邮箱未验证。OAuth code 已被服务端消费，无法原地继续，引导到登录页完成验证
         if (envelope.code === -4) {
           setPhase('error');

@@ -313,6 +313,8 @@ router.get('/security', authMiddleware, noTokenAuth('system settings'), adminOnl
     jwtViewEmailNotify: false,
     // 登录后强制验证邮箱（超级管理员豁免），默认开启
     requireEmailVerification: true,
+    // OAuth 登录是否要求两步验证：默认不要求（OAuth 本身已含第三方认证）
+    requireOAuth2FA: false,
     domainExpiryNotify: expiryNotifyValue ? (expiryNotifyValue === '1' || expiryNotifyValue === 'true') : false,
     domainExpiryDays: expiryDaysValue ? parseInt(expiryDaysValue) : 30
   };
@@ -331,7 +333,7 @@ router.get('/security', authMiddleware, noTokenAuth('system settings'), adminOnl
 });
 
 router.put('/security', authMiddleware, noTokenAuth('system settings'), adminOnly, async (req: Request, res: Response) => {
-  const { jwtViewEmailNotify, domainExpiryNotify, domainExpiryDays, showDnsProviderSecrets, requireEmailVerification } = req.body;
+  const { jwtViewEmailNotify, domainExpiryNotify, domainExpiryDays, showDnsProviderSecrets, requireEmailVerification, requireOAuth2FA } = req.body;
 
   // 合并写：直接重建对象会静默丢掉历史/未知 key，也会把未传的字段强制回默认值
   let existing: Record<string, unknown> = {};
@@ -348,6 +350,9 @@ router.put('/security', authMiddleware, noTokenAuth('system settings'), adminOnl
   // 只有显式传了才覆盖，缺省保持原值
   if (requireEmailVerification !== undefined) {
     config.requireEmailVerification = !!requireEmailVerification;
+  }
+  if (requireOAuth2FA !== undefined) {
+    config.requireOAuth2FA = !!requireOAuth2FA;
   }
 
   await SettingsOperations.set('security_config', JSON.stringify(config));

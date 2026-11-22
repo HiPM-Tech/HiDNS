@@ -525,6 +525,18 @@ router.get('/public-key', (req: Request, res: Response) => {
  * 是否需要「登录后验证邮箱」（产品口径：未验证邮箱的非超管用户必须验证一次）。
  * 抽成函数供密码登录与 OAuth 登录共用，避免两条路径口径分叉。
  */
+/** OAuth 登录是否要求 2FA：由系统设置里的 requireOAuth2FA 决定（默认不要求） */
+async function shouldRequireOAuth2FA(): Promise<boolean> {
+  try {
+    const raw = await SettingsOperations.get('security_config');
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as { requireOAuth2FA?: boolean };
+    return Boolean(parsed.requireOAuth2FA);
+  } catch {
+    return false;
+  }
+}
+
 async function shouldRequireEmailVerification(user: { email?: string; email_verified?: number; role_level?: number }): Promise<boolean> {
   if (!user.email) return false;
   if (Number(user.email_verified)) return false;
@@ -1292,6 +1304,14 @@ router.post('/oauth/callback', async (req: Request, res: Response) => {
       return;
     }
 
+    // OAuth 是否要求 2FA 由系统开关决定（默认不要求）。
+    // 需要 2FA 时 OAuth 回调页没有输入界面，只能引导回密码登录完成二次校验。
+    if ((await shouldRequireOAuth2FA()) && (await has2FAEnabled(Number(user.id)))) {
+      addProcessedCode(code);
+      res.json({ code: -2, msg: '2FA required', data: { require2FA: true, loginRequired: true } });
+      return;
+    }
+
     // 与密码登录同一口径：未验证邮箱的非超管用户先补验证，避免 OAuth 成为绕过通道
     if (await shouldRequireEmailVerification(user as { email?: string; email_verified?: number; role_level?: number })) {
       addProcessedCode(code);
@@ -1301,7 +1321,8 @@ router.post('/oauth/callback', async (req: Request, res: Response) => {
         data: {
           requireEmailVerification: true,
           email: user.email,
-          pendingToken: await signEmailVerifyPendingToken(Number(user.id), false),
+          // 走到这里说明本次 OAuth 不需要 2FA（开关关闭或用户未配），验证邮箱后可直接签发
+          pendingToken: await signEmailVerifyPendingToken(Number(user.id), true),
         },
       });
       return;
