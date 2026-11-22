@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { resolveAssetDir } from '../utils/assets';
 import {
   DnsAccountOperations, TeamOperations, SettingsOperations,
   DomainOperations, DomainPermissionOperations, RecordOperations, NSMonitorOperations, RenewableDomainOperations,
@@ -61,7 +62,8 @@ function canManageAccount(account: DnsAccount, userId: number, role: number): bo
  *         description: Provider list
  */
 /** 提供商标识图标：构建时由 scripts/copy-icons.js 复制到 dist 的同名目录 */
-const PROVIDER_ICON_DIR = path.join(__dirname, '..', 'lib', 'dns', 'providers');
+// 单文件部署时 __dirname 会变成进程启动目录，必须走候选解析（见 utils/assets.ts）
+const PROVIDER_ICON_DIR = resolveAssetDir('lib', 'dns', 'providers') ?? path.join(__dirname, '..', 'lib', 'dns', 'providers');
 const PROVIDER_ICON_EXTS = ['svg', 'png', 'ico', 'jpg', 'jpeg'];
 
 function findProviderIcon(type: string): string | null {

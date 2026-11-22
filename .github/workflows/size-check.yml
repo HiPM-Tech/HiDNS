@@ -56,17 +56,41 @@ jobs:
 
       - name: Smoke test bundled image
         run: |
-          docker run -d --name hidns-smoke -p 3001:3001 -e DB_TYPE=sqlite -e DB_PATH=/app/data/t.db hidns:bundled
+          # 资源就位检查：图标与公共后缀快照都是按路径读取的，缺了不会崩但功能退化
+          docker run --rm --entrypoint node hidns:bundled -e "
+            const fs=require('fs');
+            const checks=[
+              ['/app/dist/lib/dns/providers', 'dir'],
+              ['/app/dist/data/public-suffix-list.dat', 'file'],
+              ['/app/node_modules/swagger-ui-dist/swagger-ui-standalone-preset.js', 'file'],
+              ['/app/client/dist/index.html', 'file'],
+            ];
+            let bad=0;
+            for (const [p,kind] of checks) {
+              const ok = kind==='dir' ? fs.existsSync(p) : fs.existsSync(p);
+              console.log((ok?'OK  ':'MISS') + ' ' + p);
+              if (!ok) bad++;
+            }
+            process.exit(bad ? 1 : 0);
+          "
+
+          docker run -d --name hidns-smoke -p 3001:3001 -e DB_TYPE=sqlite -e DB_PATH=/app/data/t.db -e HIDNS_LOG_LEVEL=debug hidns:bundled
           ok=0
           for i in $(seq 1 40); do
             if curl -fsS http://localhost:3001/api/init/status >/dev/null 2>&1; then echo "ready after ${i}s"; ok=1; break; fi
             sleep 1
           done
-          curl -fsS http://localhost:3001/api/init/status | head -c 300; echo
-          docker logs hidns-smoke 2>&1 | tail -15
+          curl -fsS -o /dev/null -w 'init/status -> %{http_code}\n' http://localhost:3001/api/init/status
+          curl -fsS -o /dev/null -w 'api/docs    -> %{http_code}\n' http://localhost:3001/api/docs/
+          curl -fsS -o /dev/null -w 'swagger js  -> %{http_code}\n' http://localhost:3001/api/docs/swagger-ui-standalone-preset.js
+          docker logs hidns-smoke 2>&1 | tail -25
+          # 公共后缀快照缺失会打这行 WARN；出现即视为回归
+          if docker logs hidns-smoke 2>&1 | grep -q 'public suffix snapshot missing'; then
+            echo '::error::public-suffix 快照未随镜像就位，分组会退化成 curated 列表'
+            ok=0
+          fi
           docker rm -f hidns-smoke
           test "$ok" = "1"
-
       - name: Smoke test baseline image
         run: |
           docker run -d --name hidns-smoke-base -p 3002:3001 -e DB_TYPE=sqlite -e DB_PATH=/app/data/t.db hidns:baseline

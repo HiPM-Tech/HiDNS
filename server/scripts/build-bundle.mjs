@@ -43,11 +43,15 @@ await build({
   logLevel: 'warning',
 });
 
-// 运行时按文件路径读取的数据文件（public suffix 快照等）无法被内联，随 bundle 一起复制
+// 运行时按文件路径读取的数据文件（public suffix 快照等）无法被内联，随 bundle 一起复制。
+// 这里必须硬失败：Dockerfile 会 COPY dist-bundle/data，缺失时构建直接报错，
+// 比「镜像能起来但分组退化成 curated 列表」要早暴露得多。
 const dataSrc = path.join(root, 'src', 'data');
-if (existsSync(dataSrc)) {
-  cpSync(dataSrc, path.join(outDir, 'data'), { recursive: true });
+if (!existsSync(dataSrc)) {
+  console.error('✖ 找不到 src/data（public suffix 快照）。若在 Docker 构建中，检查 .dockerignore 是否排除了它');
+  process.exit(1);
 }
+cpSync(dataSrc, path.join(outDir, 'data'), { recursive: true });
 
 const size = statSync(outFile).size;
 console.log(`✔ 服务端单文件打包完成：dist-bundle/app.cjs（${(size / 1048576).toFixed(1)} MB）`);

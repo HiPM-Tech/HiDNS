@@ -4,6 +4,7 @@ import { asyncHandler } from '../middleware/errorHandler';
 import { normalizeRole } from '../utils/roles';
 import { sendError, sendSuccess } from '../utils/http';
 import { createLogger } from '../lib/logger';
+import { resolveAssetDir } from '../utils/assets';
 const log = createLogger('HTTP').sub('Route').sub('Providers');
 import { DnsAccountOperations, RenewableDomainOperations } from '../db/bal/business-adapter';
 import { listSubdomains as dnsheListSubdomains } from '../lib/dns/providers/dnshe/renewal';
@@ -34,7 +35,7 @@ router.get('/:type/icon', authMiddleware, asyncHandler(async (req: Request, res:
     sendError(res, 'Invalid provider type', 400);
     return;
   }
-  const providersDir = path.join(__dirname, '..', 'lib', 'dns', 'providers');
+  const providersDir = resolveAssetDir('lib', 'dns', 'providers') ?? path.join(__dirname, '..', 'lib', 'dns', 'providers');
 
     log.info(`Looking for icon in: ${providersDir}`);
 

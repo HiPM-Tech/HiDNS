@@ -74,3 +74,7 @@ runtime/
 tmp/
 temp/
 *.tmp
+
+# 构建期需要的数据快照（public suffix）——上面的 **/data/ 会把它一并排除，
+# 导致 build-bundle 静默跳过、镜像里缺文件（甚至 COPY 源不存在直接构建失败）
+!server/src/data/

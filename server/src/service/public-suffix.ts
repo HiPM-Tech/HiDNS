@@ -45,6 +45,9 @@ function loadEmbeddedSuffixes(): string[] {
   const candidates = [
     path.resolve(__dirname, '../data/public-suffix-list.dat'),
     path.resolve(__dirname, 'data/public-suffix-list.dat'),
+    // 单文件部署：app.cjs 在 /app，数据随镜像放在 /app/dist/data
+    path.resolve(__dirname, 'dist/data/public-suffix-list.dat'),
+    path.resolve(process.cwd(), 'server/src/data/public-suffix-list.dat'),
   ];
   for (const file of candidates) {
     try {

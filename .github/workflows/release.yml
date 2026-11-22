@@ -785,6 +785,7 @@ jobs:
           build-args: |
             GIT_SHA=${{ github.sha }}
             BUILD_TIME=${{ github.run_started_at }}
+            APP_VERSION=${{ needs.prepare.outputs.version }}
           # build-only 是「构建测试」，不应该往 ghcr.io 推任何东西
           push: ${{ inputs.release_type != 'build-only' }}
           tags: ${{ steps.docker-tags.outputs.tag }}
@@ -846,6 +847,7 @@ jobs:
           build-args: |
             GIT_SHA=${{ github.sha }}
             BUILD_TIME=${{ github.run_started_at }}
+            APP_VERSION=${{ needs.prepare.outputs.version }}
           push: ${{ inputs.release_type != 'build-only' }}
           tags: ${{ steps.docker-tags.outputs.tag }}
           labels: |

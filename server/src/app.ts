@@ -240,11 +240,17 @@ let packageVersion = 'unknown';
  */
 const buildCommit = (process.env.HIDNS_BUILD_SHA || 'unknown').slice(0, 12);
 const buildTime = process.env.HIDNS_BUILD_TIME || 'unknown';
-try {
-  const packageJson = JSON.parse(readFileSync(path.join(APP_ROOT, 'package.json'), 'utf-8'));
-  packageVersion = packageJson.version || 'unknown';
-} catch (error) {
-  // 忽略错误，使用默认版本
+// 优先用构建期注入的版本：单文件镜像里没有 package.json（APP_ROOT 是 /app，
+// 而 app.cjs 与 package.json 不同级），只靠读文件会让启动横幅变成 unknown。
+if (process.env.HIDNS_BUILD_VERSION) {
+  packageVersion = process.env.HIDNS_BUILD_VERSION;
+} else {
+  try {
+    const packageJson = JSON.parse(readFileSync(path.join(APP_ROOT, 'package.json'), 'utf-8'));
+    packageVersion = packageJson.version || 'unknown';
+  } catch (error) {
+    // 忽略错误，使用默认版本
+  }
 }
 
 /**
