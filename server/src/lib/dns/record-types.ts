@@ -214,6 +214,10 @@ export function validateRecordValue(type: string, value: string): string | null 
     if (!/^\d+$/.test(priority) || Number(priority) > 65535) return 'SRV 优先级必须是 0-65535';
     if (!/^\d+$/.test(weight) || Number(weight) > 65535) return 'SRV 权重必须是 0-65535';
     if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) return 'SRV 端口必须是 1-65535';
+    // SRV 的 target 是主机名，RFC 2782 明确不允许填 IP 字面量。
+    if (isIpLiteral(parts[3])) {
+      return 'SRV 的目标必须是主机名（例如 sip.example.com），不能填 IP 地址';
+    }
     return isValidHostnameCheck(parts[3]) ? null : 'SRV 目标必须是合法主机名';
   }
 
@@ -229,6 +233,12 @@ export function validateRecordValue(type: string, value: string): string | null 
       return isIpv6Literal(v) ? null : 'IPv6 地址格式不正确';
     }
     case 'hostname': {
+      // CNAME / MX / NS 等指向类型的目标必须是主机名。
+      // isValidHostnameCheck 只看标签格式，'1.2.3.4' 会被当成合法主机名放过去，
+      // 最后由厂商返回「记录的值不正确」——用户完全无从下手。
+      if (isIpLiteral(v)) {
+        return `${def.type} 的值必须是主机名（例如 target.example.com），不能填 IP 地址`;
+      }
       return isValidHostnameCheck(v) ? null : 'Invalid hostname value';
     }
     case 'text': {
@@ -262,6 +272,15 @@ export function validateExtraField(
     if (fieldDef.max !== undefined && n > fieldDef.max) return `${fieldDef.label} must be <= ${fieldDef.max}`;
   }
   return null;
+}
+
+/** IPv4 / IPv6 字面量判定：用于把「填了 IP 但该字段要求主机名」的情况单独指出来 */
+function isIpLiteral(value: string): boolean {
+  const v = value.trim().replace(/^\[|\]$/g, '');
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(v)
+    && v.split('.').every((part) => Number(part) <= 255);
+  if (ipv4) return true;
+  return v.includes(':') && isIpv6Literal(v);
 }
 
 function isValidHostnameCheck(value: string): boolean {
