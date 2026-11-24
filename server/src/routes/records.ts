@@ -606,7 +606,19 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
     const weightSupported = capability ? capability.weight !== false : true;
     const recordId = await dnsAdapter.addDomainRecord(name, type, value, effectiveLine, ttl, mx, weightSupported ? weight : undefined, remarkSupported ? remark : undefined);
     if (!recordId) {
-      sendError(res, 'Failed to add record');
+      // 厂商错误（例如阿里云的 InvalidParameter.RecordValueInvalid）本身没有上下文，
+      // 只有「记录的值不正确」。这里把域名/类型/记录名/值长度一起打出来，才可能定位。
+      const providerError = (dnsAdapter as unknown as { error?: string }).error;
+      log.warn('Failed to add record', {
+        domain: access.domain.name,
+        provider: account?.type,
+        recordType: String(type).toUpperCase(),
+        rr: name,
+        valueBytes: Buffer.byteLength(String(value), 'utf8'),
+        valuePreview: String(value).length > 120 ? `${String(value).slice(0, 120)}…` : String(value),
+        providerError,
+      });
+      sendError(res, providerError || 'Failed to add record');
       return;
     }
     if (redirectResult.target) {

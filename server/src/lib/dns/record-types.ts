@@ -233,6 +233,16 @@ export function validateRecordValue(type: string, value: string): string | null 
     }
     case 'text': {
       if (v.length > 4096) return 'Value too long (max 4096 characters)';
+      // TXT 的单段长度是 DNS 协议硬限制（255 字节）。
+      // 阿里云等厂商会直接返回 InvalidParameter.RecordValueInvalid，
+      // 而「记录的值不正确」这句话完全没法用来定位问题（DKIM 公钥经常超长）。
+      if (def.type === 'TXT') {
+        const bytes = Buffer.byteLength(v, 'utf8');
+        const alreadyChunked = /"\s+"/.test(v);
+        if (bytes > 255 && !alreadyChunked) {
+          return `TXT 单段上限 255 字节（当前 ${bytes} 字节）。更长的内容需要拆成多段，例如 "段1" "段2"`;
+        }
+      }
       return null;
     }
     default:
