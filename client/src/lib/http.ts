@@ -154,8 +154,23 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
  * 写操作信封校验：`code !== 0` 直接抛错。
  * 写接口普遍不返回业务数据，调用方容易忘记判 code，导致「保存失败却提示成功」。
  */
+/**
+ * 把后端返回的结构化提示拼进错误消息。
+ *
+ * 后端在失败时会带 `data.hint`（下一步该检查什么）。此前这里只取 msg，
+ * 于是「记录值被厂商拒绝」这类结论到了界面上依然无从下手 —— 用户只能找管理员翻日志。
+ */
+export function describeEnvelopeError(envelope: { msg?: string; data?: unknown }, fallback: string): string {
+  const msg = envelope.msg || fallback;
+  const data = envelope.data as { hint?: unknown } | null | undefined;
+  const hint = typeof data?.hint === 'string' ? data.hint.trim() : '';
+  return hint && !msg.includes(hint) ? `${msg}：${hint}` : msg;
+}
+
 export function ensureOk<T>(envelope: ApiEnvelope<T>): ApiEnvelope<T> {
-  if (envelope.code !== 0) throw new ApiError(envelope.msg || '操作失败', { status: 400, code: envelope.code });
+  if (envelope.code !== 0) {
+    throw new ApiError(describeEnvelopeError(envelope, '操作失败'), { status: 400, code: envelope.code, data: envelope.data });
+  }
   return envelope;
 }
 
@@ -168,7 +183,7 @@ export function ensureOk<T>(envelope: ApiEnvelope<T>): ApiEnvelope<T> {
 export async function expectData<T>(promise: Promise<ApiEnvelope<T>>): Promise<T> {
   const envelope = await promise;
   if (envelope.code !== 0) {
-    throw new ApiError(envelope.msg || '请求失败', { status: 400, code: envelope.code });
+    throw new ApiError(describeEnvelopeError(envelope, '请求失败'), { status: 400, code: envelope.code, data: envelope.data });
   }
   return envelope.data;
 }

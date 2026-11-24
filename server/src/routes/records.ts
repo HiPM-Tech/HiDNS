@@ -7,6 +7,7 @@ import { getProviderDefinitions } from '../lib/dns/providers/registry';
 import { DnsAccount, Domain } from '../types';
 import { type DnsRecord as AdapterRecord } from '../lib/dns/DnsInterface';
 import type { RecordType } from '../lib/dns/record-types';
+import { describeProviderError } from '../lib/dns/provider-errors';
 import { getDomainAccess } from './domains';
 import { normalizeRole } from '../utils/roles';
 import { logAuditOperation } from '../service/audit';
@@ -607,18 +608,32 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
     const recordId = await dnsAdapter.addDomainRecord(name, type, value, effectiveLine, ttl, mx, weightSupported ? weight : undefined, remarkSupported ? remark : undefined);
     if (!recordId) {
       // 厂商错误（例如阿里云的 InvalidParameter.RecordValueInvalid）本身没有上下文，
-      // 只有「记录的值不正确」。这里把域名/类型/记录名/值长度一起打出来，才可能定位。
+      // 只有「记录的值不正确」。这里既把上下文写进日志，也把归类后的结论与下一步返回给前端 ——
+      // 否则用户唯一的出路是找管理员翻日志。
       const providerError = (dnsAdapter as unknown as { error?: string }).error;
+      const recordTypeUpper = String(type).toUpperCase();
+      const described = describeProviderError(providerError, {
+        providerType: account?.type,
+        recordType: recordTypeUpper,
+        value: String(value),
+      });
       log.warn('Failed to add record', {
         domain: access.domain.name,
         provider: account?.type,
-        recordType: String(type).toUpperCase(),
+        recordType: recordTypeUpper,
         rr: name,
         valueBytes: Buffer.byteLength(String(value), 'utf8'),
         valuePreview: String(value).length > 120 ? `${String(value).slice(0, 120)}…` : String(value),
         providerError,
+        kind: described.kind,
       });
-      sendError(res, providerError || 'Failed to add record');
+      sendError(res, described.msg, 400, {
+        provider: account?.type ?? null,
+        providerCode: providerError ?? null,
+        hint: described.hint ?? null,
+        kind: described.kind,
+        field: 'value',
+      });
       return;
     }
     if (redirectResult.target) {
