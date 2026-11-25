@@ -45,19 +45,19 @@ describe('validateRecordInput', () => {
 
   it('拒绝空白名、连续点、超长标签与非法字符', () => {
     expect(validateRecordInput({ name: '   ', type: 'A', value: '1.1.1.1' })).toBeTruthy();
-    expect(validateRecordInput({ name: 'a..b', type: 'A', value: '1.1.1.1' })).toBe('记录名不能包含连续的点');
-    expect(validateRecordInput({ name: 'a'.repeat(64), type: 'A', value: '1.1.1.1' })).toContain('63');
+    expect(validateRecordInput({ name: 'a..b', type: 'A', value: '1.1.1.1' })).toMatchObject({ field: 'name', message: '记录名不能包含连续的点' });
+    expect(validateRecordInput({ name: 'a'.repeat(64), type: 'A', value: '1.1.1.1' })).toMatchObject({ field: 'name' });
     // 下划线是合法的（_dmarc / _acme-challenge），真正的非法字符是空格与感叹号
-    expect(validateRecordInput({ name: 'bad name', type: 'A', value: '1.1.1.1' })).toContain('非法字符');
-    expect(validateRecordInput({ name: 'bad!name', type: 'A', value: '1.1.1.1' })).toContain('非法字符');
+    expect(validateRecordInput({ name: 'bad name', type: 'A', value: '1.1.1.1' })).toMatchObject({ field: 'name' });
+    expect(validateRecordInput({ name: 'bad!name', type: 'A', value: '1.1.1.1' })).toMatchObject({ field: 'name' });
     expect(validateRecordInput({ name: '_dmarc', type: 'TXT', value: 'v=DMARC1' })).toBeNull();
-    expect(validateRecordInput({ name: '-bad', type: 'A', value: '1.1.1.1' })).toContain('-');
+    expect(validateRecordInput({ name: '-bad', type: 'A', value: '1.1.1.1' })).toMatchObject({ field: 'name' });
   });
 
   it('拒绝非法 TTL / MX / 权重', () => {
-    expect(validateRecordInput({ name: 'www', type: 'A', value: '1.1.1.1', ttl: -1 })).toContain('TTL');
-    expect(validateRecordInput({ name: 'www', type: 'A', value: '1.1.1.1', ttl: 1.5 })).toContain('TTL');
-    expect(validateRecordInput({ name: 'www', type: 'MX', value: 'mail.x.com', mx: 99999 })).toContain('MX');
-    expect(validateRecordInput({ name: 'www', type: 'SRV', value: 'x', weight: -1 })).toContain('WEIGHT');
+    expect(validateRecordInput({ name: 'www', type: 'A', value: '1.1.1.1', ttl: -1 })).toMatchObject({ field: 'ttl' });
+    expect(validateRecordInput({ name: 'www', type: 'A', value: '1.1.1.1', ttl: 1.5 })).toMatchObject({ field: 'ttl' });
+    expect(validateRecordInput({ name: 'www', type: 'MX', value: 'mail.x.com', mx: 99999 })).toMatchObject({ field: 'mx' });
+    expect(validateRecordInput({ name: 'www', type: 'SRV', value: 'x', weight: -1 })).toMatchObject({ field: 'weight' });
   });
 });

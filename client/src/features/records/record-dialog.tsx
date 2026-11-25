@@ -8,6 +8,7 @@ import {
 } from '../../ui';
 import { getRecordTypeDef, validateRecordValue, PROXIABLE_RECORD_TYPES } from '../../types/record-types';
 import { useSaveRecord } from './use-records';
+import { ApiError } from '../../lib/http';
 import type { DnsRecordRow, RecordLine } from './api';
 
 const EXTRA_LABELS: Record<string, string> = {
@@ -86,6 +87,9 @@ export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines,
   const [ttl, setTtl] = useState(initial.ttl);
   const [line, setLine] = useState<string>(initial.line);
   const [remark, setRemark] = useState(initial.remark);
+  // 后端在失败时返回 data.field，指向具体出错的输入项（name/value/ttl/mx/weight）。
+  // 只有顶部一条错误时，用户还得自己猜是哪一格填错了。
+  const [errorField, setErrorField] = useState<string | null>(null);
   const [extras, setExtras] = useState<Record<string, string>>(initial.extras);
   const [proxied, setProxied] = useState(initial.proxied);
   const [error, setError] = useState<string | null>(null);
@@ -152,6 +156,8 @@ export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines,
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败');
+      const field = err instanceof ApiError ? (err.data as { field?: unknown } | null)?.field : null;
+      setErrorField(typeof field === 'string' ? field : null);
     }
   };
 
@@ -206,12 +212,26 @@ export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines,
 
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="record-value">记录值</Label>
-            <Input id="record-value" value={value} onChange={(event) => setValue(event.target.value)} placeholder="1.2.3.4 或 example.com" />
+            <Input
+              id="record-value"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              placeholder="1.2.3.4 或 example.com"
+              aria-invalid={errorField === 'value' || undefined}
+              className={errorField === 'value' ? 'border-destructive' : undefined}
+            />
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="record-ttl">TTL（秒）</Label>
-            <Input id="record-ttl" inputMode="numeric" value={ttl} onChange={(event) => setTtl(event.target.value)} />
+            <Input
+                id="record-ttl"
+                inputMode="numeric"
+                value={ttl}
+                onChange={(event) => setTtl(event.target.value)}
+                aria-invalid={errorField === 'ttl' || undefined}
+                className={errorField === 'ttl' ? 'border-destructive' : undefined}
+              />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="record-line">线路</Label>

@@ -512,35 +512,39 @@ router.get('/:recordId', authMiddleware, requireTokenDomainPermission('domainId'
  *       - bearerAuth: []
  */
 
-/**
- * 单条记录的服务端校验（此前完全没有，64 字符标签 / name=" " / ttl=-1 / mx=99999 都会被发往上游）。
- * 返回错误文案；null 表示通过。
- */
+export interface RecordInputError {
+  /** 出错的字段：name / type / value / ttl / mx / weight */
+  field: string;
+  message: string;
+}
+
 export function validateRecordInput(input: {
   name?: string; type?: string; value?: string;
   ttl?: number; mx?: number; weight?: number;
-}): string | null {
+}): RecordInputError | null {
   const name = (input.name ?? '').trim();
-  if (!name) return '记录名不能为空';
-  if (name.includes('..')) return '记录名不能包含连续的点';
+  const fail = (field: string, message: string): RecordInputError => ({ field, message });
+
+  if (!name) return fail('name', '记录名不能为空');
+  if (name.includes('..')) return fail('name', '记录名不能包含连续的点');
   if (name !== '@' && name !== '*') {
     // 单标签按 Punycode 计长（63 字符限制）：中文标签 UTF-16 长度会低估
     const labels = normalizeDomain(name).split('.');
     for (const label of labels) {
-      if (label.length === 0) return '记录名包含空标签';
-      if (label.length > 63) return '记录名单个标签超过 63 个字符';
-      if (!/^[a-z0-9_*\-]+$/i.test(label)) return '记录名包含非法字符: ' + label;
-      if (label.startsWith('-') || label.endsWith('-')) return '记录名标签不能以 - 开头或结尾';
+      if (label.length === 0) return fail('name', '记录名包含空标签');
+      if (label.length > 63) return fail('name', '记录名单个标签超过 63 个字符');
+      if (!/^[a-z0-9_*\-]+$/i.test(label)) return fail('name', '记录名包含非法字符: ' + label);
+      if (label.startsWith('-') || label.endsWith('-')) return fail('name', '记录名标签不能以 - 开头或结尾');
     }
-    if (normalizeDomain(name).length > 253) return '记录名超过 253 个字符';
+    if (normalizeDomain(name).length > 253) return fail('name', '记录名超过 253 个字符');
   }
   if (input.ttl !== undefined && input.ttl !== null) {
-    if (!Number.isInteger(input.ttl) || input.ttl < 1) return 'TTL 必须是正整数';
-    if (input.ttl > 2147483647) return 'TTL 超出范围';
+    if (!Number.isInteger(input.ttl) || input.ttl < 1) return fail('ttl', 'TTL 必须是正整数');
+    if (input.ttl > 2147483647) return fail('ttl', 'TTL 超出范围');
   }
   for (const [field, value] of [['mx', input.mx], ['weight', input.weight]] as const) {
     if (value === undefined || value === null) continue;
-    if (!Number.isInteger(value) || value < 0 || value > 65535) return field.toUpperCase() + ' 必须是 0-65535 的整数';
+    if (!Number.isInteger(value) || value < 0 || value > 65535) return fail(field, field.toUpperCase() + ' 必须是 0-65535 的整数');
   }
   return null;
 }
@@ -568,7 +572,8 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
   }
   const inputError = validateRecordInput({ name, type, value, ttl, mx, weight });
   if (inputError) {
-    sendError(res, inputError);
+    // 带上字段名：前端据此把红框打在对的输入框上，而不是只在顶部飘一句错误
+    sendError(res, inputError.message, 400, { field: inputError.field, kind: 'input' });
     return;
   }
   if (!canWriteSubdomain(access.writeSubs, name, access.domain.name)) {
@@ -577,7 +582,7 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
   }
   {
     const err = isValidRecordValue(type, value);
-    if (err !== true) { sendError(res, err); return; }
+    if (err !== true) { sendError(res, err, 400, { field: 'value', kind: 'input' }); return; }
   }
   const account = await DnsAccountOperations.getById(access.domain.account_id) as DnsAccount | undefined;
   if (account && !isTypeSupportedByProvider(account.type, type)) {
@@ -805,7 +810,7 @@ router.post('/batch', authMiddleware, requireTokenDomainPermission('domainId'), 
     }
     const batchInputError = validateRecordInput({ name: r.name, type: r.type, value: r.value, ttl: r.ttl, mx: r.mx, weight: r.weight });
     if (batchInputError) {
-      sendError(res, batchInputError + '（' + (r.name || '?') + '）');
+      sendError(res, batchInputError.message + '（' + (r.name || '?') + '）', 400, { field: batchInputError.field, kind: 'input' });
       return;
     }
     if (!canWriteSubdomain(access.writeSubs, r.name, access.domain.name)) {
