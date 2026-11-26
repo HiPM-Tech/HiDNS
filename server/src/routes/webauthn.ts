@@ -1,12 +1,18 @@
 import { Router, Request, Response } from 'express';
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, noTokenAuth } from '../middleware/auth';
 import { getUserWebAuthnCredentials, addWebAuthnCredential, deleteWebAuthnCredential, updateWebAuthnCredentialCounter, pickCredentialResponse } from '../service/webauthn';
 import { UserOperations } from '../db/bal/business-adapter';
 import crypto from 'crypto';
 import { sendError } from '../utils/http';
+import { createLogger } from '../lib/logger';
+
+const log = createLogger('Auth').sub('WebAuthn');
 
 const router = Router();
+// 通行密钥是认证因子：只允许 JWT 会话操作，API 令牌不得增删凭证。
+// 否则一枚 DNS 用途的长期令牌就能删除受害者的全部通行密钥（若为唯一第二因子则 2FA 归零），
+// 或添加攻击者自己的密钥。
 
 // Store challenges temporarily
 const userChallengeStore = new Map<number, string>();
@@ -31,7 +37,7 @@ export function resolveWebAuthnConfig(req: Request): { rpID: string; origin: str
   return { rpID, origin };
 }
 
-router.get('/registration-options', authMiddleware, async (req: Request, res: Response) => {
+router.get('/registration-options', authMiddleware, noTokenAuth('passkeys'), async (req: Request, res: Response) => {
   const userId = req.user!.userId;
   const user = await UserOperations.getById(userId) as { username: string } | undefined;
   if (!user) return sendError(res, 'User not found', 404);
@@ -66,7 +72,7 @@ router.get('/registration-options', authMiddleware, async (req: Request, res: Re
   res.json({ code: 0, data: options, msg: 'success' });
 });
 
-router.post('/registration-verify', authMiddleware, async (req: Request, res: Response) => {
+router.post('/registration-verify', authMiddleware, noTokenAuth('passkeys'), async (req: Request, res: Response) => {
   const userId = req.user!.userId;
   const body = req.body;
   const expectedChallenge = userChallengeStore.get(userId);
@@ -106,17 +112,19 @@ router.post('/registration-verify', authMiddleware, async (req: Request, res: Re
     } else {
       res.status(400).json({ code: 400, msg: 'Verification failed' });
     }
-  } catch (error: any) {
-    res.status(400).json({ code: 400, msg: error.message });
+  } catch (error) {
+    // 与 /login、/oauth/2fa 同口径：库异常原文只进日志，响应给固定文案。
+    log.error('WebAuthn registration verification failed', { error: error instanceof Error ? error.message : String(error) });
+    res.status(400).json({ code: 400, msg: '通行密钥注册验证失败，请重试', data: { kind: 'webauthn' } });
   }
 });
 
-router.get('/credentials', authMiddleware, async (req: Request, res: Response) => {
+router.get('/credentials', authMiddleware, noTokenAuth('passkeys'), async (req: Request, res: Response) => {
   const creds = await getUserWebAuthnCredentials(req.user!.userId);
   res.json({ code: 0, data: creds.map(c => ({ id: c.id, name: c.name, created_at: c.created_at, last_used_at: c.last_used_at })), msg: 'success' });
 });
 
-router.delete('/credentials/:id', authMiddleware, async (req: Request, res: Response) => {
+router.delete('/credentials/:id', authMiddleware, noTokenAuth('passkeys'), async (req: Request, res: Response) => {
   await deleteWebAuthnCredential(req.user!.userId, req.params.id);
   res.json({ code: 0, msg: 'success' });
 });

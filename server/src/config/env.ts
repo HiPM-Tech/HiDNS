@@ -137,6 +137,15 @@ export function validateEnv(): void {
 
   // 验证数据库配置
   const dbType = process.env.DB_TYPE || 'sqlite';
+  // 白名单校验：此前未知值（例如 DB_TYPE=mariadb）会静默回落到 SQLite 文件，
+  // 用户以为连的是 MariaDB，实际得到一个空库。宁可启动即失败。
+  const supportedDbTypes = ['sqlite', 'mysql', 'postgresql'];
+  if (!supportedDbTypes.includes(dbType)) {
+    errors.push(
+      `DB_TYPE="${dbType}" 不受支持。支持：${supportedDbTypes.join(' / ')}。` +
+      'MariaDB 不在支持范围（见 root.ai.md §数据库驱动）。',
+    );
+  }
   if (dbType === 'mysql' || dbType === 'postgresql') {
     if (!process.env.DB_HOST) {
       errors.push(`DB_HOST is required for ${dbType} database`);

@@ -97,6 +97,12 @@ export function describeProviderError(raw: string | undefined, ctx: ProviderErro
     return { msg: '触发了厂商的调用频率限制', hint: '稍后重试；批量操作建议降低并发', kind: 'rate' };
   }
 
-  log.debug('Unclassified provider error', { raw: text.slice(0, 300), context: ctx });
-  return { msg: '厂商返回了未分类的错误', hint: text.slice(0, 300), kind: 'unknown' };
+  // 厂商原文常带 RequestId、内部端点、鉴权失败细节。这是面向普通用户的披露面，
+  // 不是管理员界面 —— 原文只进服务端日志，响应里给一句可执行的下一步。
+  log.warn('Unclassified provider error', { raw: text.slice(0, 300), context: ctx });
+  return {
+    msg: '厂商返回了未分类的错误',
+    hint: '请重试；若持续失败，把大致时间点提供给管理员，服务端日志里有厂商原始错误',
+    kind: 'unknown',
+  };
 }

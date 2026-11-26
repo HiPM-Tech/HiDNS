@@ -42,10 +42,13 @@ describe('describeProviderError', () => {
     expect(r.kind).toBe('rate');
   });
 
-  it('无法归类时保留原始错误，不丢信息', () => {
-    const r = describeProviderError('SomeUnknownCode: details');
+  it('无法归类时不在响应里暴露厂商原文', () => {
+    const r = describeProviderError('SomeUnknownCode: requestId=abc host=internal.example');
     expect(r.kind).toBe('unknown');
-    expect(r.hint).toContain('SomeUnknownCode');
+    // 厂商原文（RequestId / 内部端点 / 鉴权细节）只进服务端日志，不能出现在面向用户的提示里
+    expect(r.hint).not.toContain('SomeUnknownCode');
+    expect(r.hint).not.toContain('requestId');
+    expect(r.hint).toContain('管理员');
   });
 
   it('厂商没给原因时也不返回空提示', () => {

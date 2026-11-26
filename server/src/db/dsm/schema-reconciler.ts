@@ -134,6 +134,9 @@ export class SchemaReconciler {
       // Extra columns in DB not in target schema
       for (const [colName, colInfo] of dbColMap) {
         if (!targetColNames.has(colName)) {
+          // 与 syncColumns 共用同一份白名单：否则「保留不删」的列仍会被判为「有变更」，
+          // 每次启动都触发一次全库备份（MySQL 走 mysqldump），备份目录按重启次数膨胀。
+          if (PRESERVED_COLUMNS.has(`${tableDef.name}.${colName}`)) continue;
           return true; // extra column needs to be dropped
         }
       }

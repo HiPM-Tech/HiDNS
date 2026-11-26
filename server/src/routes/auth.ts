@@ -795,7 +795,10 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
       msg: 'success',
     });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Login failed' });
+    // /login 是未认证端点，回传 error.message 等于把库结构
+    // （no such column / Duplicate entry ... for key）暴露给任何人。
+    log.error('Login failed', { error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ code: 500, msg: '登录失败，请稍后重试' });
   }
 });
 

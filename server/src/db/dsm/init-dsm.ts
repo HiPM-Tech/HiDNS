@@ -58,6 +58,19 @@ export async function initializeDSM(dryRun = false): Promise<void> {
         log.error('Some migrations failed:', result.failed.map(f => f.id));
       }
 
+      // 唯一约束的 ensure 必须每次启动都跑：
+      // 老版本把它挂在一次性迁移里，而那次执行在 MySQL 上被空 catch 吞掉并记为成功，
+      // 于是已发布版本跑过的库升级后永远不会补建约束。
+      try {
+        const ensureConn = getConnection();
+        await ensureEmailUniqueness({
+          execute: ensureConn.execute.bind(ensureConn),
+          query: ensureConn.query.bind(ensureConn),
+        });
+      } catch (error) {
+        log.warn('ensureEmailUniqueness failed', { error: error instanceof Error ? error.message : String(error) });
+      }
+
       log.info( 'Running integrity check...');
       const check = await reconciler.verify(COMPLETE_SCHEMA);
 
@@ -403,20 +416,16 @@ function registerDefaultMigrations(runner: DataMigrationRunner): void {
  *
  * 每次启动执行（幂等）：既是清理，也是补建索引。
  */
-export async function normalizeUserEmails(conn: {
+
+/**
+ * 确保「非空 email 唯一」的数据库约束存在。
+ *
+ * 幂等：可以每次启动都调用。与 normalizeUserEmails 分开的原因见调用点注释。
+ */
+export async function ensureEmailUniqueness(conn: {
   execute: (sql: string, params?: unknown[]) => Promise<unknown>;
   query: <T>(sql: string, params?: unknown[]) => Promise<T[]>;
-}): Promise<{ cleared: number }> {
-  // 旧库可能是 NULL（新 schema 允许），统一成空串
-  await conn.execute("UPDATE users SET email = '' WHERE email IS NULL");
-
-  const duplicates = await conn.query<{ email: string; keep_id: number }>(
-    "SELECT email, MIN(id) AS keep_id FROM users WHERE email IS NOT NULL AND email <> '' GROUP BY email HAVING COUNT(*) > 1",
-  );
-  for (const row of duplicates) {
-    await conn.execute("UPDATE users SET email = '' WHERE email = ? AND id <> ?", [row.email, row.keep_id]);
-  }
-
+}): Promise<void> {
   // 唯一性约束：空串可以重复（未填邮箱的用户是常态）
   const dialect = (process.env.DB_TYPE || 'sqlite').toLowerCase();
   // 只按 MySQL（Oracle 8.0+）分支：MariaDB 不在支持范围（见 root.ai.md 数据库驱动一节），
@@ -453,5 +462,25 @@ export async function normalizeUserEmails(conn: {
       /* 已存在 */
     }
   }
+}
+export async function normalizeUserEmails(conn: {
+  execute: (sql: string, params?: unknown[]) => Promise<unknown>;
+  query: <T>(sql: string, params?: unknown[]) => Promise<T[]>;
+}): Promise<{ cleared: number }> {
+  // 旧库可能是 NULL（新 schema 允许），统一成空串
+  await conn.execute("UPDATE users SET email = '' WHERE email IS NULL");
+
+  const duplicates = await conn.query<{ email: string; keep_id: number }>(
+    "SELECT email, MIN(id) AS keep_id FROM users WHERE email IS NOT NULL AND email <> '' GROUP BY email HAVING COUNT(*) > 1",
+  );
+  for (const row of duplicates) {
+    await conn.execute("UPDATE users SET email = '' WHERE email = ? AND id <> ?", [row.email, row.keep_id]);
+  }
+
+  // 唯一性约束的创建已拆成独立函数，见 ensureEmailUniqueness：
+  // 它必须每次启动都跑（幂等），不能挂在一次性迁移里——
+  // 2.3.10/2.3.11 的旧代码把 MySQL 的 1064 吞进空 catch 并正常返回，
+  // 迁移被记为成功，升级后永远不会重试，约束就此永久缺失。
+  await ensureEmailUniqueness(conn);
   return { cleared: duplicates.length };
 }
