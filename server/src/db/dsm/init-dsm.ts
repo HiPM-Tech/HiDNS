@@ -417,11 +417,31 @@ export async function normalizeUserEmails(conn: {
     await conn.execute("UPDATE users SET email = '' WHERE email = ? AND id <> ?", [row.email, row.keep_id]);
   }
 
-  // 部分唯一索引：空串可以重复（未填邮箱的用户是常态）
-  try {
-    await conn.execute("CREATE UNIQUE INDEX idx_users_email ON users(email) WHERE email <> ''");
-  } catch {
-    /* 已存在，或方言不支持部分索引 */
+  // 唯一性约束：空串可以重复（未填邮箱的用户是常态）
+  const dialect = (process.env.DB_TYPE || 'sqlite').toLowerCase();
+  if (dialect === 'mysql' || dialect === 'mariadb') {
+    // MySQL/MariaDB 不支持部分索引；MariaDB 连表达式索引也不支持。
+    // 用「生成列 + 普通唯一索引」达到等价语义：空串映射为 NULL，唯一索引不收纳 NULL。
+    // （issue #62：此前直接把 `CREATE ... WHERE` 发给 MySQL，每次启动刷 ER_PARSE_ERROR 1064）
+    try {
+      const cols = await conn.query<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'uk_email'",
+      );
+      if (!Number((cols?.[0] as { n?: number } | undefined)?.n ?? 0)) {
+        await conn.execute(
+          "ALTER TABLE users ADD COLUMN uk_email VARCHAR(500) GENERATED ALWAYS AS (IF(email IS NULL OR email = '', NULL, email)) PERSISTENT",
+        );
+      }
+      await conn.execute('CREATE UNIQUE INDEX idx_users_email_active ON users(uk_email)');
+    } catch {
+      /* 列或索引已存在 */
+    }
+  } else {
+    try {
+      await conn.execute("CREATE UNIQUE INDEX idx_users_email ON users(email) WHERE email <> ''");
+    } catch {
+      /* 已存在 */
+    }
   }
   return { cleared: duplicates.length };
 }

@@ -457,7 +457,7 @@ export const EmailVerificationOperations = {
   }): Promise<void> {
     return executeInternal(
       `INSERT INTO email_verification_codes (email, code_hash, purpose, user_id, attempts, expires_at, created_at)
-       VALUES (?, ?, ?, ?, 0, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP)`,
       [params.email, params.codeHash, params.purpose, params.userId ?? null, params.expiresAt],
       { operation: 'EmailVerification.create', table: 'email_verification_codes' }
     );
@@ -484,7 +484,7 @@ export const EmailVerificationOperations = {
 
   async markUsed(id: number): Promise<void> {
     return executeInternal(
-      "UPDATE email_verification_codes SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL",
+      "UPDATE email_verification_codes SET used_at = CURRENT_TIMESTAMP WHERE id = ? AND used_at IS NULL",
       [id],
       { operation: 'EmailVerification.markUsed', table: 'email_verification_codes' }
     );
@@ -1534,7 +1534,7 @@ export const TwoFAOperations = {
     }
     await executeInternal(
       // secret / backup_codes 是 NOT NULL 且无默认值；email 类型不需要它们，显式给空值
-      "INSERT INTO user_2fa (user_id, type, secret, backup_codes, enabled, created_at) VALUES (?, 'email', '', '[]', ?, datetime('now'))",
+      "INSERT INTO user_2fa (user_id, type, secret, backup_codes, enabled, created_at) VALUES (?, 'email', '', '[]', ?, CURRENT_TIMESTAMP)",
       [userId, enabled ? 1 : 0],
       { operation: 'TwoFA.setEmailEnabled.insert', table: 'user_2fa' }
     );
@@ -2739,12 +2739,12 @@ export const UserPreferencesOperations = {
   async upsertSQLite(userId: number, theme: string, language: string, notificationsEnabled: number, emailNotifications: number, backgroundImage: string | null, avatarImage: string | null, backgroundOpacity = 100): Promise<void> {
     return executeInternal(
       `INSERT INTO user_preferences (user_id, theme, language, notifications_enabled, email_notifications, background_image, avatar_image, background_opacity, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
        ON CONFLICT(user_id) DO UPDATE SET
         theme = excluded.theme, language = excluded.language,
         notifications_enabled = excluded.notifications_enabled, email_notifications = excluded.email_notifications,
         background_image = excluded.background_image, avatar_image = excluded.avatar_image,
-        background_opacity = excluded.background_opacity, updated_at = datetime('now')`,
+        background_opacity = excluded.background_opacity, updated_at = CURRENT_TIMESTAMP`,
       [userId, theme, language, notificationsEnabled, emailNotifications, backgroundImage, avatarImage, backgroundOpacity],
       { operation: 'UserPreferences.upsertSQLite', table: 'user_preferences' }
     );
@@ -2819,9 +2819,9 @@ export const UserPreferencesOperations = {
     if (process.env.DB_TYPE === 'sqlite' || !process.env.DB_TYPE) {
       await executeInternal(
         `INSERT INTO user_preferences (user_id, pinned_domains, created_at, updated_at)
-         VALUES (?, ?, datetime('now'), datetime('now'))
+         VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT(user_id) DO UPDATE SET
-          pinned_domains = excluded.pinned_domains, updated_at = datetime('now')`,
+          pinned_domains = excluded.pinned_domains, updated_at = CURRENT_TIMESTAMP`,
         [userId, pinnedDomainsJson],
         { operation: 'UserPreferences.updatePinnedDomains', table: 'user_preferences' }
       );
@@ -3125,9 +3125,9 @@ export const FailoverOperations = {
   async updateCheckStatusSQLite(configId: number, currentIp: string, isPrimary: number, isHealthy: number): Promise<void> {
     return executeInternal(
       `INSERT INTO failover_status (config_id, current_ip, is_primary, last_check_time, last_check_result, switch_count)
-       VALUES (?, ?, ?, datetime('now'), ?, 0)
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?, 0)
        ON CONFLICT(config_id) DO UPDATE SET
-        last_check_time = datetime('now'), last_check_result = excluded.last_check_result`,
+        last_check_time = CURRENT_TIMESTAMP, last_check_result = excluded.last_check_result`,
       [configId, currentIp, isPrimary, isHealthy],
       { operation: 'Failover.updateCheckStatusSQLite', table: 'failover_status' }
     );
@@ -3322,9 +3322,9 @@ export const ServiceMonitorOperations = {
     const responseTimeField = responseTime !== null ? `, last_response_time = ${responseTime}` : '';
     return executeInternal(
       `INSERT INTO servicemonitor_status (monitor_id, status, last_check_at, last_response_time, last_error${error ? ', last_failure_at' : ', last_success_at'})
-       VALUES (?, ?, datetime('now'), ?, ?${error ? `, datetime('now')` : `, datetime('now')`})
+       VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?${error ? `, CURRENT_TIMESTAMP` : `, CURRENT_TIMESTAMP`})
        ON CONFLICT(monitor_id) DO UPDATE SET
-        status = excluded.status, last_check_at = datetime('now'), last_response_time = excluded.last_response_time${error ? `, last_error = '${error.replace(/'/g, "''")}', last_failure_at = datetime('now')` : `, last_error = NULL, last_success_at = datetime('now')`}`,
+        status = excluded.status, last_check_at = CURRENT_TIMESTAMP, last_response_time = excluded.last_response_time${error ? `, last_error = '${error.replace(/'/g, "''")}', last_failure_at = CURRENT_TIMESTAMP` : `, last_error = NULL, last_success_at = CURRENT_TIMESTAMP`}`,
       [monitorId, status, responseTime, responseTime],
       { operation: 'ServiceMonitor.updateCheckStatusSQLite', table: 'servicemonitor_status' }
     );
@@ -3473,10 +3473,10 @@ export const TOTPOperations = {
   async enableSQLite(userId: number, secret: string, encryptedCodes: string): Promise<void> {
     return executeInternal(
       `INSERT INTO user_2fa (user_id, type, secret, backup_codes, enabled, created_at)
-       VALUES (?, ?, ?, ?, TRUE, datetime('now'))
+       VALUES (?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)
        ON CONFLICT(user_id, type) DO UPDATE SET
         secret = excluded.secret, backup_codes = excluded.backup_codes,
-        enabled = TRUE, updated_at = datetime('now')`,
+        enabled = TRUE, updated_at = CURRENT_TIMESTAMP`,
       [userId, 'totp', secret, encryptedCodes],
       { operation: 'TOTP.enableSQLite', table: 'user_2fa' }
     );
@@ -4128,7 +4128,7 @@ export const RenewableDomainOperations = {
     let nowSql: string;
     let addDaysSql: string;
     if (dbType === 'sqlite') {
-      nowSql = "datetime('now')";
+      nowSql = "CURRENT_TIMESTAMP";
       addDaysSql = "datetime('now', '+60 days')";
     } else if (dbType === 'postgresql') {
       nowSql = 'NOW()';

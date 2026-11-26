@@ -708,9 +708,12 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
             expectedChallenge,
             expectedOrigin: webAuthn.origin,
             expectedRPID: webAuthn.rpID,
-            authenticator: {
-              credentialID: cred.id,
-              credentialPublicKey: Buffer.from(cred.public_key, 'base64'),
+            // @simplewebauthn/server v13 改名为 credential + publicKey；
+            // 沿用 v10 的 authenticator/credentialPublicKey 会让库读到 undefined，
+            // 直接抛 TypeError: Cannot read properties of undefined (reading 'counter')
+            credential: {
+              id: cred.id,
+              publicKey: Buffer.from(cred.public_key, 'base64'),
               counter: cred.counter,
               transports: cred.transports,
             },
@@ -997,9 +1000,10 @@ router.post('/oauth/2fa', oauth2faLimiter, async (req: Request, res: Response) =
         expectedChallenge,
         expectedOrigin: webAuthn.origin,
         expectedRPID: webAuthn.rpID,
-        authenticator: {
-          credentialID: cred.id,
-          credentialPublicKey: Buffer.from(cred.public_key, 'base64'),
+        // 同 /login 的 webauthn 分支：v13 用 credential/publicKey
+        credential: {
+          id: cred.id,
+          publicKey: Buffer.from(cred.public_key, 'base64'),
           counter: cred.counter,
           transports: cred.transports,
         },
