@@ -713,7 +713,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
             expectedOrigin: webAuthn.origin,
             expectedRPID: webAuthn.rpID,
             // 与 options 的 userVerification: 'preferred' 对齐；库默认 true 会让无 PIN 的安全密钥必然失败
-            requireUserVerification: process.env.WEBAUTHN_REQUIRE_UV === '1',
+            requireUserVerification: process.env.WEBAUTHN_REQUIRE_UV !== '0',
             // @simplewebauthn/server v13 改名为 credential + publicKey；
             // 沿用 v10 的 authenticator/credentialPublicKey 会让库读到 undefined，
             // 直接抛 TypeError: Cannot read properties of undefined (reading 'counter')
@@ -1012,7 +1012,7 @@ router.post('/oauth/2fa', oauth2faLimiter, async (req: Request, res: Response) =
         expectedChallenge,
         expectedOrigin: webAuthn.origin,
         expectedRPID: webAuthn.rpID,
-        requireUserVerification: process.env.WEBAUTHN_REQUIRE_UV === '1',
+        requireUserVerification: process.env.WEBAUTHN_REQUIRE_UV !== '0',
         // 同 /login 的 webauthn 分支：v13 用 credential/publicKey
         credential: {
           id: cred.id,
@@ -1070,6 +1070,99 @@ router.post('/oauth/2fa', oauth2faLimiter, async (req: Request, res: Response) =
       isWebAuthn ? 401 : 500,
       { kind: isWebAuthn ? 'webauthn' : 'internal' },
     );
+  }
+});
+
+/**
+ * 通行密钥免密登录。
+ *
+ * 与 /login 的 webauthn 分支的区别：**不需要密码**。
+ * 产品口径（2026-11-27）：通行密钥既可作为登录凭证，也可作为二步凭证；
+ * 用它完成登录后**不再要求额外验证**——它本身就是强认证。
+ *
+ * 安全前提：UV 默认强制（WEBAUTHN_REQUIRE_UV 未设置时按开启处理），
+ * 否则「持有设备」就等于完整登录。
+ */
+router.post('/webauthn/login', loginLimiter, async (req: Request, res: Response) => {
+  try {
+    const { username, webauthnResponse } = req.body as { username?: string; webauthnResponse?: { id?: string } };
+    if (!username || !webauthnResponse?.id) {
+      sendError(res, 'username and webauthnResponse are required', 400);
+      return;
+    }
+
+    const user = await UserOperations.getByUsername(String(username).trim()) as
+      | { id?: number; username?: string; nickname?: string; role?: string; role_level?: number; status?: number; email?: string; email_verified?: number }
+      | undefined;
+    // 防枚举：无论账号是否存在、是否启用通行密钥、凭据是否匹配，对外都是同一句
+    const reject = () => sendError(res, '通行密钥验证失败，请重试或改用密码登录', 401, { kind: 'webauthn' });
+    if (!user?.id || Number(user.status ?? 1) === 0) { reject(); return; }
+
+    const enabled = await TwoFAOperations.isWebAuthnEnabled(Number(user.id));
+    if (!enabled) { reject(); return; }
+
+    const creds = await getUserWebAuthnCredentials(Number(user.id));
+    const cred = creds.find((c) => c.id === webauthnResponse.id);
+    if (!cred) { reject(); return; }
+
+    const expectedChallenge = (global as any).loginChallengeStore?.get(Number(user.id));
+    if (!expectedChallenge) {
+      sendError(res, '验证已过期，请重新发起登录', 400, { kind: 'webauthn' });
+      return;
+    }
+
+    const webAuthn = resolveWebAuthnConfig(req);
+    const verification = await verifyAuthenticationResponse({
+      response: webauthnResponse as never,
+      expectedChallenge,
+      expectedOrigin: webAuthn.origin,
+      expectedRPID: webAuthn.rpID,
+      requireUserVerification: process.env.WEBAUTHN_REQUIRE_UV !== '0',
+      credential: {
+        id: cred.id,
+        publicKey: Buffer.from(cred.public_key, 'base64'),
+        counter: cred.counter,
+        transports: cred.transports as unknown as AuthenticatorTransportFuture[],
+      },
+    });
+
+    if (!verification.verified) { reject(); return; }
+
+    await updateWebAuthnCredentialCounter(cred.id, verification.authenticationInfo.newCounter);
+    (global as any).loginChallengeStore.delete(Number(user.id));
+
+    // 邮箱验证策略仍然生效：通行密钥解决「你是谁 + 强认证」，不解决「邮箱是否可信」
+    if (await shouldRequireEmailVerification(user as { email?: string; email_verified?: number; role_level?: number })) {
+      res.json({
+        code: -4,
+        msg: 'Email verification required',
+        data: {
+          requireEmailVerification: true,
+          email: user.email,
+          pendingToken: await signEmailVerifyPendingToken(Number(user.id), true),
+        },
+      });
+      return;
+    }
+
+    const token = await signToken({
+      userId: Number(user.id),
+      username: String(user.username ?? ''),
+      nickname: String(user.nickname ?? ''),
+      role: (Number(user.role_level ?? 1) || 1) as 1 | 2 | 3,
+    });
+    setAuthCookie(res, token);
+    await logAuditOperation(Number(user.id), 'login', 'system', {
+      factor: 'webauthn',
+      // 审计记录本次是否做了用户验证：免密登录场景下 UV 是唯一能挡住「静默断言」的位
+      uv: verification.authenticationInfo.userVerified,
+    });
+    sendSuccess(res, {
+      user: { id: Number(user.id), username: user.username, nickname: user.nickname, email: user.email, role: user.role },
+    });
+  } catch (error) {
+    log.error('Passkey login failed', { error: error instanceof Error ? error.message : String(error) });
+    sendError(res, '通行密钥验证失败，请重试或改用密码登录', 401, { kind: 'webauthn' });
   }
 });
 router.post('/verify-email/code', emailLimiter, async (req: Request, res: Response) => {

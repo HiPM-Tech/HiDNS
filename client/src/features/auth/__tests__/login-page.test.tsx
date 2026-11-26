@@ -14,6 +14,7 @@ vi.mock('../api', () => ({
     requestPasswordReset: vi.fn(),
     confirmPasswordReset: vi.fn(),
     webauthnLoginOptions: vi.fn(),
+    passkeyLogin: vi.fn(),
     oauthStatus: vi.fn(),
     oauthStart: vi.fn(),
   },
@@ -27,6 +28,7 @@ vi.mock('../../../utils/rsaEncrypt', async (importOriginal) => {
 });
 
 const loginMock = vi.mocked(authApi.login);
+const passkeyLoginMock = vi.mocked(authApi.passkeyLogin);
 
 describe('LoginPage', () => {
   // 用例内可能替换 encryptPassword 的实现，统一在结束后还原，避免污染后续用例
@@ -43,7 +45,8 @@ describe('LoginPage', () => {
     const user = userEvent.setup();
     const onSuccess = vi.fn();
     vi.mocked(authApi.webauthnLoginOptions).mockResolvedValue({ code: 0, msg: 'success', data: { options: { challenge: 'c' } } });
-    loginMock.mockResolvedValue({ code: 0, msg: 'success', data: { user: { id: 3, username: 'admin' } } });
+    // 免密登录：走 /auth/webauthn/login，不再需要密码
+    passkeyLoginMock.mockResolvedValue({ code: 0, msg: 'success', data: { user: { id: 3, username: 'admin' } } });
 
     render(<LoginPage onSuccess={onSuccess} />);
     await user.type(screen.getByLabelText(copy.auth.username), 'admin');
@@ -51,12 +54,10 @@ describe('LoginPage', () => {
     await user.click(screen.getByRole('button', { name: copy.auth.passkeyLogin }));
 
     expect(authApi.webauthnLoginOptions).toHaveBeenCalledWith('admin');
-    await waitFor(() => expect(loginMock).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(passkeyLoginMock).toHaveBeenCalledWith({
       username: 'admin',
-      password: 'enc:secret',
-      encrypted: true,
       webauthnResponse: expect.objectContaining({ id: 'cred-1' }),
-    })));
+    }));
     expect(onSuccess).toHaveBeenCalled();
   });
 

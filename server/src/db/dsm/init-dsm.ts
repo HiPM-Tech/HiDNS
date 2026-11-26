@@ -431,23 +431,20 @@ export async function ensureEmailUniqueness(conn: {
   // 只按 MySQL（Oracle 8.0+）分支：MariaDB 不在支持范围（见 root.ai.md 数据库驱动一节），
   // 不为它单独铺方言分支。
   if (dialect === 'mysql') {
-    // 建列前先看存量：ADD COLUMN 要为所有存量行求值，
+    // 建列前先清理存量：ADD COLUMN 要为所有存量行求值，
     // 任一行 email 超过 191 字符即 1406，列与索引都建不出来，且每次启动都会重试失败。
-    // 这种情况下宁可不建约束并明确报错，也不要让「约束不存在」变成静默状态。
+    // 产品口径（2026-11-27）：**直接清理** —— 超长邮箱置空，由用户重新绑定；
+    // 不截断（截断会让两个不同邮箱在库里变成同一个）。
     try {
-      const tooLong = await conn.query<{ n: number }>(
-        'SELECT COUNT(*) AS n FROM users WHERE email IS NOT NULL AND CHAR_LENGTH(email) > 191',
+      const cleared = await conn.execute(
+        'UPDATE users SET email = \'\' WHERE email IS NOT NULL AND CHAR_LENGTH(email) > 191',
       );
-      const count = Number((tooLong?.[0] as { n?: number } | undefined)?.n ?? 0);
-      if (count > 0) {
-        log.error('存在超长邮箱，跳过 MySQL 唯一约束创建', {
-          count,
-          hint: '这些邮箱超过 191 字符（生成列宽度）。请先清理或改短；新写入已被应用层拦截。',
-        });
-        return;
+      const changed = Number((cleared as { changes?: number } | undefined)?.changes ?? 0);
+      if (changed > 0) {
+        log.warn('Cleared over-length emails before creating uniqueness constraint', { count: changed });
       }
     } catch (error) {
-      log.warn('检查超长邮箱失败，继续尝试建约束', { error: error instanceof Error ? error.message : String(error) });
+      log.warn('清理超长邮箱失败', { error: error instanceof Error ? error.message : String(error) });
     }
 
     // MySQL/MariaDB 不支持部分索引；MariaDB 连表达式索引也不支持。

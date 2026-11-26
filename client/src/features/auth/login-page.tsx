@@ -151,14 +151,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         return;
       }
       const assertion = await startAuthentication({ optionsJSON: unwrapWebAuthnOptions(optionsEnvelope.data) as never });
-      const prepared = await preparePassword(values.password);
-      if (!prepared) return;
-      const envelope = await authApi.login({
-        username: values.username,
-        password: prepared.password,
-        encrypted: prepared.encrypted,
-        webauthnResponse: assertion,
-      });
+      // 免密登录：不需要密码，凭据本身即登录凭证（凭据页的密码框对这条路不生效）
+      const envelope = await authApi.passkeyLogin({ username: values.username, webauthnResponse: assertion });
       // 通行密钥登录也要能落到「验证邮箱」步骤，否则只用 Passkey 的账号会被硬锁死
       handleAuthEnvelope(envelope as { code: number; msg?: string; data?: { user?: unknown; types?: string[]; email?: string } }, values);
     } catch (err) {
