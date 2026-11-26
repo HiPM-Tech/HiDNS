@@ -90,7 +90,7 @@ router.post('/registration-verify', authMiddleware, noTokenAuth('passkeys'), asy
       // 库默认是 requireUserVerification: true —— 那样「无 PIN 的 USB 安全密钥」
       // 能注册进选项却必然校验失败（User verification required...），
       // 正是 #57 放开 authenticatorAttachment 之后暴露出来的一类设备。
-      requireUserVerification: false,
+      requireUserVerification: process.env.WEBAUTHN_REQUIRE_UV === '1',
     });
 
     if (verification.verified && verification.registrationInfo) {

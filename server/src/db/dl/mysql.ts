@@ -57,6 +57,9 @@ export class MySQLDriver extends BaseDriver {
         enableKeepAlive: true,
         keepAliveInitialDelay: 10000,
         connectTimeout: config.connectTimeout || 60000,
+        // 统一按 UTC 解释/序列化时间：CURRENT_TIMESTAMP 取会话时区，
+        // 而 expires_at 等列由应用按 UTC 写入，不统一会让过期判定按偏移量提前/延后。
+        timezone: 'Z',
       });
 
       log.info( 'Connection pool created successfully');

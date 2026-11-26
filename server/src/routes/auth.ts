@@ -23,7 +23,7 @@ import { requires2FA, has2FAEnabled, validatePassword, getSecurityPolicy, Securi
 import { verifyTrustedDevice, addTrustedDevice, DeviceInfo } from '../service/deviceTrust';
 import { getRequestIP } from '../middleware/clientIP';
 import db from '../db/bal/business-adapter';
-import { sendError, sendSuccess } from '../utils/http';
+import { sendError, sendInternalError, sendSuccess } from '../utils/http';
 
 const log = createLogger('HTTP').sub('Route').sub('Auth');
 /**
@@ -712,7 +712,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
             expectedOrigin: webAuthn.origin,
             expectedRPID: webAuthn.rpID,
             // 与 options 的 userVerification: 'preferred' 对齐；库默认 true 会让无 PIN 的安全密钥必然失败
-            requireUserVerification: false,
+            requireUserVerification: process.env.WEBAUTHN_REQUIRE_UV === '1',
             // @simplewebauthn/server v13 改名为 credential + publicKey；
             // 沿用 v10 的 authenticator/credentialPublicKey 会让库读到 undefined，
             // 直接抛 TypeError: Cannot read properties of undefined (reading 'counter')
@@ -846,7 +846,7 @@ router.get('/oauth/status', async (_req: Request, res: Response) => {
       msg: 'success'
     });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to get oauth status' });
+    sendInternalError(res, error, 'Failed to get oauth status', 500);
   }
 });
 
@@ -1011,7 +1011,7 @@ router.post('/oauth/2fa', oauth2faLimiter, async (req: Request, res: Response) =
         expectedChallenge,
         expectedOrigin: webAuthn.origin,
         expectedRPID: webAuthn.rpID,
-        requireUserVerification: false,
+        requireUserVerification: process.env.WEBAUTHN_REQUIRE_UV === '1',
         // 同 /login 的 webauthn 分支：v13 用 credential/publicKey
         credential: {
           id: cred.id,
@@ -1198,7 +1198,7 @@ router.post('/oauth/start', async (req: Request, res: Response) => {
     log.debug('State created for login', { state: state.substring(0, 10) + '...', provider: desired, expiresAt: expiresAt.toISOString() });
     res.json({ code: 0, data: { authUrl: buildOauthAuthUrl(config, state) }, msg: 'success' });
   } catch (error) {
-    res.status(400).json({ code: 400, msg: error instanceof Error ? error.message : 'Failed to start oauth flow' });
+    sendInternalError(res, error, 'Failed to start oauth flow', 400);
   }
 });
 
@@ -1257,7 +1257,7 @@ router.post('/oauth/start-bind', authMiddleware, async (req: Request, res: Respo
     res.json({ code: 0, data: { authUrl: buildOauthAuthUrl(config, state) }, msg: 'success' });
   } catch (error) {
     log.error('Failed to start bind', { error: error instanceof Error ? error.message : String(error) });
-    res.status(400).json({ code: 400, msg: error instanceof Error ? error.message : 'Failed to start oauth bind flow' });
+    sendInternalError(res, error, 'Failed to start oauth bind flow', 400);
   }
 });
 
@@ -1507,7 +1507,7 @@ router.post('/oauth/callback', async (req: Request, res: Response) => {
     });
   } catch (error) {
     log.error('Callback processing failed', { error: error instanceof Error ? error.message : String(error) });
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'OAuth callback failed' });
+    sendInternalError(res, error, 'OAuth callback failed', 500);
   } finally {
     // 清理处理标记
     processingCallbacks.delete(`${code}:${state}`);
@@ -1519,7 +1519,7 @@ router.get('/oauth/bindings', authMiddleware, async (req: Request, res: Response
     const list = await OAuthOperations.getByUserId(req.user!.userId);
     res.json({ code: 0, data: list, msg: 'success' });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to get oauth bindings' });
+    sendInternalError(res, error, 'Failed to get oauth bindings', 500);
   }
 });
 
@@ -1534,7 +1534,7 @@ router.delete('/oauth/bindings/:provider', authMiddleware, async (req: Request, 
     await logAuditOperation(req.user!.userId, 'unbind_oauth_account', 'system', { provider });
     res.json({ code: 0, msg: 'success' });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to unbind oauth account' });
+    sendInternalError(res, error, 'Failed to unbind oauth account', 500);
   }
 });
 
@@ -1560,7 +1560,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     }
     res.json({ code: 0, data: user, msg: 'success' });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to get user info' });
+    sendInternalError(res, error, 'Failed to get user info', 500);
   }
 });
 
@@ -1640,7 +1640,7 @@ router.put('/password', authMiddleware, async (req: Request, res: Response) => {
 
     res.json({ code: 0, msg: 'success' });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to change password' });
+    sendInternalError(res, error, 'Failed to change password', 500);
   }
 });
 
@@ -1718,7 +1718,7 @@ router.put('/profile', authMiddleware, noTokenAuth('account profile'), async (re
     }
     res.json({ code: 0, data: updatedResult, msg: 'success' });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to update profile' });
+    sendInternalError(res, error, 'Failed to update profile', 500);
   }
 });
 
@@ -1738,7 +1738,7 @@ router.post('/profile/email-code', authMiddleware, emailLimiter, async (req: Req
     await logAuditOperation(req.user!.userId, 'send_email_verification_code', 'system', { email: normalized });
     res.json({ code: 0, msg: 'success' });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to send verification code' });
+    sendInternalError(res, error, 'Failed to send verification code', 500);
   }
 });
 
@@ -1765,7 +1765,7 @@ router.post('/password-reset/request', async (req: Request, res: Response) => {
     }
     res.json({ code: 0, msg: 'success' });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to send password reset code' });
+    sendInternalError(res, error, 'Failed to send password reset code', 500);
   }
 });
 
@@ -1817,7 +1817,7 @@ router.post('/password-reset/confirm', async (req: Request, res: Response) => {
     await db.PasswordReset.deleteCode(normalized);
     res.json({ code: 0, msg: 'success' });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to reset password' });
+    sendInternalError(res, error, 'Failed to reset password', 500);
   }
 });
 
@@ -1850,7 +1850,7 @@ router.get('/preferences', authMiddleware, async (req: Request, res: Response) =
       msg: 'success',
     });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to get preferences' });
+    sendInternalError(res, error, 'Failed to get preferences', 500);
   }
 });
 
@@ -1913,7 +1913,7 @@ router.put('/preferences', authMiddleware, async (req: Request, res: Response) =
     await logAuditOperation(req.user!.userId, 'update_preferences', 'system', updates);
     res.json({ code: 0, msg: 'success' });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to update preferences' });
+    sendInternalError(res, error, 'Failed to update preferences', 500);
   }
 });
 
@@ -1925,7 +1925,7 @@ router.get('/preferences/pinned-domains', authMiddleware, async (req: Request, r
     const pinnedDomains = await UserPreferencesOperations.getPinnedDomains(req.user!.userId);
     res.json({ code: 0, data: { pinnedDomains } });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to get pinned domains' });
+    sendInternalError(res, error, 'Failed to get pinned domains', 500);
   }
 });
 
@@ -1985,7 +1985,7 @@ router.put('/preferences/pinned-domains', authMiddleware, async (req: Request, r
 
     res.json({ code: 0, msg: 'success' });
   } catch (error) {
-    res.status(500).json({ code: 500, msg: error instanceof Error ? error.message : 'Failed to update pinned domains' });
+    sendInternalError(res, error, 'Failed to update pinned domains', 500);
   }
 });
 

@@ -94,3 +94,24 @@ export function sendError(res: Response, msg: string, statusCode = 400, data?: u
 export function sendServerError(res: Response, msg = 'Database error'): Response {
   return sendError(res, msg, 500);
 }
+
+import { createLogger } from '../lib/logger';
+
+const routeErrorLog = createLogger('HTTP').sub('RouteError');
+
+/**
+ * 路由内兜底 catch 用：记日志、不回传内部错误文本。
+ *
+ * 直接把 `error.message` 写进响应会把库结构（no such column / Duplicate entry ... for key）、
+ * 内部路径、依赖版本暴露给调用方。`/login` 这类未认证端点尤其危险。
+ */
+export function sendInternalError(
+  res: Response,
+  error: unknown,
+  fallback = '服务暂时不可用，请稍后重试',
+  statusCode = 500,
+): Response {
+  routeErrorLog.error('Route error', { error: error instanceof Error ? error.message : String(error) });
+  return res.status(statusCode).json({ code: statusCode, msg: fallback });
+}
+

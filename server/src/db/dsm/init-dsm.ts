@@ -443,7 +443,10 @@ export async function ensureEmailUniqueness(conn: {
           // 用 STORED 而不是 PERSISTENT：PERSISTENT 是 MariaDB 的关键字，
           // Oracle MySQL 8 的 ALTER TABLE 语法只接受 VIRTUAL / STORED，写 PERSISTENT 会 1064。
           // STORED 在 MariaDB 10.2+ 与 MySQL 5.7+ 都合法，是两个引擎的交集。
-          "ALTER TABLE users ADD COLUMN uk_email VARCHAR(500) GENERATED ALWAYS AS (IF(email IS NULL OR email = '', NULL, email)) STORED",
+          "ALTER TABLE users ADD COLUMN uk_email VARCHAR(191) GENERATED ALWAYS AS (IF(email IS NULL OR email = '', NULL, email)) STORED",
+          // 191 而不是 500：utf8mb4 下 191*4 = 764 字节 < 767，
+          // 从 MySQL 5.7 升级上来仍是 COMPACT 行格式的 users 表也能建出唯一索引
+          //（500 字符 = 2000 字节，只在 DYNAMIC 的 3072 上限内成立，COMPACT 会 1071）。
         );
       }
       await conn.execute('CREATE UNIQUE INDEX idx_users_email_active ON users(uk_email)');
