@@ -1,5 +1,45 @@
 # 更新日志
 
+## [2.3.12] - 2026-11-27
+
+补丁版本：修复三个跨方言/认证 bug，新增通行密钥免密登录。
+
+### 新功能
+
+- **通行密钥免密登录**：新增 `POST /auth/webauthn/login`，凭据本身即登录凭证，不需要密码；用通行密钥完成登录后不再要求额外二次验证（本身即强认证）。
+    - 邮箱验证策略仍然生效（未验证邮箱时返回 `-4`）—— 通行密钥解决「你是谁」，不解决「邮箱是否可信」。
+    - 防枚举：账号不存在 / 未启用通行密钥 / 凭据不匹配统一返回同一句 401。
+    - **UV 默认强制**：`WEBAUTHN_REQUIRE_UV` 未设置时按开启处理（`=0` 才关闭），options 与校验两侧同步。免密场景下 UV 是唯一能挡住「静默断言」的位。
+    - 审计记录 `factor: 'webauthn'` 与本次是否做了 UV。
+
+### Bug 修复
+
+- **#64 通行密钥登录 100% 失败**：`verifyAuthenticationResponse` 仍用 v10 的 `authenticator: { credentialID, credentialPublicKey }`，v13 要求 `credential: { id, publicKey }` —— 参数不匹配让库读到 `undefined` 并抛 `TypeError: Cannot read properties of undefined (reading 'counter')`。两处调用（`/login`、`/oauth/2fa`）都中招。顺带把 `require()` 解构改为顶层 `import`：`require` 出来是 `any`，这次改名在 `tsc` 阶段完全不可见，正是它能一路带到发布的原因。
+- **#63 Email 2FA 在 MySQL/PostgreSQL 上不可用**：`business-adapter` 有 20 处裸 `datetime('now')`（SQLite 专有），在另外两个方言上语法期即 1064。改为 SQL 标准的 `CURRENT_TIMESTAMP`；MySQL 连接补 `timezone: 'Z'` 消除会话时区偏差。
+- **#62 MySQL 上邮箱唯一约束缺失**：`CREATE UNIQUE INDEX ... WHERE` 是部分索引语法，MySQL 不支持。改为「生成列 + 唯一索引」：
+    - 生成列用 **`STORED`**，不是 issue 建议里的 `PERSISTENT`（后者是 MariaDB 关键字，Oracle MySQL 8 只接受 `VIRTUAL|STORED`）；
+    - 宽度 191（utf8mb4 下 764 字节 < COMPACT 行格式的 767 上限）；
+    - 约束创建从一次性迁移拆成 `ensureEmailUniqueness`，每次启动执行 —— 2.3.10/2.3.11 已把失败的迁移记为成功，存量库靠迁移永远补不上。
+- **启动时每次全库备份**：`PRESERVED_COLUMNS` 只加在 `syncColumns`，`detectChangesNeeded` 仍把 `users.uk_email` 判为 schema 漂移 → 每次启动 `mysqldump`。两处已共用同一份白名单。
+- **API 令牌可管理通行密钥**：`/webauthn/*` 四个端点没有 `noTokenAuth`，一枚 DNS 用途令牌就能删除受害者全部通行密钥（若为唯一第二因子则 2FA 归零）或添加攻击者自己的密钥。
+- **未认证端点泄露库结构**：`/login` 等 16 处 `catch` 把 `error.message` 直接回传，会暴露 `no such column` / `Duplicate entry ... for key`。新增 `sendInternalError()` 统一「记日志 + 固定文案」。
+- **`DB_TYPE=mariadb` 静默回落 SQLite**：未知值会连到一个空 SQLite 库，用户以为连的是 MariaDB。改为启动即失败并提示 MariaDB 不在支持范围。
+
+### 改进
+
+- **厂商错误可读化**：`describeProviderError()` 把阿里云 `InvalidParameter.RecordValueInvalid`、Cloudflare `9003` 等归为「值不合法 / 记录已存在 / 凭据失效 / 触发限流 / 未分类」，并按记录类型给出检查点；响应带 `data.hint` / `data.field`，前端据此把红框打在对的输入框上。
+- **SRV/CNAME/MX/NS 目标填 IP 时本地即拦截**：`isValidHostnameCheck('1.2.3.4')` 会把它当合法主机名放过去，最后由厂商返回「记录的值不正确」。
+- **TXT 单段超 255 字节提前拦截**：此前允许到 4096 字符，DKIM 这类内容超长时由厂商拒绝。
+- **超长邮箱处理**：上限 191 字符（与生成列宽度一致），写入路径全部校验，超长直接 400；存量超长邮箱在启动时置空（不截断 —— 截断会让两个不同邮箱变成同一个），由用户重新绑定。
+- **管理员可见厂商原文**：`data.hint` 与 `data.providerCode` 共用同一道门，`role_level >= 2` 才返回原文，普通用户只看到「把时间点提供给管理员」。
+
+### 文档
+
+- `root.ai.md` §代码审核团新增两条：
+    - 第 6 条「外部意见的批判性处理」—— issue/PR 建议是**待验证线索**，不是方案；把 `PERSISTENT` 这次的真实案例写成了反例。
+    - 第 7 条「全量全方向审核团」—— 发版前 / 跨三层改动 / 涉及认证与迁移时，必须启动 2 个彼此独立的全量审核团。
+- `root.ai.md` §数据库驱动明确 **MariaDB 不在支持范围**（未纳入 CI、与 MySQL 有实际 DDL 差异、不为其铺第四类方言分支）。
+
 ## [2.3.11] - 2026-11-25
 
 补丁版本：把「记录添加失败」这类错误的可读性补齐 —— 此前用户只能看到厂商的原始码与一句话结论，排错必须找管理员翻日志。
