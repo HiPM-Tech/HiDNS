@@ -52,6 +52,12 @@
     - 调用链：路由/Service/Middleware → 业务适配器函数 → 数据库抽象层 → 驱动 → 数据库。
 3. 数据库驱动
     - 支持三种数据库类型：SQLite（默认）、MySQL、PostgreSQL。
+    - **MariaDB 不在支持范围。** 原因：
+        - 未纳入 CI（`pnpm gate` 只跑 SQLite）与发布验证，任何 MariaDB 特有问题都没有回归防护；
+        - 它与 MySQL 在 DDL 上有实际差异（不支持部分索引、不支持表达式索引、生成列关键字是 `PERSISTENT` 而 Oracle MySQL 只认 `STORED`），
+          为它单独铺一套方言分支会把「三后端」变成「四后端」，维护成本与出错面都翻倍；
+        - 报上来的 MariaDB 专属问题按「不在支持范围」处理，不承诺修复；如果同一现象在 MySQL 或 PostgreSQL 上能复现，照常按 bug 处理。
+    - **MySQL 指 Oracle MySQL 8.0+。** 方言层只按 `SQLite` / `MySQL` / `PostgreSQL` 三类分支，不为 MariaDB 增加第四类。
     - 驱动基类 `BaseDriver` 定义在 `server/src/db/dl/base.ts`，所有数据库驱动必须继承该类。
     - 驱动类型定义在 `server/src/db/dl/types.ts`，具体驱动实现在 `dl/sqlite.ts`、`dl/mysql.ts`、`dl/postgresql.ts`。
     - SQL 编译逻辑统一在 BaseDriver 中实现，各驱动只需实现 SQL 方言差异部分。

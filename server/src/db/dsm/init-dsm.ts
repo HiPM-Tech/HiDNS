@@ -419,7 +419,9 @@ export async function normalizeUserEmails(conn: {
 
   // 唯一性约束：空串可以重复（未填邮箱的用户是常态）
   const dialect = (process.env.DB_TYPE || 'sqlite').toLowerCase();
-  if (dialect === 'mysql' || dialect === 'mariadb') {
+  // 只按 MySQL（Oracle 8.0+）分支：MariaDB 不在支持范围（见 root.ai.md 数据库驱动一节），
+  // 不为它单独铺方言分支。
+  if (dialect === 'mysql') {
     // MySQL/MariaDB 不支持部分索引；MariaDB 连表达式索引也不支持。
     // 用「生成列 + 普通唯一索引」达到等价语义：空串映射为 NULL，唯一索引不收纳 NULL。
     // （issue #62：此前直接把 `CREATE ... WHERE` 发给 MySQL，每次启动刷 ER_PARSE_ERROR 1064）
@@ -429,7 +431,10 @@ export async function normalizeUserEmails(conn: {
       );
       if (!Number((cols?.[0] as { n?: number } | undefined)?.n ?? 0)) {
         await conn.execute(
-          "ALTER TABLE users ADD COLUMN uk_email VARCHAR(500) GENERATED ALWAYS AS (IF(email IS NULL OR email = '', NULL, email)) PERSISTENT",
+          // 用 STORED 而不是 PERSISTENT：PERSISTENT 是 MariaDB 的关键字，
+          // Oracle MySQL 8 的 ALTER TABLE 语法只接受 VIRTUAL / STORED，写 PERSISTENT 会 1064。
+          // STORED 在 MariaDB 10.2+ 与 MySQL 5.7+ 都合法，是两个引擎的交集。
+          "ALTER TABLE users ADD COLUMN uk_email VARCHAR(500) GENERATED ALWAYS AS (IF(email IS NULL OR email = '', NULL, email)) STORED",
         );
       }
       await conn.execute('CREATE UNIQUE INDEX idx_users_email_active ON users(uk_email)');
