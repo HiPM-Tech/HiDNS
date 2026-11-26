@@ -621,6 +621,8 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
         providerType: account?.type,
         recordType: recordTypeUpper,
         value: String(value),
+        // 产品口径：管理员可见厂商原文（排障必需），普通用户只看到「把时间点给管理员」
+        includeRaw: Number(req.user?.role ?? 0) >= 2,
       });
       log.warn('Failed to add record', {
         domain: access.domain.name,
@@ -632,9 +634,12 @@ router.post('/', authMiddleware, requireTokenDomainPermission('domainId'), async
         providerError,
         kind: described.kind,
       });
+      // providerCode 与 hint 共用同一道门：只给 hint 加门而把原文留在 providerCode 里，
+      // 等于前门上锁、后门敞开（普通用户 curl 一次就能拿到完整厂商原文）。
+      const isAdmin = Number(req.user?.role ?? 0) >= 2;
       sendError(res, described.msg, 400, {
         provider: account?.type ?? null,
-        providerCode: providerError ?? null,
+        providerCode: isAdmin ? (providerError ?? null) : null,
         hint: described.hint ?? null,
         kind: described.kind,
         field: 'value',

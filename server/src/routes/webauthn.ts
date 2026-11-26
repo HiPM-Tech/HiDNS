@@ -59,7 +59,10 @@ router.get('/registration-options', authMiddleware, noTokenAuth('passkeys'), asy
       // 的机器（Linux 桌面、外接 USB 安全密钥）直接抛「找不到硬件」（issue #57）。
       // residentKey 保持 preferred：既能当可发现凭据，也不强制要求驻留。
       residentKey: 'preferred',
-      userVerification: 'preferred',
+      // 与校验侧的 requireUserVerification 共用同一开关：
+    // 只改校验不改选项，开 WEBAUTHN_REQUIRE_UV=1 后浏览器不会强制 UV，
+    // 用户只会看到「验证失败」而不是被要求按指纹/PIN。
+    userVerification: process.env.WEBAUTHN_REQUIRE_UV === '1' ? 'required' : 'preferred',
     },
   });
 
@@ -151,7 +154,10 @@ router.get('/login-options', async (req: Request, res: Response) => {
       id: cred.id,
       transports: cred.transports as any[],
     })),
-    userVerification: 'preferred',
+    // 与校验侧的 requireUserVerification 共用同一开关：
+    // 只改校验不改选项，开 WEBAUTHN_REQUIRE_UV=1 后浏览器不会强制 UV，
+    // 用户只会看到「验证失败」而不是被要求按指纹/PIN。
+    userVerification: process.env.WEBAUTHN_REQUIRE_UV === '1' ? 'required' : 'preferred',
   });
   
   if (!options.challenge) {

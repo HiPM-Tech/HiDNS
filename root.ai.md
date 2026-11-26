@@ -430,6 +430,12 @@
     - `/api/init`：系统初始化。不参与 `initCheckMiddleware` 的统一拦截（见上条豁免清单），但**端点自身必须承担守卫责任**：系统一旦完成初始化，`/database`、`/admin` 等状态变更端点必须永久关闭（403）。开放边界详见 §应用初始化与生命周期 4，并须配置 rateLimit。
     - `/api/auth`：用户认证（登录、注册、密码重置）。
     - `/api/auth/webauthn`：WebAuthn 通行密钥（**独立前缀，先于父路由匹配**）。
+        - 通行密钥在本产品里是**第二因子**（持有 + 用户在场即可），不是「用户在场证明」。
+        - `WEBAUTHN_REQUIRE_UV=1` 可切回强制用户验证（UV）：
+            - 同时作用于 options（`userVerification: 'required'`）与校验（`requireUserVerification: true`），两者必须一致；
+            - **开启后已注册的无 UV 凭据会验证失败**，切换前需通知用户重新注册；
+            - 默认 `0`（`'preferred'`），适用「通行密钥只作第二因子、不存在免密码登录」的部署。
+        - 若将来引入「仅通行密钥登录」，此开关默认必须改为 `1`，否则「持有设备」等于完整登录。
     - `/api/users`：用户管理。
     - `/api/teams`：团队管理。
     - `/api/accounts`：DNS 账户管理。

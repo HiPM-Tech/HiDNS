@@ -5,7 +5,7 @@ import { asyncHandler } from '../middleware/errorHandler';
 import { User } from '../types';
 import { ROLE_ADMIN, ROLE_SUPER, ROLE_USER, normalizeRole } from '../utils/roles';
 import { parseInteger, sendError, sendSuccess } from '../utils/http';
-import { isValidUsername } from '../utils/validation';
+import { EMAIL_MAX_LENGTH, isValidEmail, isValidUsername } from '../utils/validation';
 import { logAuditOperation } from '../service/audit';
 import { UserOperations } from '../db/bal/business-adapter';
 import { wsService } from '../service/websocket';
@@ -93,6 +93,12 @@ router.post('/', authMiddleware, noTokenAuth('user management'), adminOnly, asyn
   const normalizedUsername = (username ?? '').trim();
   if (!normalizedUsername || !password) {
     sendError(res, 'Username and password are required');
+    return;
+  }
+  // 邮箱长度必须在这里拦住：否则 MySQL 上超长邮箱会 1406，
+  // 而下面 create 的 catch 会把任何异常都报成「用户名已存在」，排查方向完全错。
+  if (email && !isValidEmail(String(email).trim())) {
+    sendError(res, `邮箱格式不正确，或超过 ${EMAIL_MAX_LENGTH} 个字符`, 400, { field: 'email' });
     return;
   }
   if (!isValidUsername(normalizedUsername)) {
@@ -280,9 +286,8 @@ router.put('/:id/email', authMiddleware, noTokenAuth('user email reset'), adminO
       sendError(res, 'Invalid user id', 400);
       return;
     }
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (typeof email !== 'string' || email.length > 254 || !emailPattern.test(email.trim())) {
-      sendError(res, 'Invalid email', 400);
+    if (typeof email !== 'string' || !isValidEmail(email.trim())) {
+      sendError(res, `邮箱格式不正确，或超过 ${EMAIL_MAX_LENGTH} 个字符`, 400, { field: 'email' });
       return;
     }
     // JWT 里只有 role_level（authMiddleware 已归一为数字角色），没有 role_level 字段

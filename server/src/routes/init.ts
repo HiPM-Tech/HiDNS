@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { saveEnvConfig } from '../config/env';
 import { UserOperations, SystemOperations, SecretOperations } from '../db/bal/business-adapter';
 import { createLogger } from '../lib/logger';
+import { EMAIL_MAX_LENGTH, isValidEmail } from '../utils/validation';
 import { isSystemInitialized, refreshSystemState, markInitialized } from '../service/systemState';
 import {
   applyDatabaseConfig,
@@ -336,9 +337,12 @@ router.post('/admin', requireInitSurface, async (req: Request, res: Response) =>
       return res.status(400).json({ code: 400, msg: 'Username must be 3-20 characters, alphanumeric and underscore only' });
     }
 
-    // Validate email format
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ code: 400, msg: 'Invalid email format' });
+    // Validate email format（同时校验长度：MySQL 的生成列宽度是 191）
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        code: 400,
+        msg: `邮箱格式不正确，或超过 ${EMAIL_MAX_LENGTH} 个字符`,
+      });
     }
 
     // Validate password length

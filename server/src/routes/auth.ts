@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { authMiddleware, noTokenAuth } from '../middleware/auth';
 import { signToken, signEmailVerifyPendingToken, verifyEmailVerifyPendingToken, signOAuth2FAPendingToken, verifyOAuth2FAPendingToken } from '../service/jwt';
+import { EMAIL_MAX_LENGTH, isValidEmail } from '../utils/validation';
 // 必须走 import 而不是 require：require 解构出来是 any，v10 → v13 的参数改名
 // （authenticator → credential）在 tsc 阶段完全看不见，只能等运行时 TypeError（issue #64）。
 import { verifyAuthenticationResponse } from '@simplewebauthn/server';
@@ -1690,6 +1691,16 @@ router.put('/profile', authMiddleware, noTokenAuth('account profile'), async (re
     }
     if (email !== undefined) {
       const nextEmail = email.trim();
+      // 超长邮箱直接报错，不截断——截断会让两个不同邮箱在库里变成同一个。
+      // 上限与 MySQL 唯一约束的生成列宽度一致（见 utils/validation.ts）。
+      if (nextEmail && !isValidEmail(nextEmail)) {
+        res.status(400).json({
+          code: 400,
+          msg: `邮箱格式不正确，或超过 ${EMAIL_MAX_LENGTH} 个字符`,
+          data: { field: 'email' },
+        });
+        return;
+      }
       if (nextEmail !== user.email) {
         if (!emailCode || !(await verifyEmailVerificationCode(user.id as number, nextEmail, emailCode))) {
           res.status(400).json({ code: 400, msg: 'Valid email verification code is required' });

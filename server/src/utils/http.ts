@@ -112,6 +112,7 @@ export function sendInternalError(
   statusCode = 500,
 ): Response {
   routeErrorLog.error('Route error', { error: error instanceof Error ? error.message : String(error) });
-  return res.status(statusCode).json({ code: statusCode, msg: fallback });
+  // 走 sendError 以保持信封契约：data 键必须恒存在（否则前端/外部适配器读到 undefined）
+  return sendError(res, fallback, statusCode);
 }
 

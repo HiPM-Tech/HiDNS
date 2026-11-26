@@ -431,6 +431,25 @@ export async function ensureEmailUniqueness(conn: {
   // 只按 MySQL（Oracle 8.0+）分支：MariaDB 不在支持范围（见 root.ai.md 数据库驱动一节），
   // 不为它单独铺方言分支。
   if (dialect === 'mysql') {
+    // 建列前先看存量：ADD COLUMN 要为所有存量行求值，
+    // 任一行 email 超过 191 字符即 1406，列与索引都建不出来，且每次启动都会重试失败。
+    // 这种情况下宁可不建约束并明确报错，也不要让「约束不存在」变成静默状态。
+    try {
+      const tooLong = await conn.query<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM users WHERE email IS NOT NULL AND CHAR_LENGTH(email) > 191',
+      );
+      const count = Number((tooLong?.[0] as { n?: number } | undefined)?.n ?? 0);
+      if (count > 0) {
+        log.error('存在超长邮箱，跳过 MySQL 唯一约束创建', {
+          count,
+          hint: '这些邮箱超过 191 字符（生成列宽度）。请先清理或改短；新写入已被应用层拦截。',
+        });
+        return;
+      }
+    } catch (error) {
+      log.warn('检查超长邮箱失败，继续尝试建约束', { error: error instanceof Error ? error.message : String(error) });
+    }
+
     // MySQL/MariaDB 不支持部分索引；MariaDB 连表达式索引也不支持。
     // 用「生成列 + 普通唯一索引」达到等价语义：空串映射为 NULL，唯一索引不收纳 NULL。
     // （issue #62：此前直接把 `CREATE ... WHERE` 发给 MySQL，每次启动刷 ER_PARSE_ERROR 1064）

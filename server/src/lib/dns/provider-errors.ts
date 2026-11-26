@@ -22,6 +22,13 @@ export interface ProviderErrorContext {
   providerType?: string;
   recordType?: string;
   value?: string;
+  /**
+   * 是否把厂商原始错误文本放进 hint。
+   *
+   * 口径（产品决策）：**管理员（role_level >= 2）可见原文，普通用户不可见**。
+   * 原文常带 RequestId / 内部端点 / 鉴权细节，对普通用户是泄露，对管理员是排障必需。
+   */
+  includeRaw?: boolean;
 }
 
 function byteLength(value?: string): number {
@@ -102,7 +109,9 @@ export function describeProviderError(raw: string | undefined, ctx: ProviderErro
   log.warn('Unclassified provider error', { raw: text.slice(0, 300), context: ctx });
   return {
     msg: '厂商返回了未分类的错误',
-    hint: '请重试；若持续失败，把大致时间点提供给管理员，服务端日志里有厂商原始错误',
+    hint: ctx.includeRaw
+      ? `厂商原文：${text.slice(0, 300)}`
+      : '请重试；若持续失败，把大致时间点提供给管理员，服务端日志里有厂商原始错误',
     kind: 'unknown',
   };
 }

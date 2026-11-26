@@ -4,9 +4,19 @@
  */
 
 /**
+ * 邮箱存储上限（字符数）。
+ *
+ * 与 MySQL 唯一约束的生成列宽度一致：utf8mb4 下 191 字符 = 764 字节，
+ * 低于 COMPACT 行格式的 767 上限，从 5.7 升级上来的老表也能建出唯一索引。
+ * 口径：超长直接报错，不做截断——截断会让两个不同邮箱在库里变成同一个。
+ */
+export const EMAIL_MAX_LENGTH = 191;
+
+/**
  * Validate email format
  */
 export function isValidEmail(email: string): boolean {
+  if (email.length > EMAIL_MAX_LENGTH) return false;
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 }
