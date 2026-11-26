@@ -4,6 +4,11 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { authMiddleware, noTokenAuth } from '../middleware/auth';
 import { signToken, signEmailVerifyPendingToken, verifyEmailVerifyPendingToken, signOAuth2FAPendingToken, verifyOAuth2FAPendingToken } from '../service/jwt';
+// 必须走 import 而不是 require：require 解构出来是 any，v10 → v13 的参数改名
+// （authenticator → credential）在 tsc 阶段完全看不见，只能等运行时 TypeError（issue #64）。
+import { verifyAuthenticationResponse } from '@simplewebauthn/server';
+import type { AuthenticatorTransportFuture } from '@simplewebauthn/server';
+import { getUserWebAuthnCredentials, updateWebAuthnCredentialCounter } from '../service/webauthn';
 import { User } from '../types';
 import { checkLoginAllowed, recordFailedAttempt, clearLoginAttempts } from '../service/loginLimit';
 import { sendEmailVerificationCode, verifyEmailVerificationCode } from '../service/emailVerification';
@@ -692,8 +697,6 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
           return;
         }
 
-        const { verifyAuthenticationResponse } = require('@simplewebauthn/server');
-        const { getUserWebAuthnCredentials, updateWebAuthnCredentialCounter } = require('../service/webauthn');
         const userCreds = await getUserWebAuthnCredentials(authenticatedUser.id);
         const cred = userCreds.find((c: any) => c.id === webauthnResponse.id);
         if (!cred) {
@@ -708,6 +711,8 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
             expectedChallenge,
             expectedOrigin: webAuthn.origin,
             expectedRPID: webAuthn.rpID,
+            // 与 options 的 userVerification: 'preferred' 对齐；库默认 true 会让无 PIN 的安全密钥必然失败
+            requireUserVerification: false,
             // @simplewebauthn/server v13 改名为 credential + publicKey；
             // 沿用 v10 的 authenticator/credentialPublicKey 会让库读到 undefined，
             // 直接抛 TypeError: Cannot read properties of undefined (reading 'counter')
@@ -715,7 +720,9 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
               id: cred.id,
               publicKey: Buffer.from(cred.public_key, 'base64'),
               counter: cred.counter,
-              transports: cred.transports,
+              // DB 里存的是 JSON string[]，库要求的是有限的 transport 枚举；
+              // 收窄交给运行时（未知值库会忽略），类型上用断言
+              transports: cred.transports as unknown as AuthenticatorTransportFuture[],
             },
           });
 
@@ -725,8 +732,11 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
           }
           await updateWebAuthnCredentialCounter(cred.id, verification.authenticationInfo.newCounter);
           (global as any).loginChallengeStore.delete(authenticatedUser.id);
-        } catch (e: any) {
-          sendError(res, e.message, 400);
+        } catch (e) {
+          // 库异常原文（如 'User verification required, but user could not be verified'）
+          // 不该直接出现在登录页上；记日志、回固定文案。
+          log.error('WebAuthn verification failed', { error: e instanceof Error ? e.message : String(e) });
+          sendError(res, '通行密钥验证失败，请重试或改用密码登录', 401, { kind: 'webauthn' });
           return;
         }
       } else {
@@ -985,8 +995,6 @@ router.post('/oauth/2fa', oauth2faLimiter, async (req: Request, res: Response) =
         sendError(res, 'WebAuthn challenge expired or missing', 400);
         return;
       }
-      const { verifyAuthenticationResponse } = require('@simplewebauthn/server');
-      const { getUserWebAuthnCredentials, updateWebAuthnCredentialCounter } = require('../service/webauthn');
       const creds = await getUserWebAuthnCredentials(uid);
       const assertion = webauthnResponse as { id?: string };
       const cred = creds.find((c: any) => c.id === assertion.id);
@@ -1000,12 +1008,13 @@ router.post('/oauth/2fa', oauth2faLimiter, async (req: Request, res: Response) =
         expectedChallenge,
         expectedOrigin: webAuthn.origin,
         expectedRPID: webAuthn.rpID,
+        requireUserVerification: false,
         // 同 /login 的 webauthn 分支：v13 用 credential/publicKey
         credential: {
           id: cred.id,
           publicKey: Buffer.from(cred.public_key, 'base64'),
           counter: cred.counter,
-          transports: cred.transports,
+          transports: cred.transports as unknown as AuthenticatorTransportFuture[],
         },
       });
       if (!verification.verified) {
@@ -1048,7 +1057,15 @@ router.post('/oauth/2fa', oauth2faLimiter, async (req: Request, res: Response) =
     });
   } catch (error) {
     log.error('OAuth 2FA failed', { error: error instanceof Error ? error.message : String(error) });
-    sendError(res, error instanceof Error ? error.message : 'Verification failed', 500);
+    // 断言校验失败与真正的服务端异常要分开：前者是可重试的业务失败，不该报 500。
+    const message = error instanceof Error ? error.message : '';
+    const isWebAuthn = /webauthn|credential|assertion|challenge|verification/i.test(message);
+    sendError(
+      res,
+      isWebAuthn ? '通行密钥验证失败，请重试' : '验证失败，请重试',
+      isWebAuthn ? 401 : 500,
+      { kind: isWebAuthn ? 'webauthn' : 'internal' },
+    );
   }
 });
 router.post('/verify-email/code', emailLimiter, async (req: Request, res: Response) => {

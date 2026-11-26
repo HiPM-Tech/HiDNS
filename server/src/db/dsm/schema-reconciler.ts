@@ -28,6 +28,15 @@ export interface ReconcileOptions {
   forceBackup?: boolean;
 }
 
+/**
+ * 由迁移创建、schema DSL 尚未表达的列。
+ *
+ * 加白名单是权宜之计：DSL 里没有 generated-column 能力，而 MySQL 的
+ * 「生成列 + 唯一索引」是当前唯一能表达「非空 email 唯一、空串可重复」的写法。
+ * 将来若 DSL 支持 generatedAs，应把 uk_email 挪回 COMPLETE_SCHEMA 并删掉这里。
+ */
+const PRESERVED_COLUMNS = new Set(['users.uk_email']);
+
 export class SchemaReconciler {
   private conn: any;
   private backupManager: BackupManager;
@@ -884,6 +893,10 @@ export class SchemaReconciler {
     for (const existingCol of existingCols) {
       const normalizedName = existingCol.name.replace(/["'`]/g, '').trim();
       if (!targetNames.has(normalizedName)) {
+        // 由数据迁移创建的列（当前只有 MySQL 的 users.uk_email 生成列）不在 COMPLETE_SCHEMA 里，
+        // 但也不能被当成 obsolete 删掉 —— 否则唯一约束只在「跑迁移的那一次启动」内有效，
+        // 第二次启动就被 reconcile 删掉，且迁移已记账不会重建。
+        if (PRESERVED_COLUMNS.has(`${tableDef.name}.${normalizedName}`)) continue;
         if (dryRun) {
           log.sub('DRY RUN').warn( `Would drop column: ${tableDef.name}.${existingCol.name}`);
         } else {

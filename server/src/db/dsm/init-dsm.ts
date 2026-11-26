@@ -438,8 +438,13 @@ export async function normalizeUserEmails(conn: {
         );
       }
       await conn.execute('CREATE UNIQUE INDEX idx_users_email_active ON users(uk_email)');
-    } catch {
-      /* 列或索引已存在 */
+    } catch (error) {
+      // 只有「已存在」可以静默；语法/权限/索引过长（1071）都必须留痕，
+      // 否则 MySQL 上会退化成「约束不存在但没人知道」。
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/already exists|Duplicate key name|exists/i.test(message)) {
+        log.warn('MySQL email uniqueness constraint setup failed', { error: message });
+      }
     }
   } else {
     try {
