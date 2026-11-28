@@ -431,8 +431,10 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
     sendError(res, 'Account not found', 404);
     return;
   }
-  const { type, name, config, remark, team_id } = req.body as {
+  const { type, name, config, remark, team_id, enabled } = req.body as {
     type?: string; name?: string; config?: Record<string, string>; remark?: string; team_id?: number | null;
+    /** 启用/禁用该提供商账户（issue #65）：禁用后不应再被用于解析与同步 */
+    enabled?: boolean | number;
   };
   // 掩码回传兼容：GET 把 config 的每个值掩成 '***'，前端原样回传时必须视为「未修改」——
   // 否则 check() 会拿 '***' 验凭据（必然失败），或在校验宽松的 provider 上把凭据写成 '***'。
@@ -520,6 +522,11 @@ router.put('/:id', authMiddleware, asyncHandler(async (req: Request, res: Respon
   if (effectiveConfig !== undefined) updates.config = JSON.stringify(effectiveConfig);
   if (remark !== undefined) updates.remark = remark;
   if (team_id !== undefined) updates.team_id = team_id;
+  if (enabled !== undefined) {
+    updates.enabled = enabled ? 1 : 0;
+    logAuditOperation(req.user!.userId, enabled ? 'enable_account' : 'disable_account', 'account', { accountId: id, type: account.type }, req)
+      .catch(() => undefined);
+  }
 
   if (Object.keys(updates).length === 0) {
     sendSuccess(res);

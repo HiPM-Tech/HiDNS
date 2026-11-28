@@ -50,16 +50,35 @@ export function DashboardPage() {
     return rows.slice(0, 6);
   }, [data]);
 
+  // issue #66：按「各提供商的域名数量」统计（此前统计的是账户数）。
+  // 域名通过 account_id 关联到账户，再按账户的 provider type 汇总。
   const providerStats = useMemo(() => {
-    const counts = new Map<string, number>();
+    const typeByAccount = new Map<number, string>();
+    const accountCount = new Map<string, number>();
     for (const account of data?.accounts ?? []) {
-      counts.set(account.type, (counts.get(account.type) ?? 0) + 1);
+      typeByAccount.set(account.id, account.type);
+      accountCount.set(account.type, (accountCount.get(account.type) ?? 0) + 1);
     }
-    const total = [...counts.values()].reduce((sum, n) => sum + n, 0) || 1;
-    return [...counts.entries()]
+    const domainCount = new Map<string, number>();
+    for (const domain of data?.domains ?? []) {
+      const type = typeByAccount.get(domain.account_id);
+      if (!type) continue;
+      domainCount.set(type, (domainCount.get(type) ?? 0) + 1);
+    }
+    // 没有域名的提供商也要出现（否则「刚接了账户但还没加域名」会看不见）
+    for (const type of accountCount.keys()) {
+      if (!domainCount.has(type)) domainCount.set(type, 0);
+    }
+    const total = [...domainCount.values()].reduce((sum, n) => sum + n, 0) || 1;
+    return [...domainCount.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
-      .map(([type, count]) => ({ type, count, percent: Math.round((count / total) * 100) }));
+      .map(([type, count]) => ({
+        type,
+        count,
+        accounts: accountCount.get(type) ?? 0,
+        percent: Math.round((count / total) * 100),
+      }));
   }, [data]);
 
   const recordTotal = useMemo(
@@ -149,7 +168,9 @@ export function DashboardPage() {
                 <div key={row.type} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-medium">{providerLabel(row.type)}</span>
-                    <span className="text-muted-foreground">{row.count}</span>
+                    <span className="text-muted-foreground">
+                      {row.count} 个域名<span className="ml-1 opacity-70">/ {row.accounts} 账户</span>
+                    </span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                     <div className="h-full rounded-full bg-primary" style={{ width: `${row.percent}%` }} />

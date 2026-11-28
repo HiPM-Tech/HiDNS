@@ -28,13 +28,20 @@ export function AccountDialog({ open, onOpenChange, providers, account }: Accoun
   // 初值在挂载时算一次：父级按「新建 / 编辑某条」给 key，切换时重挂载即可，无需 effect 回填
   const initial = useMemo(() => {
     if (account) {
-      return { type: account.type, name: account.name, remark: account.remark ?? '', config: { ...(account.config ?? {}) } };
+      return {
+        type: account.type,
+        name: account.name,
+        remark: account.remark ?? '',
+        config: { ...(account.config ?? {}) },
+        enabled: account.enabled === undefined || account.enabled === null ? true : Boolean(Number(account.enabled) || account.enabled === true),
+      };
     }
     const preferred = selectableProviders.find((item) => item.capabilities.dns) ?? selectableProviders[0];
     return {
       type: preferred?.type ?? '',
       name: '',
       remark: '',
+      enabled: true,
       config: Object.fromEntries((preferred?.configFields ?? []).filter((field) => !field.hidden).map((field) => [field.key, ''])),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只取挂载时的快照
@@ -43,6 +50,8 @@ export function AccountDialog({ open, onOpenChange, providers, account }: Accoun
   const [type, setType] = useState(initial.type);
   const [name, setName] = useState(initial.name);
   const [remark, setRemark] = useState(initial.remark);
+  // issue #65：账户启用状态，此前只能改数据库
+  const [enabled, setEnabled] = useState<boolean>(initial.enabled);
   const [config, setConfig] = useState<Record<string, string>>(initial.config);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,6 +86,7 @@ export function AccountDialog({ open, onOpenChange, providers, account }: Accoun
       name: name.trim(),
       remark: remark.trim(),
       config,
+      ...(isEdit ? { enabled } : {}),
       ...(isEdit ? {} : { type }),
     };
     try {
@@ -178,6 +188,16 @@ export function AccountDialog({ open, onOpenChange, providers, account }: Accoun
             </div>
             )
           ))}
+
+          <div className="flex items-start justify-between gap-3 rounded-md border border-border p-3 sm:col-span-2">
+            <div className="space-y-0.5">
+              <Label htmlFor="account-enabled">启用该账户</Label>
+              <p className="text-xs text-muted-foreground">
+                关闭后不再用该账户做解析、同步与探测；已解析的记录不受影响。
+              </p>
+            </div>
+            <Switch id="account-enabled" checked={enabled} onCheckedChange={setEnabled} />
+          </div>
 
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="account-remark">备注</Label>

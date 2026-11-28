@@ -54,6 +54,8 @@ export interface AccountPayload {
   config?: Record<string, string>;
   remark?: string;
   team_id?: number | null;
+  /** 启用/禁用该提供商账户（issue #65） */
+  enabled?: boolean;
 }
 
 export async function listAccounts(query: AccountQuery = {}): Promise<AccountRow[]> {
