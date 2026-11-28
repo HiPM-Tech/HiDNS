@@ -60,11 +60,21 @@ export function RecordDialog({ open, onOpenChange, domainId, recordTypes, lines,
       const fields = def?.extraFields ?? [];
       const tokens = record.value.trim().split(/\s+/);
       const nextExtras: Record<string, string> = {};
-      fields.forEach((field, index) => {
+      // MX 的优先级是**独立字段**（记录行上就是 record.mx），不在 value 里。
+      // 之前按 extraFields 顺序从 value 分词填 extras，导致 priority 被填成域名的首段
+      // （mail.example.com → "mail"），编辑 MX 时看到「优先级 = 域名片段」。
+      const inlineFields = fields.filter((field) => field.key !== 'mx');
+      fields.forEach((field) => {
+        if (field.key === 'mx') {
+          const mxValue = (record as { mx?: number }).mx;
+          nextExtras.mx = String(mxValue ?? field.defaultValue ?? '');
+          return;
+        }
+        const index = inlineFields.findIndex((f) => f.key === field.key);
         nextExtras[field.key] = tokens[index] ?? String(field.defaultValue ?? '');
       });
       return {
-        name: record.name, type: record.type, value: tokens.slice(fields.length).join(' '),
+        name: record.name, type: record.type, value: tokens.slice(inlineFields.length).join(' '),
         ttl: String(record.ttl ?? 600),
         // 记录线路等于提供商默认线路时按「未指定」展示，避免与「默认线路」选项重复
         line: record.line || effectiveDefaultId,

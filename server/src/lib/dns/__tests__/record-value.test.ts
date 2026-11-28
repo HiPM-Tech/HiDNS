@@ -46,11 +46,10 @@ describe('validateRecordValue', () => {
       expect(validateRecordValue('TXT', 'v=spf1 include:_spf.example.com ~all')).toBeNull();
     });
 
-    it('超过 255 字节时提示需要拆段', () => {
-      const long = 'a'.repeat(300);
-      const err = validateRecordValue('TXT', long);
-      expect(err).toContain('255');
-      expect(err).toContain('拆成多段');
+    it('不再按 255 字节拦截（2026-11-28 决策）', () => {
+      // 各厂商对超长 TXT 的处理不一致（自动分段 / 直接拒绝 / 静默截断），
+      // 本地拦截会把「厂商其实支持」的用法挡在门外；改为放行，由厂商结果 + describeProviderError 反馈。
+      expect(validateRecordValue('TXT', 'a'.repeat(300))).toBeNull();
     });
 
     it('已经写成多段引号形式时放行', () => {

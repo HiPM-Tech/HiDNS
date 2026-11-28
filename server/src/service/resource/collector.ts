@@ -24,9 +24,11 @@ function getCpuPercent(): number | null {
     lastCpuUsage = current;
     lastCpuTime = now;
     if (timeDeltaMs <= 0) return null;
-    // 微秒 -> 毫秒 CPU 时间 / 秒级 wall 时间 -> 百分比，除以核心数得单核等效
-    const percent = (cpuDeltaUs / 1000 / (timeDeltaMs / 1000) / 1000) * 100 / cpuCount;
-    return Math.max(0, Math.round(percent));
+    // 微秒 -> 毫秒 CPU 时间 / 毫秒级 wall 时间 -> 百分比，除以核心数得单核等效
+    const percent = (cpuDeltaUs / 1000 / timeDeltaMs) * 100 / cpuCount;
+    // 保留一位小数：空闲服务通常在 0.x%，Math.round 会把它压成 0，
+    // 曲线就会是一条恒为 0 的直线（社区反馈「资源占用一直是平的」）。
+    return Math.max(0, Math.round(percent * 10) / 10);
   } catch (err) {
     log.warn('Failed to calculate CPU usage', { error: err });
     return null;
